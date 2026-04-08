@@ -4,7 +4,7 @@
 
 `neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status and branch-management endpoints backed by a single-tenant branch store that can persist state to disk.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status and branch-management endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers.
 
 Design target:
 
@@ -40,12 +40,12 @@ Design target:
 
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
-  - `5432` -> Primary PostgreSQL endpoint
+  - `5432` -> Primary PostgreSQL endpoint (planned once compute orchestration is wired)
 - If exposing beyond localhost, terminate TLS in a reverse proxy and do not treat basic auth alone as Internet-grade security.
 - Internal-only services:
+  - Storage broker gRPC port
   - Pageserver HTTP and page service ports
   - Safekeeper ports
-  - Broker ports (if enabled)
 - Networks:
   - One internal network for service-to-service communication
 

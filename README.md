@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha scaffold. A runnable controller with status and branch-management endpoints is included. The full Neon data-plane compose stack is still a placeholder template.
+Status: pre-alpha scaffold. A runnable controller with status and branch-management endpoints is included. Docker compose now wires concrete storage broker/pageserver/safekeeper services, while compute orchestration remains a scaffold.
 
 ## What This Project Is
 
@@ -31,7 +31,8 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
 - `internal/server` contains the HTTP router, status endpoint, branch CRUD endpoints, and operation log endpoint for MVP slice 1.
-- `docker-compose.yml` is a deployment skeleton. Placeholder Neon services are behind the `neon` profile until concrete images/commands are wired.
+- `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers under the `neon` profile.
+- `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
 - `Dockerfile.controller` builds a minimal controller image.
 
 ## Implemented API (MVP Slice 1)
@@ -84,7 +85,13 @@ BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=change-me mise exec -- go run ./cmd/co
 curl -u admin:change-me http://127.0.0.1:8080/api/v1/status
 ```
 
-For the future full stack, use `docker compose --profile neon up` after replacing placeholder service images/commands.
+To bring up the controller plus Neon storage-plane services, set `BASIC_AUTH_PASSWORD` and run:
+
+```bash
+BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
+```
+
+Override `NEON_IMAGE` if you need a specific image tag.
 
 ## Operational Caveats (MVP)
 
@@ -97,6 +104,7 @@ For the future full stack, use `docker compose --profile neon up` after replacin
 ## Repository Layout
 
 - `AGENTS.md` - contribution and coding-agent rules.
+- `configs/neon/pageserver` - pageserver runtime config used by `docker compose --profile neon`.
 - `docs/architecture.md` - architecture, deployment topology, and safety model.
 - `docs/mvp-roadmap.md` - phased plan for delivery.
 

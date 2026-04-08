@@ -21,39 +21,77 @@ services:
     networks:
       - neon_internal
 
+  storage_broker:
+    image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
+    profiles: ["neon"]
+    command:
+      - storage_broker
+      - --listen-addr=0.0.0.0:50051
+    networks:
+      - neon_internal
+
   pageserver:
-    # TODO: Replace with a concrete Neon image tag and startup command.
-    image: ghcr.io/neondatabase/neon:replace-me
+    image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
     profiles: ["neon"]
     volumes:
-      - pageserver_data:/var/lib/neon/pageserver
+      - pageserver_data:/data
+      - ./configs/neon/pageserver:/data/.neon:ro
+    depends_on:
+      - storage_broker
     networks:
       - neon_internal
 
   safekeeper1:
-    # TODO: Replace with a concrete Neon image tag and startup command.
-    image: ghcr.io/neondatabase/neon:replace-me
+    image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
     profiles: ["neon"]
+    command:
+      - safekeeper
+      - --listen-pg=safekeeper1:5454
+      - --listen-http=0.0.0.0:7676
+      - --id=1
+      - --broker-endpoint=http://storage_broker:50051
+      - -D
+      - /data
     volumes:
-      - safekeeper1_data:/var/lib/neon/safekeeper
+      - safekeeper1_data:/data
+    depends_on:
+      - storage_broker
     networks:
       - neon_internal
 
   safekeeper2:
-    # TODO: Replace with a concrete Neon image tag and startup command.
-    image: ghcr.io/neondatabase/neon:replace-me
+    image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
     profiles: ["neon"]
+    command:
+      - safekeeper
+      - --listen-pg=safekeeper2:5454
+      - --listen-http=0.0.0.0:7676
+      - --id=2
+      - --broker-endpoint=http://storage_broker:50051
+      - -D
+      - /data
     volumes:
-      - safekeeper2_data:/var/lib/neon/safekeeper
+      - safekeeper2_data:/data
+    depends_on:
+      - storage_broker
     networks:
       - neon_internal
 
   safekeeper3:
-    # TODO: Replace with a concrete Neon image tag and startup command.
-    image: ghcr.io/neondatabase/neon:replace-me
+    image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
     profiles: ["neon"]
+    command:
+      - safekeeper
+      - --listen-pg=safekeeper3:5454
+      - --listen-http=0.0.0.0:7676
+      - --id=3
+      - --broker-endpoint=http://storage_broker:50051
+      - -D
+      - /data
     volumes:
-      - safekeeper3_data:/var/lib/neon/safekeeper
+      - safekeeper3_data:/data
+    depends_on:
+      - storage_broker
     networks:
       - neon_internal
 
