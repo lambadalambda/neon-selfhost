@@ -75,11 +75,11 @@ Implemented in MVP slice 1:
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
+- `POST /api/v1/restore`
 - `GET /api/v1/operations`
 
 Planned for later slices:
 
-- `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
 - `POST /api/v1/endpoints/primary/stop`
 - `POST /api/v1/endpoints/primary/switch`
@@ -89,6 +89,8 @@ Current API behavior notes:
 
 - Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to a local JSON state file.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
+- `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
+- `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
 - State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.

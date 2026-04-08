@@ -93,6 +93,23 @@ func (s *Store) ListActive() []Branch {
 	return branches
 }
 
+func (s *Store) GetActive(name string) (Branch, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Branch{}, ErrNotFound
+	}
+
+	branch, exists := s.branches[name]
+	if !exists || branch.Deleted {
+		return Branch{}, ErrNotFound
+	}
+
+	return branch, nil
+}
+
 func (s *Store) Create(name string, parent string) (Branch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -6,6 +6,7 @@
 - HTTP basic auth support for controller API routes via `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD`.
 - Persistent branch store support via `CONTROLLER_DATA_DIR`, with branch state written to `branches.json`.
 - Serialized branch mutation execution and in-memory operation logging exposed by `GET /api/v1/operations`.
+- Restore endpoint scaffold at `POST /api/v1/restore` with RFC3339 validation, source-history checks, and restore-branch creation.
 - New tests for config loading, auth enforcement, operation logging, and branch persistence.
 
 ### Changed

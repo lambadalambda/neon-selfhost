@@ -40,11 +40,14 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
+- `POST /api/v1/restore`
 - `GET /api/v1/operations`
 
 When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTTP basic auth.
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
+
+`POST /api/v1/restore` currently validates timestamp semantics and creates a restore branch using a scaffold LSN resolver; Neon data-plane timestamp-to-LSN wiring remains planned.
 
 Validation and JSON parsing failures return stable JSON error envelopes:
 

@@ -4,8 +4,10 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"neon-selfhost/internal/branch"
@@ -42,6 +44,12 @@ type createBranchRequest struct {
 	Parent string `json:"parent"`
 }
 
+type restoreRequest struct {
+	Name         string `json:"name"`
+	SourceBranch string `json:"source_branch"`
+	Timestamp    string `json:"timestamp"`
+}
+
 type apiErrorResponse struct {
 	Error apiError `json:"error"`
 }
@@ -66,6 +74,18 @@ type operationPayload struct {
 	StartedAt  string  `json:"started_at"`
 	FinishedAt *string `json:"finished_at,omitempty"`
 }
+
+type restoreResponse struct {
+	Restore restorePayload `json:"restore"`
+}
+
+type restorePayload struct {
+	Branch      branchPayload `json:"branch"`
+	RequestedAt string        `json:"requested_at"`
+	ResolvedLSN string        `json:"resolved_lsn"`
+}
+
+var errRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
 
 func New(cfg Config) http.Handler {
 	version := cfg.Version
@@ -108,6 +128,56 @@ func New(cfg Config) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, operationsResponse{Operations: payload})
+	})
+
+	mux.HandleFunc("POST /api/v1/restore", func(w http.ResponseWriter, r *http.Request) {
+		var req restoreRequest
+		if err := decodeJSONRequest(r, &req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+			return
+		}
+
+		sourceBranch, restoreAt, restoreName, err := normalizeRestoreRequest(req)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+
+		var restored branch.Branch
+		var resolvedLSN string
+		err = operations.Run("restore_branch", func() error {
+			source, sourceErr := store.GetActive(sourceBranch)
+			if sourceErr != nil {
+				return branch.ErrParentMissing
+			}
+
+			if restoreAt.Before(source.CreatedAt.UTC()) {
+				return errRestoreHistoryUnavailable
+			}
+
+			resolvedLSN = mockResolvedLSN(restoreAt)
+
+			var createErr error
+			restored, createErr = store.Create(restoreName, source.Name)
+			return createErr
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, errRestoreHistoryUnavailable):
+				writeJSONError(w, http.StatusUnprocessableEntity, "history_unavailable", err.Error())
+			case errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
+				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			case errors.Is(err, branch.ErrAlreadyExists):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, restoreResponse{Restore: makeRestorePayload(restored, restoreAt, resolvedLSN)})
 	})
 
 	mux.HandleFunc("POST /api/v1/branches", func(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +308,52 @@ func makeOperationPayload(op operationEntry) operationPayload {
 	}
 
 	return payload
+}
+
+func makeRestorePayload(restored branch.Branch, requestedAt time.Time, resolvedLSN string) restorePayload {
+	return restorePayload{
+		Branch:      makeBranchPayload(restored),
+		RequestedAt: requestedAt.UTC().Format(time.RFC3339),
+		ResolvedLSN: resolvedLSN,
+	}
+}
+
+func normalizeRestoreRequest(req restoreRequest) (string, time.Time, string, error) {
+	rawTimestamp := strings.TrimSpace(req.Timestamp)
+	if rawTimestamp == "" {
+		return "", time.Time{}, "", errors.New("timestamp is required")
+	}
+
+	restoreAt, err := time.Parse(time.RFC3339, rawTimestamp)
+	if err != nil {
+		return "", time.Time{}, "", errors.New("timestamp must be a valid RFC3339 value")
+	}
+
+	restoreAt = restoreAt.UTC()
+	if restoreAt.After(time.Now().UTC()) {
+		return "", time.Time{}, "", errors.New("timestamp must not be in the future")
+	}
+
+	sourceBranch := strings.TrimSpace(req.SourceBranch)
+	if sourceBranch == "" {
+		sourceBranch = "main"
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = defaultRestoreBranchName(restoreAt)
+	}
+
+	return sourceBranch, restoreAt, name, nil
+}
+
+func defaultRestoreBranchName(restoreAt time.Time) string {
+	return "restore-" + restoreAt.UTC().Format("20060102-150405")
+}
+
+func mockResolvedLSN(restoreAt time.Time) string {
+	utc := restoreAt.UTC()
+	return fmt.Sprintf("%X/%X", utc.Unix(), utc.Nanosecond())
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
