@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha scaffold. A runnable controller stub is included (`/api/v1/status`). The full Neon data-plane compose stack is still a placeholder template.
+Status: pre-alpha scaffold. A runnable controller with status and branch-management endpoints is included. The full Neon data-plane compose stack is still a placeholder template.
 
 ## What This Project Is
 
@@ -29,9 +29,28 @@ Status: pre-alpha scaffold. A runnable controller stub is included (`/api/v1/sta
 
 - `cmd/controller` contains the Go controller entrypoint.
 - `internal/config` contains minimal environment-based config loading.
-- `internal/server` contains the HTTP router and the initial status endpoint.
+- `internal/branch` contains the single-tenant in-memory branch model/store.
+- `internal/server` contains the HTTP router, status endpoint, and branch CRUD endpoints for MVP slice 1.
 - `docker-compose.yml` is a deployment skeleton. Placeholder Neon services are behind the `neon` profile until concrete images/commands are wired.
 - `Dockerfile.controller` builds a minimal controller image.
+
+## Implemented API (MVP Slice 1)
+
+- `GET /api/v1/status`
+- `GET /api/v1/branches`
+- `POST /api/v1/branches`
+- `DELETE /api/v1/branches/{name}` (soft-delete)
+
+Validation and JSON parsing failures return stable JSON error envelopes:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "branch name is required"
+  }
+}
+```
 
 ## Quickstart (Controller Dev)
 
