@@ -97,6 +97,39 @@ func TestDockerPrimaryEndpointRuntimeStatusStoppedContainer(t *testing.T) {
 	}
 }
 
+func TestDockerPrimaryEndpointRuntimeStatusUnhealthyContainer(t *testing.T) {
+	runtime := &dockerPrimaryEndpointRuntime{
+		engine: fakeDockerEngine{container: dockerContainerSummary{
+			ID:     "container-1",
+			State:  "running",
+			Status: "Up 10 seconds (health: unhealthy)",
+		}},
+		project: "neon-selfhost",
+		service: "compute",
+	}
+
+	status, err := runtime.Status()
+	if err != nil {
+		t.Fatalf("runtime status: %v", err)
+	}
+
+	if !status.Running {
+		t.Fatal("expected running=true")
+	}
+
+	if status.Ready {
+		t.Fatal("expected ready=false for unhealthy runtime")
+	}
+
+	if status.State != "unhealthy" {
+		t.Fatalf("expected state %q, got %q", "unhealthy", status.State)
+	}
+
+	if status.Message != "Up 10 seconds (health: unhealthy)" {
+		t.Fatalf("expected unhealthy message %q, got %q", "Up 10 seconds (health: unhealthy)", status.Message)
+	}
+}
+
 type fakeDockerEngine struct {
 	container dockerContainerSummary
 	findErr   error

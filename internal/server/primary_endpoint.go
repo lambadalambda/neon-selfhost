@@ -414,9 +414,11 @@ func writeEndpointSelection(path string, selection endpointSelectionState) error
 }
 
 func makePrimaryConnectionPayload(state primaryEndpointState) primaryEndpointPayload {
+	ready := state.Running && state.Ready
+
 	payload := primaryEndpointPayload{
 		Status:         "stopped",
-		Ready:          state.Ready,
+		Ready:          ready,
 		RuntimeState:   state.RuntimeState,
 		RuntimeMessage: state.RuntimeMessage,
 		Branch:         state.Branch,
@@ -430,7 +432,11 @@ func makePrimaryConnectionPayload(state primaryEndpointState) primaryEndpointPay
 
 	if state.Running {
 		payload.Status = "starting"
-		if state.Ready {
+		if strings.EqualFold(strings.TrimSpace(state.RuntimeState), "unhealthy") {
+			payload.Status = "unhealthy"
+		}
+
+		if ready {
 			payload.Status = "running"
 			payload.DSN = fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=disable", state.User, state.Host, state.Port, state.Database)
 		}

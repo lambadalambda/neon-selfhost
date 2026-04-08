@@ -178,3 +178,77 @@ func TestPrimaryConnectionReportsStartingWhenRuntimeNotReady(t *testing.T) {
 		t.Fatalf("expected no DSN while endpoint is not ready, got %q", payload.Connection.DSN)
 	}
 }
+
+func TestPrimaryConnectionReportsUnhealthyWhenRuntimeIsUnhealthy(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{
+		running:        true,
+		ready:          false,
+		readySet:       true,
+		runtimeState:   "unhealthy",
+		runtimeMessage: "container health check is unhealthy",
+	}
+
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+			Host:     "127.0.0.1",
+			Port:     5432,
+			Database: "postgres",
+			User:     "postgres",
+		}, ""),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/endpoints/primary/connection", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload primaryConnectionResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Connection.Status != "unhealthy" {
+		t.Fatalf("expected status %q, got %q", "unhealthy", payload.Connection.Status)
+	}
+
+	if payload.Connection.Ready {
+		t.Fatal("expected ready=false while endpoint is unhealthy")
+	}
+
+	if payload.Connection.DSN != "" {
+		t.Fatalf("expected no DSN while endpoint is unhealthy, got %q", payload.Connection.DSN)
+	}
+}
+
+func TestPrimaryConnectionClampsReadyToFalseWhenRuntimeIsStopped(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{
+		running:  false,
+		ready:    true,
+		readySet: true,
+	}
+
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+			Host:     "127.0.0.1",
+			Port:     5432,
+			Database: "postgres",
+			User:     "postgres",
+		}, ""),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/endpoints/primary/connection", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload primaryConnectionResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Connection.Status != "stopped" {
+		t.Fatalf("expected status %q, got %q", "stopped", payload.Connection.Status)
+	}
+
+	if payload.Connection.Ready {
+		t.Fatal("expected ready=false while endpoint is stopped")
+	}
+}

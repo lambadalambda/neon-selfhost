@@ -23,6 +23,7 @@
 - Restore-time branch attachment resolution via pageserver timestamp-to-LSN lookup and timeline creation at `ancestor_start_lsn`.
 - Primary endpoint connection readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, including `status=starting` during health-check warmup.
 - Restore safety hardening: timestamp-to-LSN requests now send correct query parameters, unknown pageserver timestamp kinds are rejected, and restore branches are created atomically with attachment metadata.
+- Primary endpoint status hardening: connection payload now clamps `ready=false` when runtime is stopped and returns `status=unhealthy` for running-but-unhealthy runtime state.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -34,3 +35,4 @@
 - Documentation now reflects Docker-based compute lifecycle orchestration and the remaining branch-to-timeline attachment gap.
 - Documentation now reflects implemented endpoint readiness diagnostics and the remaining deeper Neon-runtime diagnostics gap.
 - Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is unavailable.
+- Documentation now clarifies readiness-based DSN emission and unhealthy primary endpoint status behavior.
