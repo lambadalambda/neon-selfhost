@@ -117,7 +117,7 @@ type primaryEndpointPayload struct {
 	DSN        string `json:"dsn,omitempty"`
 }
 
-var errRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
+var ErrRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
 
 func New(cfg Config) http.Handler {
 	version := cfg.Version
@@ -351,25 +351,41 @@ func New(cfg Config) http.Handler {
 			}
 
 			if restoreAt.Before(source.CreatedAt.UTC()) {
-				return errRestoreHistoryUnavailable
+				return ErrRestoreHistoryUnavailable
 			}
-
-			resolvedLSN = mockResolvedLSN(restoreAt)
 
 			var createErr error
 			restored, createErr = store.Create(restoreName, source.Name)
-			return createErr
+			if createErr != nil {
+				return createErr
+			}
+
+			attachment, resolved, resolveErr := attachmentResolver.ResolveRestore(source.Name, restored.Name, restoreAt)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			resolvedLSN = strings.TrimSpace(resolved)
+
+			if strings.TrimSpace(attachment.TenantID) != "" && strings.TrimSpace(attachment.TimelineID) != "" {
+				if _, attachErr := store.SetAttachment(restored.Name, attachment.TenantID, attachment.TimelineID); attachErr != nil {
+					return attachErr
+				}
+			}
+
+			return nil
 		})
 		if err != nil {
 			switch {
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case errors.Is(err, errRestoreHistoryUnavailable):
+			case errors.Is(err, ErrRestoreHistoryUnavailable):
 				writeJSONError(w, http.StatusUnprocessableEntity, "history_unavailable", err.Error())
 			case errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "restore_unavailable", err.Error())
 			case errors.Is(err, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
 			case errors.Is(err, branch.ErrPersistFailed):
@@ -378,6 +394,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
 			return
+		}
+
+		if strings.TrimSpace(resolvedLSN) == "" {
+			resolvedLSN = mockResolvedLSN(restoreAt)
 		}
 
 		writeJSON(w, http.StatusCreated, restoreResponse{Restore: makeRestorePayload(restored, restoreAt, resolvedLSN)})

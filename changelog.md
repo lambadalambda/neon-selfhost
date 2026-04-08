@@ -20,6 +20,7 @@
 - Pageserver-backed branch attachment resolver that ensures tenant/timeline mapping for endpoint start/switch operations.
 - Endpoint selection persistence in compute data dir (`endpoint-selection.json`) consumed by compute startup.
 - Branch store attachment metadata (`tenant_id`, `timeline_id`) persisted with branch state.
+- Restore-time branch attachment resolution via pageserver timestamp-to-LSN lookup and timeline creation at `ancestor_start_lsn`.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -29,4 +30,4 @@
 - Documentation now reflects concrete compose storage-plane wiring and remaining compute-orchestration gap.
 - Documentation now reflects health/preflight behavior and current scope boundaries for Neon-service health integration.
 - Documentation now reflects Docker-based compute lifecycle orchestration and the remaining branch-to-timeline attachment gap.
-- Documentation now reflects pageserver-backed branch attachment behavior and the remaining restore-time LSN attachment gap.
+- Documentation now reflects implemented restore-time LSN attachment behavior and the remaining endpoint readiness diagnostics gap.

@@ -7,7 +7,7 @@ Goal: `docker compose up` and complete snapshot/restore/switch workflows from UI
 - Compose stack for controller + Neon services; controller/storage/compute wiring is implemented for local compose runtime.
 - Basic auth for one admin user.
 - Branch list/create/delete (soft delete).
-- Restore to timestamp (timestamp -> LSN -> branch); controller API scaffold is implemented, timestamp-to-LSN-backed timeline attachment wiring remains.
+- Restore to timestamp (timestamp -> LSN -> branch); implemented via pageserver timestamp-to-LSN lookup and restore timeline creation with persisted branch attachment.
 - Primary endpoint start/stop/switch actions; compose compute lifecycle orchestration plus branch attachment resolution is implemented.
 - Operation log with clear failure messages.
 - Fail-safe behavior on disk pressure (clear errors, no silent corruption or implicit destructive cleanup); storage-error API handling is implemented, proactive warning/guardrail automation remains.

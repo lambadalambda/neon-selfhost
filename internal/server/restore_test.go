@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -108,4 +109,83 @@ func TestRestoreRejectsUnknownSourceBranch(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "validation_error")
+}
+
+func TestRestoreUsesResolverAttachmentAndResolvedLSN(t *testing.T) {
+	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := branch.NewStoreWithClock(func() time.Time { return fixed })
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{
+			restore:    BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-restore"},
+			restoreLSN: "0/16B6F50",
+		},
+	})
+
+	body := `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", body)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, res.Code)
+	}
+
+	var payload restoreEndpointResponse
+	decodeJSON(t, res, &payload)
+	if payload.Restore.ResolvedLSN != "0/16B6F50" {
+		t.Fatalf("expected resolved_lsn %q, got %q", "0/16B6F50", payload.Restore.ResolvedLSN)
+	}
+
+	restored, err := store.GetActive("restore-a")
+	if err != nil {
+		t.Fatalf("get restored branch: %v", err)
+	}
+
+	if restored.TenantID != "tenant-main" || restored.TimelineID != "timeline-restore" {
+		t.Fatalf("expected restored attachment tenant=%q timeline=%q, got tenant=%q timeline=%q", "tenant-main", "timeline-restore", restored.TenantID, restored.TimelineID)
+	}
+}
+
+func TestRestoreReturnsUnavailableWhenResolverFails(t *testing.T) {
+	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := branch.NewStoreWithClock(func() time.Time { return fixed })
+
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{
+			err: fmt.Errorf("%w: pageserver down", ErrPrimaryEndpointUnavailable),
+		},
+	})
+
+	body := `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", body)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "restore_unavailable")
+}
+
+func TestRestoreReturnsHistoryUnavailableWhenResolverRejectsTimestamp(t *testing.T) {
+	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := branch.NewStoreWithClock(func() time.Time { return fixed })
+
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{
+			err: ErrRestoreHistoryUnavailable,
+		},
+	})
+
+	body := `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", body)
+
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status %d, got %d", http.StatusUnprocessableEntity, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "history_unavailable")
 }

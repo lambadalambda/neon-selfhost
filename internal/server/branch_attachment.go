@@ -30,6 +30,7 @@ type BranchAttachment struct {
 
 type BranchAttachmentResolver interface {
 	Resolve(branchName string) (BranchAttachment, error)
+	ResolveRestore(sourceBranch string, restoreBranch string, restoreAt time.Time) (BranchAttachment, string, error)
 }
 
 type PageserverBranchAttachmentOptions struct {
@@ -49,6 +50,10 @@ func (noopBranchAttachmentResolver) Resolve(_ string) (BranchAttachment, error) 
 	return BranchAttachment{}, nil
 }
 
+func (noopBranchAttachmentResolver) ResolveRestore(_ string, _ string, _ time.Time) (BranchAttachment, string, error) {
+	return BranchAttachment{}, "", nil
+}
+
 type pageserverBranchAttachmentResolver struct {
 	store     *branch.Store
 	client    pageserverAttachmentClient
@@ -61,7 +66,8 @@ type pageserverAttachmentClient interface {
 	ListTenants() ([]string, error)
 	CreateTenant(tenantID string) error
 	ListTimelines(tenantID string) ([]string, error)
-	CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string) error
+	CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string, ancestorStartLSN string) error
+	GetLSNByTimestamp(tenantID string, timelineID string, timestamp time.Time) (string, string, error)
 }
 
 func NewPageserverBranchAttachmentResolver(opts PageserverBranchAttachmentOptions) (BranchAttachmentResolver, error) {
@@ -148,7 +154,7 @@ func (r *pageserverBranchAttachmentResolver) resolveLocked(branchName string, vi
 		return BranchAttachment{}, fmt.Errorf("%w: generate timeline id: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
-	if err := r.client.CreateTimeline(parentAttachment.TenantID, newTimelineID, parentAttachment.TimelineID); err != nil {
+	if err := r.client.CreateTimeline(parentAttachment.TenantID, newTimelineID, parentAttachment.TimelineID, ""); err != nil {
 		return BranchAttachment{}, err
 	}
 
@@ -193,11 +199,43 @@ func (r *pageserverBranchAttachmentResolver) ensureMainAttachment() (BranchAttac
 		return BranchAttachment{}, fmt.Errorf("%w: generate initial timeline id: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
-	if err := r.client.CreateTimeline(tenantID, newTimelineID, ""); err != nil {
+	if err := r.client.CreateTimeline(tenantID, newTimelineID, "", ""); err != nil {
 		return BranchAttachment{}, err
 	}
 
 	return BranchAttachment{TenantID: tenantID, TimelineID: newTimelineID}, nil
+}
+
+func (r *pageserverBranchAttachmentResolver) ResolveRestore(sourceBranch string, _ string, restoreAt time.Time) (BranchAttachment, string, error) {
+	sourceAttachment, err := r.Resolve(sourceBranch)
+	if err != nil {
+		return BranchAttachment{}, "", err
+	}
+
+	kind, lsn, err := r.client.GetLSNByTimestamp(sourceAttachment.TenantID, sourceAttachment.TimelineID, restoreAt)
+	if err != nil {
+		return BranchAttachment{}, "", err
+	}
+
+	switch kind {
+	case "past", "nodata":
+		return BranchAttachment{}, "", ErrRestoreHistoryUnavailable
+	}
+
+	if strings.TrimSpace(lsn) == "" {
+		return BranchAttachment{}, "", fmt.Errorf("%w: empty LSN returned by pageserver", ErrPrimaryEndpointUnavailable)
+	}
+
+	newTimelineID, err := randomHexID(16)
+	if err != nil {
+		return BranchAttachment{}, "", fmt.Errorf("%w: generate restore timeline id: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	if err := r.client.CreateTimeline(sourceAttachment.TenantID, newTimelineID, sourceAttachment.TimelineID, lsn); err != nil {
+		return BranchAttachment{}, "", err
+	}
+
+	return BranchAttachment{TenantID: sourceAttachment.TenantID, TimelineID: newTimelineID}, lsn, nil
 }
 
 func randomHexID(byteLength int) (string, error) {
@@ -295,7 +333,7 @@ func (c *pageserverHTTPAttachmentClient) ListTimelines(tenantID string) ([]strin
 	return timelines, nil
 }
 
-func (c *pageserverHTTPAttachmentClient) CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string) error {
+func (c *pageserverHTTPAttachmentClient) CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string, ancestorStartLSN string) error {
 	body := map[string]any{
 		"new_timeline_id": newTimelineID,
 		"pg_version":      c.pgVersion,
@@ -306,8 +344,34 @@ func (c *pageserverHTTPAttachmentClient) CreateTimeline(tenantID string, newTime
 		body["ancestor_timeline_id"] = ancestorTimelineID
 	}
 
+	ancestorStartLSN = strings.TrimSpace(ancestorStartLSN)
+	if ancestorStartLSN != "" {
+		body["ancestor_start_lsn"] = ancestorStartLSN
+	}
+
 	_, err := c.request(http.MethodPost, "/v1/tenant/"+tenantID+"/timeline", body)
 	return err
+}
+
+func (c *pageserverHTTPAttachmentClient) GetLSNByTimestamp(tenantID string, timelineID string, timestamp time.Time) (string, string, error) {
+	timestampQuery := url.Values{}
+	timestampQuery.Set("timestamp", timestamp.UTC().Format(time.RFC3339))
+	timestampQuery.Set("with_lease", "false")
+
+	body, err := c.request(http.MethodGet, "/v1/tenant/"+tenantID+"/timeline/"+timelineID+"/get_lsn_by_timestamp?"+timestampQuery.Encode(), nil)
+	if err != nil {
+		return "", "", err
+	}
+
+	var payload struct {
+		Kind string `json:"kind"`
+		LSN  string `json:"lsn"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", "", fmt.Errorf("%w: decode timestamp-to-lsn response: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	return strings.TrimSpace(payload.Kind), strings.TrimSpace(payload.LSN), nil
 }
 
 func (c *pageserverHTTPAttachmentClient) request(method string, requestPath string, body any) ([]byte, error) {

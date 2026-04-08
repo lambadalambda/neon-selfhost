@@ -87,7 +87,6 @@ Implemented in MVP slice 1:
 
 Planned for later slices:
 
-- Timestamp-to-LSN-backed restore attachment wiring to pageserver timeline creation.
 - Richer endpoint readiness and startup diagnostics sourced from Neon runtime APIs.
 
 Current API behavior notes:
@@ -95,11 +94,11 @@ Current API behavior notes:
 - Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to a local JSON state file.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
-- `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
+- `POST /api/v1/restore` resolves timestamp-to-LSN via pageserver APIs and creates a restore timeline using `ancestor_start_lsn`.
 - Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
-- Switch-time branching currently attaches at parent timeline head; restore-time attachment at resolved timestamp LSN remains planned.
+- Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.

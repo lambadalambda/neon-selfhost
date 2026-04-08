@@ -54,11 +54,11 @@ When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTT
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
-`POST /api/v1/restore` currently validates timestamp semantics and creates a restore branch using a scaffold LSN resolver; Neon data-plane timestamp-to-LSN wiring remains planned.
+`POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 
 Primary endpoint start/stop/switch and connection APIs orchestrate the compose `compute` container lifecycle through the Docker socket. Start/switch resolve branch attachment metadata (tenant/timeline) via pageserver APIs, persist endpoint selection under `COMPUTE_DATA_DIR`, and restart compute against that selection.
 
-Endpoint switch currently branches from parent timeline head. Timestamp-to-LSN-backed restore attachment remains planned.
+Endpoint switch still branches from the selected parent timeline head, while restore creates a new timeline anchored at the resolved timestamp LSN.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 

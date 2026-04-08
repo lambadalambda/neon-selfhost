@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"neon-selfhost/internal/branch"
 )
@@ -137,8 +138,74 @@ func TestPrimaryEndpointSwitchReturnsUnavailableWhenResolverFails(t *testing.T) 
 	assertAPIErrorCode(t, res, "endpoint_unavailable")
 }
 
+func TestPageserverBranchAttachmentResolverResolveRestoreCreatesTimelineAtResolvedLSN(t *testing.T) {
+	store := branch.NewStore()
+	client := &fakePageserverAttachmentClient{getLSNKind: "future", getLSNValue: "0/16B6F50"}
+	resolver := &pageserverBranchAttachmentResolver{
+		store:     store,
+		client:    client,
+		pgVersion: 16,
+	}
+
+	mainAttachment, err := resolver.Resolve("main")
+	if err != nil {
+		t.Fatalf("resolve main attachment: %v", err)
+	}
+
+	attachment, resolvedLSN, err := resolver.ResolveRestore("main", "restore-a", time.Date(2010, 1, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("resolve restore attachment: %v", err)
+	}
+
+	if resolvedLSN != "0/16B6F50" {
+		t.Fatalf("expected resolved lsn %q, got %q", "0/16B6F50", resolvedLSN)
+	}
+
+	if attachment.TenantID != mainAttachment.TenantID {
+		t.Fatalf("expected restore attachment tenant %q, got %q", mainAttachment.TenantID, attachment.TenantID)
+	}
+
+	if attachment.TimelineID == "" || attachment.TimelineID == mainAttachment.TimelineID {
+		t.Fatalf("expected restore timeline to differ from source timeline %q, got %q", mainAttachment.TimelineID, attachment.TimelineID)
+	}
+
+	if len(client.createTimelineCalls) < 2 {
+		t.Fatalf("expected at least 2 timeline create calls, got %d", len(client.createTimelineCalls))
+	}
+
+	restoreCreate := client.createTimelineCalls[len(client.createTimelineCalls)-1]
+	if restoreCreate.AncestorTimelineID != mainAttachment.TimelineID {
+		t.Fatalf("expected restore ancestor timeline %q, got %q", mainAttachment.TimelineID, restoreCreate.AncestorTimelineID)
+	}
+
+	if restoreCreate.AncestorStartLSN != "0/16B6F50" {
+		t.Fatalf("expected restore ancestor start lsn %q, got %q", "0/16B6F50", restoreCreate.AncestorStartLSN)
+	}
+}
+
+func TestPageserverBranchAttachmentResolverResolveRestoreReturnsHistoryUnavailable(t *testing.T) {
+	store := branch.NewStore()
+	client := &fakePageserverAttachmentClient{getLSNKind: "past", getLSNValue: ""}
+	resolver := &pageserverBranchAttachmentResolver{
+		store:     store,
+		client:    client,
+		pgVersion: 16,
+	}
+
+	if _, err := resolver.Resolve("main"); err != nil {
+		t.Fatalf("resolve main attachment: %v", err)
+	}
+
+	_, _, err := resolver.ResolveRestore("main", "restore-a", time.Date(2010, 1, 2, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ErrRestoreHistoryUnavailable) {
+		t.Fatalf("expected %v, got %v", ErrRestoreHistoryUnavailable, err)
+	}
+}
+
 type staticBranchAttachmentResolver struct {
 	attachments map[string]BranchAttachment
+	restore     BranchAttachment
+	restoreLSN  string
 	err         error
 }
 
@@ -153,6 +220,18 @@ func (r staticBranchAttachmentResolver) Resolve(branchName string) (BranchAttach
 	}
 
 	return attachment, nil
+}
+
+func (r staticBranchAttachmentResolver) ResolveRestore(_ string, _ string, _ time.Time) (BranchAttachment, string, error) {
+	if r.err != nil {
+		return BranchAttachment{}, "", r.err
+	}
+
+	if strings.TrimSpace(r.restore.TenantID) == "" || strings.TrimSpace(r.restore.TimelineID) == "" {
+		return BranchAttachment{}, "", branch.ErrNotFound
+	}
+
+	return r.restore, r.restoreLSN, nil
 }
 
 type capturingPrimaryEndpointController struct {
@@ -209,12 +288,17 @@ type fakePageserverAttachmentClient struct {
 	timelinesByTenant   map[string][]string
 	createTenantCalls   []string
 	createTimelineCalls []fakeTimelineCreateCall
+
+	getLSNKind  string
+	getLSNValue string
+	getLSNErr   error
 }
 
 type fakeTimelineCreateCall struct {
 	TenantID           string
 	TimelineID         string
 	AncestorTimelineID string
+	AncestorStartLSN   string
 }
 
 func (f *fakePageserverAttachmentClient) ListTenants() ([]string, error) {
@@ -238,12 +322,30 @@ func (f *fakePageserverAttachmentClient) ListTimelines(tenantID string) ([]strin
 	return append([]string(nil), f.timelinesByTenant[tenantID]...), nil
 }
 
-func (f *fakePageserverAttachmentClient) CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string) error {
+func (f *fakePageserverAttachmentClient) CreateTimeline(tenantID string, newTimelineID string, ancestorTimelineID string, ancestorStartLSN string) error {
 	if f.timelinesByTenant == nil {
 		f.timelinesByTenant = map[string][]string{}
 	}
 
-	f.createTimelineCalls = append(f.createTimelineCalls, fakeTimelineCreateCall{TenantID: tenantID, TimelineID: newTimelineID, AncestorTimelineID: ancestorTimelineID})
+	f.createTimelineCalls = append(f.createTimelineCalls, fakeTimelineCreateCall{TenantID: tenantID, TimelineID: newTimelineID, AncestorTimelineID: ancestorTimelineID, AncestorStartLSN: ancestorStartLSN})
 	f.timelinesByTenant[tenantID] = append(f.timelinesByTenant[tenantID], newTimelineID)
 	return nil
+}
+
+func (f *fakePageserverAttachmentClient) GetLSNByTimestamp(_ string, _ string, _ time.Time) (string, string, error) {
+	if f.getLSNErr != nil {
+		return "", "", f.getLSNErr
+	}
+
+	kind := f.getLSNKind
+	if kind == "" {
+		kind = "future"
+	}
+
+	lsn := f.getLSNValue
+	if lsn == "" && kind == "future" {
+		lsn = "0/16B6F50"
+	}
+
+	return kind, lsn, nil
 }
