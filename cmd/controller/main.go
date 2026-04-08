@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -28,29 +29,8 @@ func main() {
 	if err := preflight.CheckControllerDataDir(cfg.ControllerDataDir); err != nil {
 		log.Fatalf("startup preflight: %v", err)
 	}
-
-	primaryEndpoint := server.PrimaryEndpointController(server.NewInMemoryPrimaryEndpointController(
-		cfg.PrimaryEndpointHost,
-		cfg.PrimaryEndpointPort,
-		cfg.PrimaryEndpointDatabase,
-		cfg.PrimaryEndpointUser,
-	))
-
-	if cfg.PrimaryEndpointMode == "docker" {
-		dockerPrimaryEndpoint, err := server.NewDockerPrimaryEndpointController(server.DockerPrimaryEndpointOptions{
-			SocketPath:     cfg.DockerSocketPath,
-			ComposeProject: cfg.DockerComposeProject,
-			Service:        cfg.PrimaryEndpointService,
-			Host:           cfg.PrimaryEndpointHost,
-			Port:           cfg.PrimaryEndpointPort,
-			Database:       cfg.PrimaryEndpointDatabase,
-			User:           cfg.PrimaryEndpointUser,
-		})
-		if err != nil {
-			log.Fatalf("init docker primary endpoint controller: %v", err)
-		}
-
-		primaryEndpoint = dockerPrimaryEndpoint
+	if err := preflight.CheckControllerDataDir(cfg.ComputeDataDir); err != nil {
+		log.Fatalf("compute data preflight: %v", err)
 	}
 
 	branchStore := branch.NewStore()
@@ -62,12 +42,57 @@ func main() {
 		branchStore = persistentStore
 	}
 
+	endpointSelectionPath := ""
+	if cfg.ComputeDataDir != "" {
+		endpointSelectionPath = filepath.Join(cfg.ComputeDataDir, "endpoint-selection.json")
+	}
+
+	primaryEndpoint := server.PrimaryEndpointController(server.NewInMemoryPrimaryEndpointController(
+		cfg.PrimaryEndpointHost,
+		cfg.PrimaryEndpointPort,
+		cfg.PrimaryEndpointDatabase,
+		cfg.PrimaryEndpointUser,
+		endpointSelectionPath,
+	))
+
+	branchAttachmentResolver := server.NewNoopBranchAttachmentResolver()
+
+	if cfg.PrimaryEndpointMode == "docker" {
+		dockerPrimaryEndpoint, err := server.NewDockerPrimaryEndpointController(server.DockerPrimaryEndpointOptions{
+			SocketPath:     cfg.DockerSocketPath,
+			ComposeProject: cfg.DockerComposeProject,
+			Service:        cfg.PrimaryEndpointService,
+			Host:           cfg.PrimaryEndpointHost,
+			Port:           cfg.PrimaryEndpointPort,
+			Database:       cfg.PrimaryEndpointDatabase,
+			User:           cfg.PrimaryEndpointUser,
+			SelectionPath:  endpointSelectionPath,
+		})
+		if err != nil {
+			log.Fatalf("init docker primary endpoint controller: %v", err)
+		}
+
+		primaryEndpoint = dockerPrimaryEndpoint
+
+		pageserverResolver, err := server.NewPageserverBranchAttachmentResolver(server.PageserverBranchAttachmentOptions{
+			Store:     branchStore,
+			BaseURL:   cfg.PageserverAPI,
+			PGVersion: cfg.PageserverPGVersion,
+		})
+		if err != nil {
+			log.Fatalf("init pageserver branch attachment resolver: %v", err)
+		}
+
+		branchAttachmentResolver = pageserverResolver
+	}
+
 	handler := server.New(server.Config{
-		Version:           version,
-		BranchStore:       branchStore,
-		PrimaryEndpoint:   primaryEndpoint,
-		BasicAuthUser:     cfg.BasicAuthUser,
-		BasicAuthPassword: cfg.BasicAuthPassword,
+		Version:                  version,
+		BranchStore:              branchStore,
+		BranchAttachmentResolver: branchAttachmentResolver,
+		PrimaryEndpoint:          primaryEndpoint,
+		BasicAuthUser:            cfg.BasicAuthUser,
+		BasicAuthPassword:        cfg.BasicAuthPassword,
 	})
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),

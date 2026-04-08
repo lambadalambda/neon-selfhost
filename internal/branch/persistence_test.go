@@ -21,6 +21,10 @@ func TestPersistentStoreReloadsState(t *testing.T) {
 		t.Fatalf("create branch: %v", err)
 	}
 
+	if _, err := store.SetAttachment("feature-a", "tenant-a", "timeline-a"); err != nil {
+		t.Fatalf("set attachment: %v", err)
+	}
+
 	if _, err := store.SoftDelete("feature-a"); err != nil {
 		t.Fatalf("soft delete branch: %v", err)
 	}
@@ -41,6 +45,15 @@ func TestPersistentStoreReloadsState(t *testing.T) {
 
 	if _, err := reloaded.Create("feature-a", "main"); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("expected %v after reload, got %v", ErrAlreadyExists, err)
+	}
+
+	feature, err := reloaded.GetActive("main")
+	if err != nil {
+		t.Fatalf("get main branch after reload: %v", err)
+	}
+
+	if feature.TenantID != "" || feature.TimelineID != "" {
+		t.Fatalf("expected main branch without attachment, got tenant=%q timeline=%q", feature.TenantID, feature.TimelineID)
 	}
 }
 

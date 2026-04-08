@@ -26,6 +26,9 @@ type Branch struct {
 	CreatedAt time.Time
 	Deleted   bool
 	DeletedAt *time.Time
+
+	TenantID   string
+	TimelineID string
 }
 
 type Store struct {
@@ -108,6 +111,38 @@ func (s *Store) GetActive(name string) (Branch, error) {
 	branch, exists := s.branches[name]
 	if !exists || branch.Deleted {
 		return Branch{}, ErrNotFound
+	}
+
+	return branch, nil
+}
+
+func (s *Store) SetAttachment(name string, tenantID string, timelineID string) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Branch{}, ErrNotFound
+	}
+
+	tenantID = strings.TrimSpace(tenantID)
+	timelineID = strings.TrimSpace(timelineID)
+	if tenantID == "" || timelineID == "" {
+		return Branch{}, ErrInvalidName
+	}
+
+	branch, exists := s.branches[name]
+	if !exists || branch.Deleted {
+		return Branch{}, ErrNotFound
+	}
+
+	branch.TenantID = tenantID
+	branch.TimelineID = timelineID
+
+	nextBranches := cloneBranches(s.branches)
+	nextBranches[name] = branch
+	if err := s.persistAndSwap(nextBranches); err != nil {
+		return Branch{}, classifyPersistError(err)
 	}
 
 	return branch, nil

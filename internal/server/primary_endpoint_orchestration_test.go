@@ -18,7 +18,7 @@ func TestPrimaryEndpointSwitchPreservesCurrentBranchOnRuntimeFailure(t *testing.
 		Port:     5432,
 		Database: "postgres",
 		User:     "postgres",
-	})
+	}, "")
 
 	_, err := manager.SwitchToBranch("feature-a")
 	if err == nil {
@@ -43,7 +43,7 @@ func TestPrimaryEndpointSwitchStopsThenStartsRuntime(t *testing.T) {
 		Port:     5432,
 		Database: "postgres",
 		User:     "postgres",
-	})
+	}, "")
 
 	state, err := manager.SwitchToBranch("feature-a")
 	if err != nil {
@@ -114,6 +114,7 @@ func (f *fakePrimaryEndpointRuntime) Stop() error {
 
 type failingPrimaryEndpointController struct {
 	connectionErr error
+	setErr        error
 	startErr      error
 	stopErr       error
 	switchErr     error
@@ -124,6 +125,10 @@ func (f failingPrimaryEndpointController) Connection() (primaryEndpointState, er
 		return primaryEndpointState{}, f.connectionErr
 	}
 	return primaryEndpointState{Branch: "main"}, nil
+}
+
+func (f failingPrimaryEndpointController) SetBranchAttachment(_ string, _ string, _ string) error {
+	return f.setErr
 }
 
 func (f failingPrimaryEndpointController) Start() (primaryEndpointState, error) {

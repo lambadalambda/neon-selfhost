@@ -21,6 +21,8 @@ const (
 	defaultPrimaryEndpointUser     = "cloud_admin"
 	defaultDockerSocketPath        = "/var/run/docker.sock"
 	defaultDockerComposeProject    = "neon-selfhost"
+	defaultPageserverAPI           = "http://pageserver:9898"
+	defaultPageserverPGVersion     = 16
 )
 
 type Config struct {
@@ -29,6 +31,7 @@ type Config struct {
 	BasicAuthUser     string
 	BasicAuthPassword string
 	ControllerDataDir string
+	ComputeDataDir    string
 
 	PrimaryEndpointMode     string
 	PrimaryEndpointService  string
@@ -39,6 +42,9 @@ type Config struct {
 
 	DockerSocketPath     string
 	DockerComposeProject string
+
+	PageserverAPI       string
+	PageserverPGVersion int
 }
 
 func Load() (Config, error) {
@@ -61,6 +67,7 @@ func Load() (Config, error) {
 	basicAuthUser := strings.TrimSpace(os.Getenv("BASIC_AUTH_USER"))
 	basicAuthPassword := os.Getenv("BASIC_AUTH_PASSWORD")
 	controllerDataDir := strings.TrimSpace(os.Getenv("CONTROLLER_DATA_DIR"))
+	computeDataDir := strings.TrimSpace(os.Getenv("COMPUTE_DATA_DIR"))
 
 	primaryEndpointMode := strings.ToLower(strings.TrimSpace(os.Getenv("PRIMARY_ENDPOINT_MODE")))
 	if primaryEndpointMode == "" {
@@ -113,6 +120,21 @@ func Load() (Config, error) {
 		dockerComposeProject = defaultDockerComposeProject
 	}
 
+	pageserverAPI := strings.TrimSpace(os.Getenv("PAGESERVER_API"))
+	if pageserverAPI == "" {
+		pageserverAPI = defaultPageserverAPI
+	}
+
+	pageserverPGVersion := defaultPageserverPGVersion
+	if rawPageserverPGVersion, exists := os.LookupEnv("PAGESERVER_PG_VERSION"); exists && rawPageserverPGVersion != "" {
+		parsedPageserverPGVersion, err := strconv.Atoi(rawPageserverPGVersion)
+		if err != nil || parsedPageserverPGVersion < 1 {
+			return Config{}, fmt.Errorf("invalid PAGESERVER_PG_VERSION %q", rawPageserverPGVersion)
+		}
+
+		pageserverPGVersion = parsedPageserverPGVersion
+	}
+
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
 	}
@@ -127,6 +149,7 @@ func Load() (Config, error) {
 		BasicAuthUser:     basicAuthUser,
 		BasicAuthPassword: basicAuthPassword,
 		ControllerDataDir: controllerDataDir,
+		ComputeDataDir:    computeDataDir,
 
 		PrimaryEndpointMode:     primaryEndpointMode,
 		PrimaryEndpointService:  primaryEndpointService,
@@ -137,6 +160,9 @@ func Load() (Config, error) {
 
 		DockerSocketPath:     dockerSocketPath,
 		DockerComposeProject: dockerComposeProject,
+
+		PageserverAPI:       pageserverAPI,
+		PageserverPGVersion: pageserverPGVersion,
 	}, nil
 }
 

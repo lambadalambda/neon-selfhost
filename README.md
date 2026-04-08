@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha scaffold. A runnable controller with status, branch-management, restore, and endpoint lifecycle endpoints is included. Docker compose now wires concrete storage broker/pageserver/safekeeper/compute services, with branch-to-compute attachment still a scaffold.
+Status: pre-alpha scaffold. A runnable controller with status, branch-management, restore, and endpoint lifecycle endpoints is included. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, and endpoint switch/start now resolve branch tenant/timeline attachments through pageserver APIs.
 
 ## What This Project Is
 
@@ -56,7 +56,9 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 
 `POST /api/v1/restore` currently validates timestamp semantics and creates a restore branch using a scaffold LSN resolver; Neon data-plane timestamp-to-LSN wiring remains planned.
 
-Primary endpoint start/stop/switch and connection APIs now orchestrate the compose `compute` container lifecycle through the Docker socket. Branch switching currently restarts compute and records the selected branch in controller state; direct branch-to-timeline compute attachment wiring remains planned.
+Primary endpoint start/stop/switch and connection APIs orchestrate the compose `compute` container lifecycle through the Docker socket. Start/switch resolve branch attachment metadata (tenant/timeline) via pageserver APIs, persist endpoint selection under `COMPUTE_DATA_DIR`, and restart compute against that selection.
+
+Endpoint switch currently branches from parent timeline head. Timestamp-to-LSN-backed restore attachment remains planned.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
@@ -96,7 +98,7 @@ BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
 ```
 
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
-The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker` and uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle.
+The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
 
 ## Operational Caveats (MVP)
 

@@ -17,6 +17,9 @@
 - Startup preflight checks for `CONTROLLER_DATA_DIR` path validity and writability.
 - Docker-runtime primary endpoint orchestration in controller endpoints (`start`, `stop`, `switch`, `connection`) using Docker Engine API over the mounted Docker socket.
 - Endpoint orchestration configuration via new environment variables (primary endpoint mode/service/connection settings and Docker socket/project settings).
+- Pageserver-backed branch attachment resolver that ensures tenant/timeline mapping for endpoint start/switch operations.
+- Endpoint selection persistence in compute data dir (`endpoint-selection.json`) consumed by compute startup.
+- Branch store attachment metadata (`tenant_id`, `timeline_id`) persisted with branch state.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -26,3 +29,4 @@
 - Documentation now reflects concrete compose storage-plane wiring and remaining compute-orchestration gap.
 - Documentation now reflects health/preflight behavior and current scope boundaries for Neon-service health integration.
 - Documentation now reflects Docker-based compute lifecycle orchestration and the remaining branch-to-timeline attachment gap.
+- Documentation now reflects pageserver-backed branch attachment behavior and the remaining restore-time LSN attachment gap.

@@ -14,9 +14,10 @@ import (
 )
 
 type Config struct {
-	Version         string
-	BranchStore     *branch.Store
-	PrimaryEndpoint PrimaryEndpointController
+	Version                  string
+	BranchStore              *branch.Store
+	BranchAttachmentResolver BranchAttachmentResolver
+	PrimaryEndpoint          PrimaryEndpointController
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -105,13 +106,15 @@ type primaryEndpointConnectionResponse struct {
 }
 
 type primaryEndpointPayload struct {
-	Status   string `json:"status"`
-	Branch   string `json:"branch"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Database string `json:"database"`
-	User     string `json:"user"`
-	DSN      string `json:"dsn,omitempty"`
+	Status     string `json:"status"`
+	Branch     string `json:"branch"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Database   string `json:"database"`
+	User       string `json:"user"`
+	TenantID   string `json:"tenant_id,omitempty"`
+	TimelineID string `json:"timeline_id,omitempty"`
+	DSN        string `json:"dsn,omitempty"`
 }
 
 var errRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
@@ -130,6 +133,11 @@ func New(cfg Config) http.Handler {
 	primaryEndpoint := cfg.PrimaryEndpoint
 	if primaryEndpoint == nil {
 		primaryEndpoint = newPrimaryEndpointManager()
+	}
+
+	attachmentResolver := cfg.BranchAttachmentResolver
+	if attachmentResolver == nil {
+		attachmentResolver = NewNoopBranchAttachmentResolver()
 	}
 
 	operations := newOperationManager(nil, defaultOperationLogLimit)
@@ -205,6 +213,22 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
 		var state primaryEndpointState
 		err := operations.Run("start_primary_endpoint", func() error {
+			current, currentErr := primaryEndpoint.Connection()
+			if currentErr != nil {
+				return currentErr
+			}
+
+			attachment, resolveErr := attachmentResolver.Resolve(current.Branch)
+			if resolveErr != nil {
+				return resolveErr
+			}
+
+			if strings.TrimSpace(attachment.TenantID) != "" && strings.TrimSpace(attachment.TimelineID) != "" {
+				if attachErr := primaryEndpoint.SetBranchAttachment(current.Branch, attachment.TenantID, attachment.TimelineID); attachErr != nil {
+					return attachErr
+				}
+			}
+
 			var startErr error
 			state, startErr = primaryEndpoint.Start()
 			return startErr
@@ -215,6 +239,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case isPrimaryEndpointUnavailable(err):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
@@ -265,6 +293,17 @@ func New(cfg Config) http.Handler {
 				return branch.ErrParentMissing
 			}
 
+			attachment, resolveErr := attachmentResolver.Resolve(targetBranch)
+			if resolveErr != nil {
+				return resolveErr
+			}
+
+			if strings.TrimSpace(attachment.TenantID) != "" && strings.TrimSpace(attachment.TimelineID) != "" {
+				if attachErr := primaryEndpoint.SetBranchAttachment(targetBranch, attachment.TenantID, attachment.TimelineID); attachErr != nil {
+					return attachErr
+				}
+			}
+
 			var switchErr error
 			state, switchErr = primaryEndpoint.SwitchToBranch(targetBranch)
 			return switchErr
@@ -277,6 +316,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case isPrimaryEndpointUnavailable(err):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}

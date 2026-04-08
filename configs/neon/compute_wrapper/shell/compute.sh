@@ -7,6 +7,7 @@ generate_id() {
 }
 
 PG_VERSION=${PG_VERSION:-16}
+ENDPOINT_SELECTION_FILE=${ENDPOINT_SELECTION_FILE:-/var/lib/neon/compute/endpoint-selection.json}
 
 readonly CONFIG_FILE_ORG=/var/db/postgres/configs/config.json
 readonly CONFIG_FILE=/tmp/config.json
@@ -21,6 +22,17 @@ done
 echo "Pageserver is ready"
 
 cp "${CONFIG_FILE_ORG}" "${CONFIG_FILE}"
+
+if [[ -f "${ENDPOINT_SELECTION_FILE}" ]]; then
+  selected_tenant_id="$(jq -r '.tenant_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
+  selected_timeline_id="$(jq -r '.timeline_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
+
+  if [[ -n "${selected_tenant_id}" && -n "${selected_timeline_id}" ]]; then
+    TENANT_ID=${selected_tenant_id}
+    TIMELINE_ID=${selected_timeline_id}
+    export TENANT_ID TIMELINE_ID
+  fi
+fi
 
 if [[ -n "${TENANT_ID:-}" && -n "${TIMELINE_ID:-}" ]]; then
   tenant_id=${TENANT_ID}

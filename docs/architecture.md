@@ -4,7 +4,7 @@
 
 `neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute and Docker-backed compute lifecycle orchestration.
 
 Design target:
 
@@ -87,7 +87,7 @@ Implemented in MVP slice 1:
 
 Planned for later slices:
 
-- Branch/timeline-to-compute attachment wiring for switch/restore flows.
+- Timestamp-to-LSN-backed restore attachment wiring to pageserver timeline creation.
 - Richer endpoint readiness and startup diagnostics sourced from Neon runtime APIs.
 
 Current API behavior notes:
@@ -98,7 +98,8 @@ Current API behavior notes:
 - `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
 - Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
-- Branch switch currently restarts compute and updates controller branch selection; direct timeline attachment into compute startup remains planned.
+- Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
+- Switch-time branching currently attaches at parent timeline head; restore-time attachment at resolved timestamp LSN remains planned.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.

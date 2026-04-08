@@ -8,6 +8,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("BASIC_AUTH_USER", "")
 	t.Setenv("BASIC_AUTH_PASSWORD", "")
 	t.Setenv("CONTROLLER_DATA_DIR", "")
+	t.Setenv("COMPUTE_DATA_DIR", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -33,6 +34,10 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ControllerDataDir != "" {
 		t.Fatalf("expected empty controller data dir, got %q", cfg.ControllerDataDir)
 	}
+
+	if cfg.ComputeDataDir != "" {
+		t.Fatalf("expected empty compute data dir, got %q", cfg.ComputeDataDir)
+	}
 }
 
 func TestLoadWithPortAndBasicAuth(t *testing.T) {
@@ -41,6 +46,7 @@ func TestLoadWithPortAndBasicAuth(t *testing.T) {
 	t.Setenv("BASIC_AUTH_USER", "admin")
 	t.Setenv("BASIC_AUTH_PASSWORD", "secret")
 	t.Setenv("CONTROLLER_DATA_DIR", "/var/lib/neon/controller")
+	t.Setenv("COMPUTE_DATA_DIR", "/var/lib/neon/compute")
 
 	cfg, err := Load()
 	if err != nil {
@@ -65,6 +71,10 @@ func TestLoadWithPortAndBasicAuth(t *testing.T) {
 
 	if cfg.ControllerDataDir != "/var/lib/neon/controller" {
 		t.Fatalf("expected controller data dir %q, got %q", "/var/lib/neon/controller", cfg.ControllerDataDir)
+	}
+
+	if cfg.ComputeDataDir != "/var/lib/neon/compute" {
+		t.Fatalf("expected compute data dir %q, got %q", "/var/lib/neon/compute", cfg.ComputeDataDir)
 	}
 }
 
@@ -97,6 +107,8 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	t.Setenv("PRIMARY_ENDPOINT_USER", "")
 	t.Setenv("DOCKER_SOCKET_PATH", "")
 	t.Setenv("DOCKER_COMPOSE_PROJECT", "")
+	t.Setenv("PAGESERVER_API", "")
+	t.Setenv("PAGESERVER_PG_VERSION", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -134,6 +146,14 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	if cfg.DockerComposeProject != defaultDockerComposeProject {
 		t.Fatalf("expected docker compose project %q, got %q", defaultDockerComposeProject, cfg.DockerComposeProject)
 	}
+
+	if cfg.PageserverAPI != defaultPageserverAPI {
+		t.Fatalf("expected pageserver api %q, got %q", defaultPageserverAPI, cfg.PageserverAPI)
+	}
+
+	if cfg.PageserverPGVersion != defaultPageserverPGVersion {
+		t.Fatalf("expected pageserver pg version %d, got %d", defaultPageserverPGVersion, cfg.PageserverPGVersion)
+	}
 }
 
 func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
@@ -145,6 +165,8 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("PRIMARY_ENDPOINT_USER", "app_user")
 	t.Setenv("DOCKER_SOCKET_PATH", "/custom/docker.sock")
 	t.Setenv("DOCKER_COMPOSE_PROJECT", "custom-project")
+	t.Setenv("PAGESERVER_API", "http://pageserver.internal:9898")
+	t.Setenv("PAGESERVER_PG_VERSION", "17")
 
 	cfg, err := Load()
 	if err != nil {
@@ -182,6 +204,14 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	if cfg.DockerComposeProject != "custom-project" {
 		t.Fatalf("expected docker compose project %q, got %q", "custom-project", cfg.DockerComposeProject)
 	}
+
+	if cfg.PageserverAPI != "http://pageserver.internal:9898" {
+		t.Fatalf("expected pageserver api %q, got %q", "http://pageserver.internal:9898", cfg.PageserverAPI)
+	}
+
+	if cfg.PageserverPGVersion != 17 {
+		t.Fatalf("expected pageserver pg version %d, got %d", 17, cfg.PageserverPGVersion)
+	}
 }
 
 func TestLoadRejectsInvalidPrimaryEndpointMode(t *testing.T) {
@@ -199,5 +229,14 @@ func TestLoadRejectsInvalidPrimaryEndpointPort(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid primary endpoint port")
+	}
+}
+
+func TestLoadRejectsInvalidPageserverPGVersion(t *testing.T) {
+	t.Setenv("PAGESERVER_PG_VERSION", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid pageserver pg version")
 	}
 }
