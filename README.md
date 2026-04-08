@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha scaffold. A runnable controller with status and branch-management endpoints is included. Docker compose now wires concrete storage broker/pageserver/safekeeper services, while compute orchestration remains a scaffold.
+Status: pre-alpha scaffold. A runnable controller with status, branch-management, restore, and endpoint lifecycle endpoints is included. Docker compose now wires concrete storage broker/pageserver/safekeeper/compute services, with branch-to-compute attachment still a scaffold.
 
 ## What This Project Is
 
@@ -30,9 +30,10 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 - `cmd/controller` contains the Go controller entrypoint.
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
-- `internal/server` contains the HTTP router, status endpoint, branch CRUD endpoints, and operation log endpoint for MVP slice 1.
-- `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers under the `neon` profile.
+- `internal/server` contains the HTTP router, status/health endpoints, branch and restore endpoints, primary endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
+- `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers/compute under the `neon` profile.
 - `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
+- `configs/neon/compute_wrapper` contains the compute wrapper image/build files used by compose for local compute startup.
 - `Dockerfile.controller` builds a minimal controller image.
 
 ## Implemented API (MVP Slice 1)
@@ -55,7 +56,7 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 
 `POST /api/v1/restore` currently validates timestamp semantics and creates a restore branch using a scaffold LSN resolver; Neon data-plane timestamp-to-LSN wiring remains planned.
 
-Primary endpoint start/stop/switch and connection APIs currently operate on controller-local endpoint state for workflow development; Neon compute orchestration wiring remains planned.
+Primary endpoint start/stop/switch and connection APIs now orchestrate the compose `compute` container lifecycle through the Docker socket. Branch switching currently restarts compute and records the selected branch in controller state; direct branch-to-timeline compute attachment wiring remains planned.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
@@ -88,13 +89,14 @@ BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=change-me mise exec -- go run ./cmd/co
 curl -u admin:change-me http://127.0.0.1:8080/api/v1/status
 ```
 
-To bring up the controller plus Neon storage-plane services, set `BASIC_AUTH_PASSWORD` and run:
+To bring up the controller plus Neon storage/compute services, set `BASIC_AUTH_PASSWORD` and run:
 
 ```bash
 BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
 ```
 
-Override `NEON_IMAGE` if you need a specific image tag.
+Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
+The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker` and uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle.
 
 ## Operational Caveats (MVP)
 
@@ -108,6 +110,7 @@ Override `NEON_IMAGE` if you need a specific image tag.
 
 - `AGENTS.md` - contribution and coding-agent rules.
 - `configs/neon/pageserver` - pageserver runtime config used by `docker compose --profile neon`.
+- `configs/neon/compute_wrapper` - compute wrapper build/runtime files used by `docker compose --profile neon`.
 - `docs/architecture.md` - architecture, deployment topology, and safety model.
 - `docs/mvp-roadmap.md` - phased plan for delivery.
 

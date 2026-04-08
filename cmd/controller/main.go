@@ -29,6 +29,30 @@ func main() {
 		log.Fatalf("startup preflight: %v", err)
 	}
 
+	primaryEndpoint := server.PrimaryEndpointController(server.NewInMemoryPrimaryEndpointController(
+		cfg.PrimaryEndpointHost,
+		cfg.PrimaryEndpointPort,
+		cfg.PrimaryEndpointDatabase,
+		cfg.PrimaryEndpointUser,
+	))
+
+	if cfg.PrimaryEndpointMode == "docker" {
+		dockerPrimaryEndpoint, err := server.NewDockerPrimaryEndpointController(server.DockerPrimaryEndpointOptions{
+			SocketPath:     cfg.DockerSocketPath,
+			ComposeProject: cfg.DockerComposeProject,
+			Service:        cfg.PrimaryEndpointService,
+			Host:           cfg.PrimaryEndpointHost,
+			Port:           cfg.PrimaryEndpointPort,
+			Database:       cfg.PrimaryEndpointDatabase,
+			User:           cfg.PrimaryEndpointUser,
+		})
+		if err != nil {
+			log.Fatalf("init docker primary endpoint controller: %v", err)
+		}
+
+		primaryEndpoint = dockerPrimaryEndpoint
+	}
+
 	branchStore := branch.NewStore()
 	if cfg.ControllerDataDir != "" {
 		persistentStore, err := branch.NewPersistentStore(cfg.ControllerDataDir)
@@ -41,6 +65,7 @@ func main() {
 	handler := server.New(server.Config{
 		Version:           version,
 		BranchStore:       branchStore,
+		PrimaryEndpoint:   primaryEndpoint,
 		BasicAuthUser:     cfg.BasicAuthUser,
 		BasicAuthPassword: cfg.BasicAuthPassword,
 	})

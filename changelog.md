@@ -12,8 +12,11 @@
 - Persistence error classification for branch state updates, including explicit insufficient-disk-space handling.
 - Concrete Neon image/command wiring in `docker-compose.yml` for storage broker, pageserver, and 3 safekeepers under the `neon` profile.
 - Pageserver runtime config files under `configs/neon/pageserver` for compose-based local bootstrap.
+- Compute wrapper build/runtime files under `configs/neon/compute_wrapper` and compose wiring for a local Neon compute service.
 - Health endpoint at `GET /api/v1/health` with component checks for branch storage, operation manager, and primary endpoint state.
 - Startup preflight checks for `CONTROLLER_DATA_DIR` path validity and writability.
+- Docker-runtime primary endpoint orchestration in controller endpoints (`start`, `stop`, `switch`, `connection`) using Docker Engine API over the mounted Docker socket.
+- Endpoint orchestration configuration via new environment variables (primary endpoint mode/service/connection settings and Docker socket/project settings).
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -22,3 +25,4 @@
 - Branch mutation/restore APIs now return explicit `storage_error` responses for persistence failures.
 - Documentation now reflects concrete compose storage-plane wiring and remaining compute-orchestration gap.
 - Documentation now reflects health/preflight behavior and current scope boundaries for Neon-service health integration.
+- Documentation now reflects Docker-based compute lifecycle orchestration and the remaining branch-to-timeline attachment gap.

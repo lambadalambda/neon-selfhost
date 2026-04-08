@@ -14,8 +14,9 @@ import (
 )
 
 type Config struct {
-	Version     string
-	BranchStore *branch.Store
+	Version         string
+	BranchStore     *branch.Store
+	PrimaryEndpoint PrimaryEndpointController
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -126,8 +127,12 @@ func New(cfg Config) http.Handler {
 		store = branch.NewStore()
 	}
 
+	primaryEndpoint := cfg.PrimaryEndpoint
+	if primaryEndpoint == nil {
+		primaryEndpoint = newPrimaryEndpointManager()
+	}
+
 	operations := newOperationManager(nil, defaultOperationLogLimit)
-	primaryEndpoint := newPrimaryEndpointManager()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -140,12 +145,22 @@ func New(cfg Config) http.Handler {
 	})
 
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
+		primaryStatus := "ok"
+		if _, err := primaryEndpoint.Connection(); err != nil {
+			primaryStatus = "error"
+		}
+
+		overallStatus := "ok"
+		if primaryStatus != "ok" {
+			overallStatus = "degraded"
+		}
+
 		response := healthResponse{
-			Status: "ok",
+			Status: overallStatus,
 			Checks: []healthCheckPayload{
 				{Name: "branch_store", Status: "ok"},
 				{Name: "operation_manager", Status: "ok"},
-				{Name: "primary_endpoint", Status: "ok"},
+				{Name: "primary_endpoint", Status: primaryStatus},
 			},
 		}
 
@@ -173,19 +188,10 @@ func New(cfg Config) http.Handler {
 	})
 
 	mux.HandleFunc("GET /api/v1/endpoints/primary/connection", func(w http.ResponseWriter, _ *http.Request) {
-		state := primaryEndpoint.Connection()
-		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
-	})
-
-	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
-		var state primaryEndpointState
-		err := operations.Run("start_primary_endpoint", func() error {
-			state = primaryEndpoint.Start()
-			return nil
-		})
+		state, err := primaryEndpoint.Connection()
 		if err != nil {
-			if errors.Is(err, ErrOperationInProgress) {
-				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			if isPrimaryEndpointUnavailable(err) {
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
 				return
 			}
 
@@ -196,19 +202,44 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
 	})
 
+	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
+		var state primaryEndpointState
+		err := operations.Run("start_primary_endpoint", func() error {
+			var startErr error
+			state, startErr = primaryEndpoint.Start()
+			return startErr
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
+	})
+
 	mux.HandleFunc("POST /api/v1/endpoints/primary/stop", func(w http.ResponseWriter, _ *http.Request) {
 		var state primaryEndpointState
 		err := operations.Run("stop_primary_endpoint", func() error {
-			state = primaryEndpoint.Stop()
-			return nil
+			var stopErr error
+			state, stopErr = primaryEndpoint.Stop()
+			return stopErr
 		})
 		if err != nil {
-			if errors.Is(err, ErrOperationInProgress) {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-				return
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
-
-			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
 
@@ -234,8 +265,9 @@ func New(cfg Config) http.Handler {
 				return branch.ErrParentMissing
 			}
 
-			state = primaryEndpoint.SwitchToBranch(targetBranch)
-			return nil
+			var switchErr error
+			state, switchErr = primaryEndpoint.SwitchToBranch(targetBranch)
+			return switchErr
 		})
 		if err != nil {
 			switch {
@@ -243,6 +275,8 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}

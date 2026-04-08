@@ -4,7 +4,7 @@
 
 `neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status and branch-management endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute.
 
 Design target:
 
@@ -40,12 +40,14 @@ Design target:
 
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
-  - `5432` -> Primary PostgreSQL endpoint (planned once compute orchestration is wired)
+  - `5432` -> Primary PostgreSQL endpoint
 - If exposing beyond localhost, terminate TLS in a reverse proxy and do not treat basic auth alone as Internet-grade security.
 - Internal-only services:
   - Storage broker gRPC port
   - Pageserver HTTP and page service ports
   - Safekeeper ports
+- Controller runtime mount:
+  - `/var/run/docker.sock` for compute lifecycle orchestration via Docker Engine API
 - Networks:
   - One internal network for service-to-service communication
 
@@ -85,8 +87,8 @@ Implemented in MVP slice 1:
 
 Planned for later slices:
 
-- Neon data-plane integration for endpoint lifecycle actions.
-- Neon-backed connection details for active compute endpoints.
+- Branch/timeline-to-compute attachment wiring for switch/restore flows.
+- Richer endpoint readiness and startup diagnostics sourced from Neon runtime APIs.
 
 Current API behavior notes:
 
@@ -94,8 +96,9 @@ Current API behavior notes:
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
 - `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
-- Primary endpoint start/stop/switch APIs currently manage controller-local endpoint state and serialize transitions through the operation lock.
-- `GET /api/v1/endpoints/primary/connection` returns scaffold connection details from controller state.
+- Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
+- `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
+- Branch switch currently restarts compute and updates controller branch selection; direct timeline attachment into compute startup remains planned.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.

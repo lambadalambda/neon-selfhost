@@ -13,11 +13,20 @@ services:
       BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD before running docker compose}
       CONTROLLER_DATA_DIR: /var/lib/neon/controller
       COMPUTE_DATA_DIR: /var/lib/neon/compute
+      PRIMARY_ENDPOINT_MODE: docker
+      PRIMARY_ENDPOINT_SERVICE: compute
+      PRIMARY_ENDPOINT_HOST: 127.0.0.1
+      PRIMARY_ENDPOINT_PORT: "5432"
+      PRIMARY_ENDPOINT_DATABASE: postgres
+      PRIMARY_ENDPOINT_USER: cloud_admin
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+      DOCKER_COMPOSE_PROJECT: neon-selfhost
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - controller_state:/var/lib/neon/controller
       - compute_state:/var/lib/neon/compute
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - neon_internal
 
@@ -92,6 +101,35 @@ services:
       - safekeeper3_data:/data
     depends_on:
       - storage_broker
+    networks:
+      - neon_internal
+
+  compute:
+    build:
+      context: ./configs/neon/compute_wrapper
+      dockerfile: Dockerfile
+      args:
+        REPOSITORY: ${NEON_REPOSITORY:-ghcr.io/neondatabase}
+        COMPUTE_IMAGE: ${NEON_COMPUTE_IMAGE:-compute-node-v16}
+        TAG: ${NEON_COMPUTE_TAG:-latest}
+    image: ${NEON_COMPUTE_WRAPPER_IMAGE:-neon-selfhost/compute:dev}
+    profiles: ["neon"]
+    environment:
+      PG_VERSION: ${PG_VERSION:-16}
+      TENANT_ID: ${TENANT_ID:-}
+      TIMELINE_ID: ${TIMELINE_ID:-}
+    volumes:
+      - ./configs/neon/compute_wrapper/var/db/postgres/configs:/var/db/postgres/configs:ro
+      - ./configs/neon/compute_wrapper/shell:/shell:ro
+    entrypoint:
+      - /shell/compute.sh
+    ports:
+      - "127.0.0.1:5432:55433"
+    depends_on:
+      - pageserver
+      - safekeeper1
+      - safekeeper2
+      - safekeeper3
     networks:
       - neon_internal
 

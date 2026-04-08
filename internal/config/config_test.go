@@ -87,3 +87,117 @@ func TestLoadRejectsMissingBasicAuthUser(t *testing.T) {
 		t.Fatal("expected error for missing basic auth user")
 	}
 }
+
+func TestLoadPrimaryEndpointDefaults(t *testing.T) {
+	t.Setenv("PRIMARY_ENDPOINT_MODE", "")
+	t.Setenv("PRIMARY_ENDPOINT_SERVICE", "")
+	t.Setenv("PRIMARY_ENDPOINT_HOST", "")
+	t.Setenv("PRIMARY_ENDPOINT_PORT", "")
+	t.Setenv("PRIMARY_ENDPOINT_DATABASE", "")
+	t.Setenv("PRIMARY_ENDPOINT_USER", "")
+	t.Setenv("DOCKER_SOCKET_PATH", "")
+	t.Setenv("DOCKER_COMPOSE_PROJECT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.PrimaryEndpointMode != defaultPrimaryEndpointMode {
+		t.Fatalf("expected primary endpoint mode %q, got %q", defaultPrimaryEndpointMode, cfg.PrimaryEndpointMode)
+	}
+
+	if cfg.PrimaryEndpointService != defaultPrimaryEndpointService {
+		t.Fatalf("expected primary endpoint service %q, got %q", defaultPrimaryEndpointService, cfg.PrimaryEndpointService)
+	}
+
+	if cfg.PrimaryEndpointHost != defaultPrimaryEndpointHost {
+		t.Fatalf("expected primary endpoint host %q, got %q", defaultPrimaryEndpointHost, cfg.PrimaryEndpointHost)
+	}
+
+	if cfg.PrimaryEndpointPort != defaultPrimaryEndpointPort {
+		t.Fatalf("expected primary endpoint port %d, got %d", defaultPrimaryEndpointPort, cfg.PrimaryEndpointPort)
+	}
+
+	if cfg.PrimaryEndpointDatabase != defaultPrimaryEndpointDatabase {
+		t.Fatalf("expected primary endpoint database %q, got %q", defaultPrimaryEndpointDatabase, cfg.PrimaryEndpointDatabase)
+	}
+
+	if cfg.PrimaryEndpointUser != defaultPrimaryEndpointUser {
+		t.Fatalf("expected primary endpoint user %q, got %q", defaultPrimaryEndpointUser, cfg.PrimaryEndpointUser)
+	}
+
+	if cfg.DockerSocketPath != defaultDockerSocketPath {
+		t.Fatalf("expected docker socket path %q, got %q", defaultDockerSocketPath, cfg.DockerSocketPath)
+	}
+
+	if cfg.DockerComposeProject != defaultDockerComposeProject {
+		t.Fatalf("expected docker compose project %q, got %q", defaultDockerComposeProject, cfg.DockerComposeProject)
+	}
+}
+
+func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
+	t.Setenv("PRIMARY_ENDPOINT_MODE", "docker")
+	t.Setenv("PRIMARY_ENDPOINT_SERVICE", "compute-main")
+	t.Setenv("PRIMARY_ENDPOINT_HOST", "10.0.0.1")
+	t.Setenv("PRIMARY_ENDPOINT_PORT", "15432")
+	t.Setenv("PRIMARY_ENDPOINT_DATABASE", "app")
+	t.Setenv("PRIMARY_ENDPOINT_USER", "app_user")
+	t.Setenv("DOCKER_SOCKET_PATH", "/custom/docker.sock")
+	t.Setenv("DOCKER_COMPOSE_PROJECT", "custom-project")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.PrimaryEndpointMode != "docker" {
+		t.Fatalf("expected primary endpoint mode %q, got %q", "docker", cfg.PrimaryEndpointMode)
+	}
+
+	if cfg.PrimaryEndpointService != "compute-main" {
+		t.Fatalf("expected primary endpoint service %q, got %q", "compute-main", cfg.PrimaryEndpointService)
+	}
+
+	if cfg.PrimaryEndpointHost != "10.0.0.1" {
+		t.Fatalf("expected primary endpoint host %q, got %q", "10.0.0.1", cfg.PrimaryEndpointHost)
+	}
+
+	if cfg.PrimaryEndpointPort != 15432 {
+		t.Fatalf("expected primary endpoint port %d, got %d", 15432, cfg.PrimaryEndpointPort)
+	}
+
+	if cfg.PrimaryEndpointDatabase != "app" {
+		t.Fatalf("expected primary endpoint database %q, got %q", "app", cfg.PrimaryEndpointDatabase)
+	}
+
+	if cfg.PrimaryEndpointUser != "app_user" {
+		t.Fatalf("expected primary endpoint user %q, got %q", "app_user", cfg.PrimaryEndpointUser)
+	}
+
+	if cfg.DockerSocketPath != "/custom/docker.sock" {
+		t.Fatalf("expected docker socket path %q, got %q", "/custom/docker.sock", cfg.DockerSocketPath)
+	}
+
+	if cfg.DockerComposeProject != "custom-project" {
+		t.Fatalf("expected docker compose project %q, got %q", "custom-project", cfg.DockerComposeProject)
+	}
+}
+
+func TestLoadRejectsInvalidPrimaryEndpointMode(t *testing.T) {
+	t.Setenv("PRIMARY_ENDPOINT_MODE", "invalid")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid primary endpoint mode")
+	}
+}
+
+func TestLoadRejectsInvalidPrimaryEndpointPort(t *testing.T) {
+	t.Setenv("PRIMARY_ENDPOINT_PORT", "99999")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid primary endpoint port")
+	}
+}

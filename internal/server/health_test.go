@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -53,5 +54,27 @@ func TestHealthEndpointRejectsPostMethod(t *testing.T) {
 
 	if res.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status %d, got %d", http.StatusMethodNotAllowed, res.Code)
+	}
+}
+
+func TestHealthEndpointReportsDegradedWhenPrimaryEndpointUnavailable(t *testing.T) {
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: failingPrimaryEndpointController{
+			connectionErr: fmt.Errorf("%w: docker socket unavailable", ErrPrimaryEndpointUnavailable),
+		},
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/health", "")
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload healthEndpointResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Status != "degraded" {
+		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
 	}
 }
