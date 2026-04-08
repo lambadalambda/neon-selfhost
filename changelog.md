@@ -7,7 +7,8 @@
 - Persistent branch store support via `CONTROLLER_DATA_DIR`, with branch state written to `branches.json`.
 - Serialized branch mutation execution and in-memory operation logging exposed by `GET /api/v1/operations`.
 - Restore endpoint scaffold at `POST /api/v1/restore` with RFC3339 validation, source-history checks, and restore-branch creation.
-- New tests for config loading, auth enforcement, operation logging, and branch persistence.
+- Primary endpoint control API scaffold at `POST /api/v1/endpoints/primary/start|stop|switch` and `GET /api/v1/endpoints/primary/connection`.
+- New tests for config loading, auth enforcement, operation logging, restore behavior, primary endpoint controls, and branch persistence.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.

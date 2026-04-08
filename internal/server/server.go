@@ -50,6 +50,10 @@ type restoreRequest struct {
 	Timestamp    string `json:"timestamp"`
 }
 
+type switchPrimaryEndpointRequest struct {
+	Branch string `json:"branch"`
+}
+
 type apiErrorResponse struct {
 	Error apiError `json:"error"`
 }
@@ -85,6 +89,20 @@ type restorePayload struct {
 	ResolvedLSN string        `json:"resolved_lsn"`
 }
 
+type primaryEndpointConnectionResponse struct {
+	Connection primaryEndpointPayload `json:"connection"`
+}
+
+type primaryEndpointPayload struct {
+	Status   string `json:"status"`
+	Branch   string `json:"branch"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	User     string `json:"user"`
+	DSN      string `json:"dsn,omitempty"`
+}
+
 var errRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
 
 func New(cfg Config) http.Handler {
@@ -99,6 +117,7 @@ func New(cfg Config) http.Handler {
 	}
 
 	operations := newOperationManager(nil, defaultOperationLogLimit)
+	primaryEndpoint := newPrimaryEndpointManager()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -128,6 +147,86 @@ func New(cfg Config) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, operationsResponse{Operations: payload})
+	})
+
+	mux.HandleFunc("GET /api/v1/endpoints/primary/connection", func(w http.ResponseWriter, _ *http.Request) {
+		state := primaryEndpoint.Connection()
+		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
+	})
+
+	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
+		var state primaryEndpointState
+		err := operations.Run("start_primary_endpoint", func() error {
+			state = primaryEndpoint.Start()
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, ErrOperationInProgress) {
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+				return
+			}
+
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
+	})
+
+	mux.HandleFunc("POST /api/v1/endpoints/primary/stop", func(w http.ResponseWriter, _ *http.Request) {
+		var state primaryEndpointState
+		err := operations.Run("stop_primary_endpoint", func() error {
+			state = primaryEndpoint.Stop()
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, ErrOperationInProgress) {
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+				return
+			}
+
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
+	})
+
+	mux.HandleFunc("POST /api/v1/endpoints/primary/switch", func(w http.ResponseWriter, r *http.Request) {
+		var req switchPrimaryEndpointRequest
+		if err := decodeJSONRequest(r, &req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+			return
+		}
+
+		targetBranch := strings.TrimSpace(req.Branch)
+		if targetBranch == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+
+		var state primaryEndpointState
+		err := operations.Run("switch_primary_endpoint", func() error {
+			if _, getErr := store.GetActive(targetBranch); getErr != nil {
+				return branch.ErrParentMissing
+			}
+
+			state = primaryEndpoint.SwitchToBranch(targetBranch)
+			return nil
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrParentMissing):
+				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
 	})
 
 	mux.HandleFunc("POST /api/v1/restore", func(w http.ResponseWriter, r *http.Request) {

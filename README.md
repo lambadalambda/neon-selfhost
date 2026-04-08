@@ -41,6 +41,10 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
+- `POST /api/v1/endpoints/primary/start`
+- `POST /api/v1/endpoints/primary/stop`
+- `POST /api/v1/endpoints/primary/switch`
+- `GET /api/v1/endpoints/primary/connection`
 - `GET /api/v1/operations`
 
 When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTTP basic auth.
@@ -48,6 +52,8 @@ When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTT
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
 `POST /api/v1/restore` currently validates timestamp semantics and creates a restore branch using a scaffold LSN resolver; Neon data-plane timestamp-to-LSN wiring remains planned.
+
+Primary endpoint start/stop/switch and connection APIs currently operate on controller-local endpoint state for workflow development; Neon compute orchestration wiring remains planned.
 
 Validation and JSON parsing failures return stable JSON error envelopes:
 

@@ -76,14 +76,16 @@ Implemented in MVP slice 1:
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
-- `GET /api/v1/operations`
-
-Planned for later slices:
-
 - `POST /api/v1/endpoints/primary/start`
 - `POST /api/v1/endpoints/primary/stop`
 - `POST /api/v1/endpoints/primary/switch`
 - `GET /api/v1/endpoints/primary/connection`
+- `GET /api/v1/operations`
+
+Planned for later slices:
+
+- Neon data-plane integration for endpoint lifecycle actions.
+- Neon-backed connection details for active compute endpoints.
 
 Current API behavior notes:
 
@@ -91,6 +93,8 @@ Current API behavior notes:
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
 - `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
+- Primary endpoint start/stop/switch APIs currently manage controller-local endpoint state and serialize transitions through the operation lock.
+- `GET /api/v1/endpoints/primary/connection` returns scaffold connection details from controller state.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
 - State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.
