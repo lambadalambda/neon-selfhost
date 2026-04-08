@@ -25,6 +25,10 @@
 - Restore safety hardening: timestamp-to-LSN requests now send correct query parameters, unknown pageserver timestamp kinds are rejected, and restore branches are created atomically with attachment metadata.
 - Primary endpoint status hardening: connection payload now clamps `ready=false` when runtime is stopped and returns `status=unhealthy` for running-but-unhealthy runtime state.
 
+### Fixed
+- Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.
+- Compose controller now runs as root in Docker mode so it can access the mounted Docker socket for endpoint start/stop/switch orchestration.
+
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
 - Compose controller service now requires explicit basic auth password configuration.

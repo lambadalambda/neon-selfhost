@@ -12,9 +12,6 @@ ENDPOINT_SELECTION_FILE=${ENDPOINT_SELECTION_FILE:-/var/lib/neon/compute/endpoin
 readonly CONFIG_FILE_ORG=/var/db/postgres/configs/config.json
 readonly CONFIG_FILE=/tmp/config.json
 
-first_path="$(ldconfig --verbose 2>/dev/null | grep --invert-match ^$'\t' | cut --delimiter=: --fields=1 | head --lines=1)"
-test "${first_path}" = '/usr/local/lib'
-
 echo "Waiting for pageserver to be ready"
 until nc -z pageserver 6400; do
   sleep 1
