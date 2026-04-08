@@ -56,6 +56,8 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 
+Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is not configured.
+
 Primary endpoint start/stop/switch and connection APIs orchestrate the compose `compute` container lifecycle through the Docker socket. Start/switch resolve branch attachment metadata (tenant/timeline) via pageserver APIs, persist endpoint selection under `COMPUTE_DATA_DIR`, and restart compute against that selection.
 
 Endpoint switch still branches from the selected parent timeline head, while restore creates a new timeline anchored at the resolved timestamp LSN.

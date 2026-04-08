@@ -51,7 +51,7 @@ func (noopBranchAttachmentResolver) Resolve(_ string) (BranchAttachment, error) 
 }
 
 func (noopBranchAttachmentResolver) ResolveRestore(_ string, _ string, _ time.Time) (BranchAttachment, string, error) {
-	return BranchAttachment{}, "", nil
+	return BranchAttachment{}, "", fmt.Errorf("%w: restore requires pageserver integration", ErrPrimaryEndpointUnavailable)
 }
 
 type pageserverBranchAttachmentResolver struct {
@@ -217,9 +217,13 @@ func (r *pageserverBranchAttachmentResolver) ResolveRestore(sourceBranch string,
 		return BranchAttachment{}, "", err
 	}
 
-	switch kind {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "present", "future":
+		// Continue with timeline creation.
 	case "past", "nodata":
 		return BranchAttachment{}, "", ErrRestoreHistoryUnavailable
+	default:
+		return BranchAttachment{}, "", fmt.Errorf("%w: unknown timestamp lookup result kind %q", ErrPrimaryEndpointUnavailable, kind)
 	}
 
 	if strings.TrimSpace(lsn) == "" {
@@ -375,8 +379,15 @@ func (c *pageserverHTTPAttachmentClient) GetLSNByTimestamp(tenantID string, time
 }
 
 func (c *pageserverHTTPAttachmentClient) request(method string, requestPath string, body any) ([]byte, error) {
+	pathPart, rawQuery, _ := strings.Cut(requestPath, "?")
+	pathPart = strings.TrimSpace(pathPart)
+	if pathPart == "" {
+		pathPart = "/"
+	}
+
 	target := *c.baseURL
-	target.Path = path.Join(strings.TrimSuffix(c.baseURL.Path, "/"), requestPath)
+	target.Path = path.Join(strings.TrimSuffix(c.baseURL.Path, "/"), pathPart)
+	target.RawQuery = rawQuery
 
 	var requestBody io.Reader
 	if body != nil {

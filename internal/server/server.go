@@ -360,25 +360,21 @@ func New(cfg Config) http.Handler {
 				return ErrRestoreHistoryUnavailable
 			}
 
-			var createErr error
-			restored, createErr = store.Create(restoreName, source.Name)
-			if createErr != nil {
-				return createErr
-			}
-
-			attachment, resolved, resolveErr := attachmentResolver.ResolveRestore(source.Name, restored.Name, restoreAt)
+			attachment, resolved, resolveErr := attachmentResolver.ResolveRestore(source.Name, restoreName, restoreAt)
 			if resolveErr != nil {
 				return resolveErr
 			}
-			resolvedLSN = strings.TrimSpace(resolved)
 
-			if strings.TrimSpace(attachment.TenantID) != "" && strings.TrimSpace(attachment.TimelineID) != "" {
-				if _, attachErr := store.SetAttachment(restored.Name, attachment.TenantID, attachment.TimelineID); attachErr != nil {
-					return attachErr
-				}
+			resolvedLSN = strings.TrimSpace(resolved)
+			tenantID := strings.TrimSpace(attachment.TenantID)
+			timelineID := strings.TrimSpace(attachment.TimelineID)
+			if resolvedLSN == "" || tenantID == "" || timelineID == "" {
+				return fmt.Errorf("%w: restore resolver returned incomplete attachment", ErrPrimaryEndpointUnavailable)
 			}
 
-			return nil
+			var createErr error
+			restored, createErr = store.CreateWithAttachment(restoreName, source.Name, tenantID, timelineID)
+			return createErr
 		})
 		if err != nil {
 			switch {
@@ -400,10 +396,6 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
 			return
-		}
-
-		if strings.TrimSpace(resolvedLSN) == "" {
-			resolvedLSN = mockResolvedLSN(restoreAt)
 		}
 
 		writeJSON(w, http.StatusCreated, restoreResponse{Restore: makeRestorePayload(restored, restoreAt, resolvedLSN)})

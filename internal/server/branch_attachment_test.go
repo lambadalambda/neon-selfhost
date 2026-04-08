@@ -202,6 +202,25 @@ func TestPageserverBranchAttachmentResolverResolveRestoreReturnsHistoryUnavailab
 	}
 }
 
+func TestPageserverBranchAttachmentResolverResolveRestoreRejectsUnknownKind(t *testing.T) {
+	store := branch.NewStore()
+	client := &fakePageserverAttachmentClient{getLSNKind: "mystery", getLSNValue: "0/16B6F50"}
+	resolver := &pageserverBranchAttachmentResolver{
+		store:     store,
+		client:    client,
+		pgVersion: 16,
+	}
+
+	if _, err := resolver.Resolve("main"); err != nil {
+		t.Fatalf("resolve main attachment: %v", err)
+	}
+
+	_, _, err := resolver.ResolveRestore("main", "restore-a", time.Date(2010, 1, 2, 0, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ErrPrimaryEndpointUnavailable) {
+		t.Fatalf("expected %v, got %v", ErrPrimaryEndpointUnavailable, err)
+	}
+}
+
 type staticBranchAttachmentResolver struct {
 	attachments map[string]BranchAttachment
 	restore     BranchAttachment

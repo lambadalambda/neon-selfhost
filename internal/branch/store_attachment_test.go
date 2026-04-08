@@ -43,3 +43,34 @@ func TestSetAttachmentRejectsMissingBranch(t *testing.T) {
 		t.Fatalf("expected %v, got %v", ErrNotFound, err)
 	}
 }
+
+func TestCreateWithAttachmentPersistsAttachment(t *testing.T) {
+	store := NewStore()
+
+	created, err := store.CreateWithAttachment("restore-a", "main", "tenant-1", "timeline-1")
+	if err != nil {
+		t.Fatalf("create with attachment: %v", err)
+	}
+
+	if created.TenantID != "tenant-1" || created.TimelineID != "timeline-1" {
+		t.Fatalf("expected created branch attachment tenant=%q timeline=%q, got tenant=%q timeline=%q", "tenant-1", "timeline-1", created.TenantID, created.TimelineID)
+	}
+
+	fetched, err := store.GetActive("restore-a")
+	if err != nil {
+		t.Fatalf("get active branch: %v", err)
+	}
+
+	if fetched.TenantID != "tenant-1" || fetched.TimelineID != "timeline-1" {
+		t.Fatalf("expected persisted attachment tenant=%q timeline=%q, got tenant=%q timeline=%q", "tenant-1", "timeline-1", fetched.TenantID, fetched.TimelineID)
+	}
+}
+
+func TestCreateWithAttachmentRejectsMissingAttachment(t *testing.T) {
+	store := NewStore()
+
+	_, err := store.CreateWithAttachment("restore-a", "main", "tenant-1", "")
+	if !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("expected %v, got %v", ErrInvalidName, err)
+	}
+}

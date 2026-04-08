@@ -152,6 +152,24 @@ func (s *Store) Create(name string, parent string) (Branch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.createLocked(name, parent, "", "")
+}
+
+func (s *Store) CreateWithAttachment(name string, parent string, tenantID string, timelineID string) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tenantID = strings.TrimSpace(tenantID)
+	timelineID = strings.TrimSpace(timelineID)
+	if tenantID == "" || timelineID == "" {
+		return Branch{}, ErrInvalidName
+	}
+
+	return s.createLocked(name, parent, tenantID, timelineID)
+}
+
+func (s *Store) createLocked(name string, parent string, tenantID string, timelineID string) (Branch, error) {
+
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Branch{}, ErrInvalidName
@@ -172,9 +190,11 @@ func (s *Store) Create(name string, parent string) (Branch, error) {
 	}
 
 	created := Branch{
-		Name:      name,
-		Parent:    parent,
-		CreatedAt: s.now().UTC(),
+		Name:       name,
+		Parent:     parent,
+		CreatedAt:  s.now().UTC(),
+		TenantID:   tenantID,
+		TimelineID: timelineID,
 	}
 	nextBranches := cloneBranches(s.branches)
 	nextBranches[name] = created

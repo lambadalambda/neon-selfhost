@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -24,7 +25,14 @@ type restoreEndpointResponse struct {
 func TestRestoreCreatesBranchFromMain(t *testing.T) {
 	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
 	store := branch.NewStoreWithClock(func() time.Time { return fixed })
-	handler := New(Config{Version: "test-version", BranchStore: store})
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{
+			restore:    BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-restore-a"},
+			restoreLSN: "0/16B6F50",
+		},
+	})
 
 	body := `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`
 	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", body)
@@ -54,6 +62,15 @@ func TestRestoreCreatesBranchFromMain(t *testing.T) {
 
 	if payload.Restore.ResolvedLSN == "" {
 		t.Fatal("expected resolved_lsn in restore response")
+	}
+
+	restored, err := store.GetActive("restore-a")
+	if err != nil {
+		t.Fatalf("get restored branch: %v", err)
+	}
+
+	if restored.TenantID != "tenant-main" || restored.TimelineID != "timeline-restore-a" {
+		t.Fatalf("expected restored attachment tenant=%q timeline=%q, got tenant=%q timeline=%q", "tenant-main", "timeline-restore-a", restored.TenantID, restored.TimelineID)
 	}
 }
 
@@ -166,6 +183,10 @@ func TestRestoreReturnsUnavailableWhenResolverFails(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "restore_unavailable")
+
+	if _, err := store.GetActive("restore-a"); !errors.Is(err, branch.ErrNotFound) {
+		t.Fatalf("expected restore branch to remain absent after resolver failure, got err=%v", err)
+	}
 }
 
 func TestRestoreReturnsHistoryUnavailableWhenResolverRejectsTimestamp(t *testing.T) {
@@ -188,4 +209,27 @@ func TestRestoreReturnsHistoryUnavailableWhenResolverRejectsTimestamp(t *testing
 	}
 
 	assertAPIErrorCode(t, res, "history_unavailable")
+
+	if _, err := store.GetActive("restore-a"); !errors.Is(err, branch.ErrNotFound) {
+		t.Fatalf("expected restore branch to remain absent after history rejection, got err=%v", err)
+	}
+}
+
+func TestRestoreReturnsUnavailableWithoutResolverIntegration(t *testing.T) {
+	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := branch.NewStoreWithClock(func() time.Time { return fixed })
+	handler := New(Config{Version: "test-version", BranchStore: store})
+
+	body := `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", body)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "restore_unavailable")
+
+	if _, err := store.GetActive("restore-a"); !errors.Is(err, branch.ErrNotFound) {
+		t.Fatalf("expected restore branch to remain absent when resolver is unavailable, got err=%v", err)
+	}
 }
