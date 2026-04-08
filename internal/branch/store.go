@@ -2,6 +2,7 @@ package branch
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -28,19 +29,24 @@ type Store struct {
 	mu       sync.RWMutex
 	now      func() time.Time
 	branches map[string]Branch
+	persist  func([]Branch) error
 }
 
 func NewStore() *Store {
-	return NewStoreWithClock(func() time.Time {
-		return time.Now().UTC()
-	})
+	return NewStoreWithClock(defaultClock)
 }
 
 func NewStoreWithClock(now func() time.Time) *Store {
+	return newStoreWithBranches(now, defaultBranchMap(now), nil)
+}
+
+func defaultClock() time.Time {
+	return time.Now().UTC()
+}
+
+func defaultBranchMap(now func() time.Time) map[string]Branch {
 	if now == nil {
-		now = func() time.Time {
-			return time.Now().UTC()
-		}
+		now = defaultClock
 	}
 
 	mainBranch := Branch{
@@ -49,11 +55,20 @@ func NewStoreWithClock(now func() time.Time) *Store {
 		CreatedAt: now().UTC(),
 	}
 
+	return map[string]Branch{
+		mainBranch.Name: mainBranch,
+	}
+}
+
+func newStoreWithBranches(now func() time.Time, branches map[string]Branch, persist func([]Branch) error) *Store {
+	if now == nil {
+		now = defaultClock
+	}
+
 	return &Store{
-		now: now,
-		branches: map[string]Branch{
-			mainBranch.Name: mainBranch,
-		},
+		now:      now,
+		branches: cloneBranches(branches),
+		persist:  persist,
 	}
 }
 
@@ -106,7 +121,11 @@ func (s *Store) Create(name string, parent string) (Branch, error) {
 		Parent:    parent,
 		CreatedAt: s.now().UTC(),
 	}
-	s.branches[name] = created
+	nextBranches := cloneBranches(s.branches)
+	nextBranches[name] = created
+	if err := s.persistAndSwap(nextBranches); err != nil {
+		return Branch{}, fmt.Errorf("persist branch state: %w", err)
+	}
 
 	return created, nil
 }
@@ -136,7 +155,45 @@ func (s *Store) SoftDelete(name string) (Branch, error) {
 	now := s.now().UTC()
 	branch.Deleted = true
 	branch.DeletedAt = &now
-	s.branches[name] = branch
+	nextBranches := cloneBranches(s.branches)
+	nextBranches[name] = branch
+	if err := s.persistAndSwap(nextBranches); err != nil {
+		return Branch{}, fmt.Errorf("persist branch state: %w", err)
+	}
 
 	return branch, nil
+}
+
+func (s *Store) persistAndSwap(next map[string]Branch) error {
+	if s.persist != nil {
+		if err := s.persist(snapshotFromMap(next)); err != nil {
+			return err
+		}
+	}
+
+	s.branches = next
+	return nil
+}
+
+func snapshotFromMap(branches map[string]Branch) []Branch {
+	names := make([]string, 0, len(branches))
+	for name := range branches {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	snapshot := make([]Branch, 0, len(names))
+	for _, name := range names {
+		snapshot = append(snapshot, branches[name])
+	}
+
+	return snapshot
+}
+
+func cloneBranches(branches map[string]Branch) map[string]Branch {
+	cloned := make(map[string]Branch, len(branches))
+	for name, b := range branches {
+		cloned[name] = b
+	}
+	return cloned
 }

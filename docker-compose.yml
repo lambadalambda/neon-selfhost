@@ -9,6 +9,8 @@ services:
     environment:
       HTTP_HOST: 0.0.0.0
       PORT: "8080"
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD before running docker compose}
       CONTROLLER_DATA_DIR: /var/lib/neon/controller
       COMPUTE_DATA_DIR: /var/lib/neon/compute
     ports:

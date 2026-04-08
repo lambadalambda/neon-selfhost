@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,9 @@ import (
 type Config struct {
 	Version     string
 	BranchStore *branch.Store
+
+	BasicAuthUser     string
+	BasicAuthPassword string
 }
 
 type statusResponse struct {
@@ -27,6 +31,10 @@ type branchResponse struct {
 
 type branchesResponse struct {
 	Branches []branchPayload `json:"branches"`
+}
+
+type operationsResponse struct {
+	Operations []operationPayload `json:"operations"`
 }
 
 type createBranchRequest struct {
@@ -51,6 +59,14 @@ type branchPayload struct {
 	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
+type operationPayload struct {
+	Type       string  `json:"type"`
+	Status     string  `json:"status"`
+	Message    string  `json:"message,omitempty"`
+	StartedAt  string  `json:"started_at"`
+	FinishedAt *string `json:"finished_at,omitempty"`
+}
+
 func New(cfg Config) http.Handler {
 	version := cfg.Version
 	if version == "" {
@@ -61,6 +77,8 @@ func New(cfg Config) http.Handler {
 	if store == nil {
 		store = branch.NewStore()
 	}
+
+	operations := newOperationManager(nil, defaultOperationLogLimit)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, _ *http.Request) {
@@ -82,6 +100,16 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, branchesResponse{Branches: payload})
 	})
 
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, _ *http.Request) {
+		entries := operations.List(defaultOperationLogLimit)
+		payload := make([]operationPayload, 0, len(entries))
+		for _, entry := range entries {
+			payload = append(payload, makeOperationPayload(entry))
+		}
+
+		writeJSON(w, http.StatusOK, operationsResponse{Operations: payload})
+	})
+
 	mux.HandleFunc("POST /api/v1/branches", func(w http.ResponseWriter, r *http.Request) {
 		var req createBranchRequest
 		if err := decodeJSONRequest(r, &req); err != nil {
@@ -89,9 +117,16 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
-		created, err := store.Create(req.Name, req.Parent)
+		var created branch.Branch
+		err := operations.Run("create_branch", func() error {
+			var createErr error
+			created, createErr = store.Create(req.Name, req.Parent)
+			return createErr
+		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrAlreadyExists):
@@ -107,9 +142,16 @@ func New(cfg Config) http.Handler {
 
 	mux.HandleFunc("DELETE /api/v1/branches/{name}", func(w http.ResponseWriter, r *http.Request) {
 		branchName := r.PathValue("name")
-		deleted, err := store.SoftDelete(branchName)
+		var deleted branch.Branch
+		err := operations.Run("delete_branch", func() error {
+			var deleteErr error
+			deleted, deleteErr = store.SoftDelete(branchName)
+			return deleteErr
+		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrProtected):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrNotFound):
@@ -123,7 +165,33 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, branchResponse{Branch: makeBranchPayload(deleted)})
 	})
 
-	return mux
+	var handler http.Handler = mux
+	if cfg.BasicAuthUser != "" && cfg.BasicAuthPassword != "" {
+		handler = withBasicAuth(handler, cfg.BasicAuthUser, cfg.BasicAuthPassword)
+	}
+
+	return handler
+}
+
+func withBasicAuth(next http.Handler, expectedUser string, expectedPassword string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providedUser, providedPassword, ok := r.BasicAuth()
+		if !ok || !secureEqual(providedUser, expectedUser) || !secureEqual(providedPassword, expectedPassword) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="neon-selfhost"`)
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func secureEqual(left string, right string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
 func decodeJSONRequest(r *http.Request, out any) error {
@@ -151,6 +219,22 @@ func makeBranchPayload(b branch.Branch) branchPayload {
 	if b.DeletedAt != nil {
 		deletedAt := b.DeletedAt.UTC().Format(time.RFC3339)
 		payload.DeletedAt = &deletedAt
+	}
+
+	return payload
+}
+
+func makeOperationPayload(op operationEntry) operationPayload {
+	payload := operationPayload{
+		Type:      op.Type,
+		Status:    op.Status,
+		Message:   op.Message,
+		StartedAt: op.StartedAt.UTC().Format(time.RFC3339),
+	}
+
+	if op.FinishedAt != nil {
+		finishedAt := op.FinishedAt.UTC().Format(time.RFC3339)
+		payload.FinishedAt = &finishedAt
 	}
 
 	return payload

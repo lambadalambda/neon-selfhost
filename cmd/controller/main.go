@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"neon-selfhost/internal/branch"
 	"neon-selfhost/internal/config"
 	"neon-selfhost/internal/server"
 )
@@ -23,7 +24,21 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	handler := server.New(server.Config{Version: version})
+	branchStore := branch.NewStore()
+	if cfg.ControllerDataDir != "" {
+		persistentStore, err := branch.NewPersistentStore(cfg.ControllerDataDir)
+		if err != nil {
+			log.Fatalf("init persistent branch store: %v", err)
+		}
+		branchStore = persistentStore
+	}
+
+	handler := server.New(server.Config{
+		Version:           version,
+		BranchStore:       branchStore,
+		BasicAuthUser:     cfg.BasicAuthUser,
+		BasicAuthPassword: cfg.BasicAuthPassword,
+	})
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           handler,

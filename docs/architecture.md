@@ -4,7 +4,7 @@
 
 `neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status and branch-management endpoints backed by an in-memory single-tenant branch store.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status and branch-management endpoints backed by a single-tenant branch store that can persist state to disk.
 
 Design target:
 
@@ -75,6 +75,7 @@ Implemented in MVP slice 1:
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
+- `GET /api/v1/operations`
 
 Planned for later slices:
 
@@ -86,9 +87,11 @@ Planned for later slices:
 
 Current API behavior notes:
 
-- Branch operations are backed by a single-process in-memory store for development.
+- Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to a local JSON state file.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
+- When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
+- State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.
 
 ## Safety Principles
 

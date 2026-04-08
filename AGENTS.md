@@ -29,3 +29,7 @@ This repository is for a Docker-first self-host control plane and web UI for Neo
 6. Keep documentation aligned with current maturity.
    - Do not describe unimplemented features as production-ready.
    - Prefer explicit labels like "planned", "experimental", or "pre-alpha" when appropriate.
+
+7. Keep delivery traceable.
+   - Commit after finishing each feature or meaningful docs slice.
+   - Keep `changelog.md` updated in the same commit with user-facing changes.

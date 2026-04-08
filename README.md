@@ -28,9 +28,9 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 ## Current Scaffold
 
 - `cmd/controller` contains the Go controller entrypoint.
-- `internal/config` contains minimal environment-based config loading.
-- `internal/branch` contains the single-tenant in-memory branch model/store.
-- `internal/server` contains the HTTP router, status endpoint, and branch CRUD endpoints for MVP slice 1.
+- `internal/config` contains environment-based config loading, including basic auth credentials.
+- `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
+- `internal/server` contains the HTTP router, status endpoint, branch CRUD endpoints, and operation log endpoint for MVP slice 1.
 - `docker-compose.yml` is a deployment skeleton. Placeholder Neon services are behind the `neon` profile until concrete images/commands are wired.
 - `Dockerfile.controller` builds a minimal controller image.
 
@@ -40,6 +40,11 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
+- `GET /api/v1/operations`
+
+When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTTP basic auth.
+
+When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
 Validation and JSON parsing failures return stable JSON error envelopes:
 
@@ -60,6 +65,13 @@ mise exec -- go run ./cmd/controller
 ```
 
 Then open `http://127.0.0.1:8080/api/v1/status`.
+
+To run with basic auth enabled:
+
+```bash
+BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=change-me mise exec -- go run ./cmd/controller
+curl -u admin:change-me http://127.0.0.1:8080/api/v1/status
+```
 
 For the future full stack, use `docker compose --profile neon up` after replacing placeholder service images/commands.
 
