@@ -10,7 +10,7 @@ Goal: `docker compose up` and complete snapshot/restore/switch workflows from UI
 - Restore to timestamp (timestamp -> LSN -> branch); controller API scaffold is implemented, Neon data-plane resolution wiring remains.
 - Primary endpoint start/stop/switch actions; controller API scaffold is implemented, Neon compute orchestration wiring remains.
 - Operation log with clear failure messages.
-- Fail-safe behavior on disk pressure (clear errors, no silent corruption or implicit destructive cleanup).
+- Fail-safe behavior on disk pressure (clear errors, no silent corruption or implicit destructive cleanup); storage-error API handling is implemented, proactive warning/guardrail automation remains.
 
 ## Phase 2 - Hardening
 

@@ -9,8 +9,10 @@
 - Restore endpoint scaffold at `POST /api/v1/restore` with RFC3339 validation, source-history checks, and restore-branch creation.
 - Primary endpoint control API scaffold at `POST /api/v1/endpoints/primary/start|stop|switch` and `GET /api/v1/endpoints/primary/connection`.
 - New tests for config loading, auth enforcement, operation logging, restore behavior, primary endpoint controls, and branch persistence.
+- Persistence error classification for branch state updates, including explicit insufficient-disk-space handling.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
 - Compose controller service now requires explicit basic auth password configuration.
 - Documentation now reflects implemented auth, persistence, and operation logging behavior.
+- Branch mutation/restore APIs now return explicit `storage_error` responses for persistence failures.

@@ -270,6 +270,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
@@ -300,6 +304,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}
@@ -325,6 +333,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}

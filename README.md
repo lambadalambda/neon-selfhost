@@ -55,6 +55,8 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 
 Primary endpoint start/stop/switch and connection APIs currently operate on controller-local endpoint state for workflow development; Neon compute orchestration wiring remains planned.
 
+Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
+
 Validation and JSON parsing failures return stable JSON error envelopes:
 
 ```json

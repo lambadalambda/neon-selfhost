@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -15,6 +16,8 @@ var (
 	ErrInvalidName   = errors.New("branch name is required")
 	ErrParentMissing = errors.New("parent branch not found")
 	ErrProtected     = errors.New("branch is protected")
+	ErrPersistFailed = errors.New("failed to persist branch state")
+	ErrNoSpace       = errors.New("insufficient disk space for branch state")
 )
 
 type Branch struct {
@@ -141,7 +144,7 @@ func (s *Store) Create(name string, parent string) (Branch, error) {
 	nextBranches := cloneBranches(s.branches)
 	nextBranches[name] = created
 	if err := s.persistAndSwap(nextBranches); err != nil {
-		return Branch{}, fmt.Errorf("persist branch state: %w", err)
+		return Branch{}, classifyPersistError(err)
 	}
 
 	return created, nil
@@ -175,7 +178,7 @@ func (s *Store) SoftDelete(name string) (Branch, error) {
 	nextBranches := cloneBranches(s.branches)
 	nextBranches[name] = branch
 	if err := s.persistAndSwap(nextBranches); err != nil {
-		return Branch{}, fmt.Errorf("persist branch state: %w", err)
+		return Branch{}, classifyPersistError(err)
 	}
 
 	return branch, nil
@@ -213,4 +216,12 @@ func cloneBranches(branches map[string]Branch) map[string]Branch {
 		cloned[name] = b
 	}
 	return cloned
+}
+
+func classifyPersistError(err error) error {
+	if errors.Is(err, syscall.ENOSPC) {
+		return fmt.Errorf("%w: %v", ErrNoSpace, err)
+	}
+
+	return fmt.Errorf("%w: %v", ErrPersistFailed, err)
 }

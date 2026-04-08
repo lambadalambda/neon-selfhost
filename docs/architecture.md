@@ -95,6 +95,7 @@ Current API behavior notes:
 - `POST /api/v1/restore` currently uses a scaffold timestamp-to-LSN resolver for controller development; Neon data-plane resolution wiring is still planned.
 - Primary endpoint start/stop/switch APIs currently manage controller-local endpoint state and serialize transitions through the operation lock.
 - `GET /api/v1/endpoints/primary/connection` returns scaffold connection details from controller state.
+- Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
 - State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.
