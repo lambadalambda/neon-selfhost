@@ -79,19 +79,43 @@ func TestPrimaryEndpointStartReturnsEndpointUnavailableErrors(t *testing.T) {
 }
 
 type fakePrimaryEndpointRuntime struct {
-	running    bool
-	runningErr error
-	startErr   error
-	stopErr    error
-	startCalls int
-	stopCalls  int
+	running        bool
+	ready          bool
+	readySet       bool
+	runtimeState   string
+	runtimeMessage string
+	statusErr      error
+	startErr       error
+	stopErr        error
+	startCalls     int
+	stopCalls      int
 }
 
-func (f *fakePrimaryEndpointRuntime) Running() (bool, error) {
-	if f.runningErr != nil {
-		return false, f.runningErr
+func (f *fakePrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, error) {
+	if f.statusErr != nil {
+		return primaryEndpointRuntimeStatus{}, f.statusErr
 	}
-	return f.running, nil
+
+	ready := f.running
+	if f.readySet {
+		ready = f.ready
+	}
+
+	state := f.runtimeState
+	if state == "" {
+		if f.running {
+			state = "running"
+		} else {
+			state = "stopped"
+		}
+	}
+
+	return primaryEndpointRuntimeStatus{
+		Running: f.running,
+		Ready:   ready,
+		State:   state,
+		Message: f.runtimeMessage,
+	}, nil
 }
 
 func (f *fakePrimaryEndpointRuntime) Start() error {

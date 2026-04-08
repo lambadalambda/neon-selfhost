@@ -87,7 +87,7 @@ Implemented in MVP slice 1:
 
 Planned for later slices:
 
-- Richer endpoint readiness and startup diagnostics sourced from Neon runtime APIs.
+- Deeper endpoint readiness and startup diagnostics sourced directly from Neon runtime APIs.
 
 Current API behavior notes:
 
@@ -99,8 +99,9 @@ Current API behavior notes:
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
 - Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
+- Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, and report `status=starting` while runtime health checks are warming up.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
-- `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state.
+- `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.

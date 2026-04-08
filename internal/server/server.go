@@ -106,15 +106,18 @@ type primaryEndpointConnectionResponse struct {
 }
 
 type primaryEndpointPayload struct {
-	Status     string `json:"status"`
-	Branch     string `json:"branch"`
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Database   string `json:"database"`
-	User       string `json:"user"`
-	TenantID   string `json:"tenant_id,omitempty"`
-	TimelineID string `json:"timeline_id,omitempty"`
-	DSN        string `json:"dsn,omitempty"`
+	Status         string `json:"status"`
+	Ready          bool   `json:"ready"`
+	RuntimeState   string `json:"runtime_state,omitempty"`
+	RuntimeMessage string `json:"runtime_message,omitempty"`
+	Branch         string `json:"branch"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	Database       string `json:"database"`
+	User           string `json:"user"`
+	TenantID       string `json:"tenant_id,omitempty"`
+	TimelineID     string `json:"timeline_id,omitempty"`
+	DSN            string `json:"dsn,omitempty"`
 }
 
 var ErrRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
@@ -154,8 +157,11 @@ func New(cfg Config) http.Handler {
 
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		primaryStatus := "ok"
-		if _, err := primaryEndpoint.Connection(); err != nil {
+		state, err := primaryEndpoint.Connection()
+		if err != nil {
 			primaryStatus = "error"
+		} else if state.Running && !state.Ready {
+			primaryStatus = "degraded"
 		}
 
 		overallStatus := "ok"

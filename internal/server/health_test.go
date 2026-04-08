@@ -78,3 +78,36 @@ func TestHealthEndpointReportsDegradedWhenPrimaryEndpointUnavailable(t *testing.
 		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
 	}
 }
+
+func TestHealthEndpointReportsDegradedWhenPrimaryEndpointStarting(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{
+		running:        true,
+		ready:          false,
+		readySet:       true,
+		runtimeState:   "running",
+		runtimeMessage: "container health check is starting",
+	}
+
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+			Host:     "127.0.0.1",
+			Port:     5432,
+			Database: "postgres",
+			User:     "postgres",
+		}, ""),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/health", "")
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload healthEndpointResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Status != "degraded" {
+		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
+	}
+}

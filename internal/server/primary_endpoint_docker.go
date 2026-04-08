@@ -27,9 +27,10 @@ type dockerEngine interface {
 }
 
 type dockerContainerSummary struct {
-	ID    string   `json:"Id"`
-	State string   `json:"State"`
-	Names []string `json:"Names"`
+	ID     string   `json:"Id"`
+	State  string   `json:"State"`
+	Status string   `json:"Status"`
+	Names  []string `json:"Names"`
 }
 
 type dockerEngineClient struct {
@@ -55,13 +56,47 @@ func newDockerPrimaryEndpointRuntime(socketPath string, project string, service 
 	return &dockerPrimaryEndpointRuntime{engine: engine, project: project, service: service}, nil
 }
 
-func (r *dockerPrimaryEndpointRuntime) Running() (bool, error) {
+func (r *dockerPrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, error) {
 	container, err := r.engine.FindComposeContainer(r.project, r.service)
 	if err != nil {
-		return false, err
+		return primaryEndpointRuntimeStatus{}, err
 	}
 
-	return container.State == "running", nil
+	state := strings.TrimSpace(container.State)
+	running := state == "running"
+	ready := running
+	message := ""
+
+	statusSummary := strings.TrimSpace(container.Status)
+	statusLower := strings.ToLower(statusSummary)
+	if running {
+		switch {
+		case strings.Contains(statusLower, "health: starting"):
+			ready = false
+			message = "container health check is starting"
+		case strings.Contains(statusLower, "health: unhealthy"), strings.Contains(statusLower, "(unhealthy)"):
+			ready = false
+			if statusSummary == "" {
+				message = "container health check is unhealthy"
+			} else {
+				message = statusSummary
+			}
+		}
+	} else {
+		ready = false
+		if statusSummary != "" {
+			message = statusSummary
+		} else {
+			message = "container is not running"
+		}
+	}
+
+	return primaryEndpointRuntimeStatus{
+		Running: running,
+		Ready:   ready,
+		State:   state,
+		Message: message,
+	}, nil
 }
 
 func (r *dockerPrimaryEndpointRuntime) Start() error {

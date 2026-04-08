@@ -60,6 +60,8 @@ Primary endpoint start/stop/switch and connection APIs orchestrate the compose `
 
 Endpoint switch still branches from the selected parent timeline head, while restore creates a new timeline anchored at the resolved timestamp LSN.
 
+`GET /api/v1/endpoints/primary/connection` now includes runtime readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) and reports `status=starting` while runtime health checks are still warming up.
+
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
 Controller startup runs a preflight check for `CONTROLLER_DATA_DIR` writability and exits early on invalid paths.

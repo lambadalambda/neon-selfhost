@@ -7,13 +7,16 @@ import (
 
 type primaryConnectionResponse struct {
 	Connection struct {
-		Status   string `json:"status"`
-		Branch   string `json:"branch"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Database string `json:"database"`
-		User     string `json:"user"`
-		DSN      string `json:"dsn,omitempty"`
+		Status         string `json:"status"`
+		Ready          bool   `json:"ready"`
+		RuntimeState   string `json:"runtime_state,omitempty"`
+		RuntimeMessage string `json:"runtime_message,omitempty"`
+		Branch         string `json:"branch"`
+		Host           string `json:"host"`
+		Port           int    `json:"port"`
+		Database       string `json:"database"`
+		User           string `json:"user"`
+		DSN            string `json:"dsn,omitempty"`
 	} `json:"connection"`
 }
 
@@ -30,6 +33,10 @@ func TestPrimaryConnectionDefaultsToStoppedMain(t *testing.T) {
 
 	if payload.Connection.Status != "stopped" {
 		t.Fatalf("expected status %q, got %q", "stopped", payload.Connection.Status)
+	}
+
+	if payload.Connection.Ready {
+		t.Fatal("expected stopped endpoint to report ready=false")
 	}
 
 	if payload.Connection.Branch != "main" {
@@ -51,6 +58,10 @@ func TestPrimaryEndpointStartThenStop(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", "running", started.Connection.Status)
 	}
 
+	if !started.Connection.Ready {
+		t.Fatal("expected started endpoint to report ready=true")
+	}
+
 	stopRes := performRequest(t, handler, http.MethodPost, "/api/v1/endpoints/primary/stop", "")
 	if stopRes.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, stopRes.Code)
@@ -60,6 +71,10 @@ func TestPrimaryEndpointStartThenStop(t *testing.T) {
 	decodeJSON(t, stopRes, &stopped)
 	if stopped.Connection.Status != "stopped" {
 		t.Fatalf("expected status %q, got %q", "stopped", stopped.Connection.Status)
+	}
+
+	if stopped.Connection.Ready {
+		t.Fatal("expected stopped endpoint to report ready=false")
 	}
 }
 
@@ -87,6 +102,10 @@ func TestPrimaryEndpointSwitchChangesBranchAndStarts(t *testing.T) {
 		t.Fatalf("expected status %q, got %q", "running", switched.Connection.Status)
 	}
 
+	if !switched.Connection.Ready {
+		t.Fatal("expected switched endpoint to report ready=true")
+	}
+
 	connRes := performRequest(t, handler, http.MethodGet, "/api/v1/endpoints/primary/connection", "")
 	if connRes.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, connRes.Code)
@@ -110,4 +129,52 @@ func TestPrimaryEndpointSwitchRejectsUnknownBranch(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "validation_error")
+}
+
+func TestPrimaryConnectionReportsStartingWhenRuntimeNotReady(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{
+		running:        true,
+		ready:          false,
+		readySet:       true,
+		runtimeState:   "running",
+		runtimeMessage: "container health check is starting",
+	}
+
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+			Host:     "127.0.0.1",
+			Port:     5432,
+			Database: "postgres",
+			User:     "postgres",
+		}, ""),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/endpoints/primary/connection", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload primaryConnectionResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Connection.Status != "starting" {
+		t.Fatalf("expected status %q, got %q", "starting", payload.Connection.Status)
+	}
+
+	if payload.Connection.Ready {
+		t.Fatal("expected ready=false while runtime is starting")
+	}
+
+	if payload.Connection.RuntimeState != "running" {
+		t.Fatalf("expected runtime_state %q, got %q", "running", payload.Connection.RuntimeState)
+	}
+
+	if payload.Connection.RuntimeMessage != "container health check is starting" {
+		t.Fatalf("expected runtime_message %q, got %q", "container health check is starting", payload.Connection.RuntimeMessage)
+	}
+
+	if payload.Connection.DSN != "" {
+		t.Fatalf("expected no DSN while endpoint is not ready, got %q", payload.Connection.DSN)
+	}
 }

@@ -51,18 +51,28 @@ type primaryEndpointConnectionInfo struct {
 }
 
 type primaryEndpointRuntime interface {
-	Running() (bool, error)
+	Status() (primaryEndpointRuntimeStatus, error)
 	Start() error
 	Stop() error
 }
 
+type primaryEndpointRuntimeStatus struct {
+	Running bool
+	Ready   bool
+	State   string
+	Message string
+}
+
 type primaryEndpointState struct {
-	Running  bool
-	Branch   string
-	Host     string
-	Port     int
-	Database string
-	User     string
+	Running        bool
+	Ready          bool
+	RuntimeState   string
+	RuntimeMessage string
+	Branch         string
+	Host           string
+	Port           int
+	Database       string
+	User           string
 
 	TenantID   string
 	TimelineID string
@@ -182,18 +192,21 @@ func (m *primaryEndpointManager) Connection() (primaryEndpointState, error) {
 	runtime := m.runtime
 	m.mu.Unlock()
 
-	running, err := runtime.Running()
+	runtimeStatus, err := runtime.Status()
 	if err != nil {
 		return primaryEndpointState{}, fmt.Errorf("query primary endpoint runtime: %w", err)
 	}
 
 	return primaryEndpointState{
-		Running:  running,
-		Branch:   branch,
-		Host:     connInfo.Host,
-		Port:     connInfo.Port,
-		Database: connInfo.Database,
-		User:     connInfo.User,
+		Running:        runtimeStatus.Running,
+		Ready:          runtimeStatus.Ready,
+		RuntimeState:   strings.TrimSpace(runtimeStatus.State),
+		RuntimeMessage: strings.TrimSpace(runtimeStatus.Message),
+		Branch:         branch,
+		Host:           connInfo.Host,
+		Port:           connInfo.Port,
+		Database:       connInfo.Database,
+		User:           connInfo.User,
 
 		TenantID:   attachment.TenantID,
 		TimelineID: attachment.TimelineID,
@@ -302,10 +315,17 @@ func newInMemoryPrimaryEndpointRuntime() *inMemoryPrimaryEndpointRuntime {
 	return &inMemoryPrimaryEndpointRuntime{}
 }
 
-func (r *inMemoryPrimaryEndpointRuntime) Running() (bool, error) {
+func (r *inMemoryPrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.running, nil
+
+	status := primaryEndpointRuntimeStatus{Running: r.running, Ready: false, State: "stopped"}
+	if r.running {
+		status.Ready = true
+		status.State = "running"
+	}
+
+	return status, nil
 }
 
 func (r *inMemoryPrimaryEndpointRuntime) Start() error {
@@ -395,19 +415,25 @@ func writeEndpointSelection(path string, selection endpointSelectionState) error
 
 func makePrimaryConnectionPayload(state primaryEndpointState) primaryEndpointPayload {
 	payload := primaryEndpointPayload{
-		Status:     "stopped",
-		Branch:     state.Branch,
-		Host:       state.Host,
-		Port:       state.Port,
-		Database:   state.Database,
-		User:       state.User,
-		TenantID:   state.TenantID,
-		TimelineID: state.TimelineID,
+		Status:         "stopped",
+		Ready:          state.Ready,
+		RuntimeState:   state.RuntimeState,
+		RuntimeMessage: state.RuntimeMessage,
+		Branch:         state.Branch,
+		Host:           state.Host,
+		Port:           state.Port,
+		Database:       state.Database,
+		User:           state.User,
+		TenantID:       state.TenantID,
+		TimelineID:     state.TimelineID,
 	}
 
 	if state.Running {
-		payload.Status = "running"
-		payload.DSN = fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=disable", state.User, state.Host, state.Port, state.Database)
+		payload.Status = "starting"
+		if state.Ready {
+			payload.Status = "running"
+			payload.DSN = fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=disable", state.User, state.Host, state.Port, state.Database)
+		}
 	}
 
 	return payload
