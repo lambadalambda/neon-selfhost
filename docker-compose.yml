@@ -1,0 +1,68 @@
+name: neon-selfhost
+
+services:
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile.controller
+    image: neon-selfhost/controller:dev
+    environment:
+      HTTP_HOST: 0.0.0.0
+      PORT: "8080"
+      CONTROLLER_DATA_DIR: /var/lib/neon/controller
+      COMPUTE_DATA_DIR: /var/lib/neon/compute
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - controller_state:/var/lib/neon/controller
+      - compute_state:/var/lib/neon/compute
+    networks:
+      - neon_internal
+
+  pageserver:
+    # TODO: Replace with a concrete Neon image tag and startup command.
+    image: ghcr.io/neondatabase/neon:replace-me
+    profiles: ["neon"]
+    volumes:
+      - pageserver_data:/var/lib/neon/pageserver
+    networks:
+      - neon_internal
+
+  safekeeper1:
+    # TODO: Replace with a concrete Neon image tag and startup command.
+    image: ghcr.io/neondatabase/neon:replace-me
+    profiles: ["neon"]
+    volumes:
+      - safekeeper1_data:/var/lib/neon/safekeeper
+    networks:
+      - neon_internal
+
+  safekeeper2:
+    # TODO: Replace with a concrete Neon image tag and startup command.
+    image: ghcr.io/neondatabase/neon:replace-me
+    profiles: ["neon"]
+    volumes:
+      - safekeeper2_data:/var/lib/neon/safekeeper
+    networks:
+      - neon_internal
+
+  safekeeper3:
+    # TODO: Replace with a concrete Neon image tag and startup command.
+    image: ghcr.io/neondatabase/neon:replace-me
+    profiles: ["neon"]
+    volumes:
+      - safekeeper3_data:/var/lib/neon/safekeeper
+    networks:
+      - neon_internal
+
+volumes:
+  controller_state:
+  compute_state:
+  pageserver_data:
+  safekeeper1_data:
+  safekeeper2_data:
+  safekeeper3_data:
+
+networks:
+  neon_internal:
+    driver: bridge

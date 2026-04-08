@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha planning scaffold. No runnable implementation is committed yet.
+Status: pre-alpha scaffold. A runnable controller stub is included (`/api/v1/status`). The full Neon data-plane compose stack is still a placeholder template.
 
 ## What This Project Is
 
@@ -24,6 +24,25 @@ Status: pre-alpha planning scaffold. No runnable implementation is committed yet
 - Manage branches/timelines from a web UI.
 - Restore to a past timestamp by creating a branch at a resolved LSN.
 - Start/stop/switch a primary compute endpoint.
+
+## Current Scaffold
+
+- `cmd/controller` contains the Go controller entrypoint.
+- `internal/config` contains minimal environment-based config loading.
+- `internal/server` contains the HTTP router and the initial status endpoint.
+- `docker-compose.yml` is a deployment skeleton. Placeholder Neon services are behind the `neon` profile until concrete images/commands are wired.
+- `Dockerfile.controller` builds a minimal controller image.
+
+## Quickstart (Controller Dev)
+
+```bash
+mise exec -- go test ./...
+mise exec -- go run ./cmd/controller
+```
+
+Then open `http://127.0.0.1:8080/api/v1/status`.
+
+For the future full stack, use `docker compose --profile neon up` after replacing placeholder service images/commands.
 
 ## Operational Caveats (MVP)
 
