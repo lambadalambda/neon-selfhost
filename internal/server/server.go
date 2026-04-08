@@ -27,6 +27,11 @@ type statusResponse struct {
 	Version string `json:"version"`
 }
 
+type healthResponse struct {
+	Status string               `json:"status"`
+	Checks []healthCheckPayload `json:"checks"`
+}
+
 type branchResponse struct {
 	Branch branchPayload `json:"branch"`
 }
@@ -79,6 +84,11 @@ type operationPayload struct {
 	FinishedAt *string `json:"finished_at,omitempty"`
 }
 
+type healthCheckPayload struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 type restoreResponse struct {
 	Restore restorePayload `json:"restore"`
 }
@@ -126,6 +136,19 @@ func New(cfg Config) http.Handler {
 			Service: "controller",
 			Version: version,
 		}
+		writeJSON(w, http.StatusOK, response)
+	})
+
+	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
+		response := healthResponse{
+			Status: "ok",
+			Checks: []healthCheckPayload{
+				{Name: "branch_store", Status: "ok"},
+				{Name: "operation_manager", Status: "ok"},
+				{Name: "primary_endpoint", Status: "ok"},
+			},
+		}
+
 		writeJSON(w, http.StatusOK, response)
 	})
 

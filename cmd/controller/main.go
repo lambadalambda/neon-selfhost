@@ -13,6 +13,7 @@ import (
 
 	"neon-selfhost/internal/branch"
 	"neon-selfhost/internal/config"
+	"neon-selfhost/internal/preflight"
 	"neon-selfhost/internal/server"
 )
 
@@ -22,6 +23,10 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+
+	if err := preflight.CheckControllerDataDir(cfg.ControllerDataDir); err != nil {
+		log.Fatalf("startup preflight: %v", err)
 	}
 
 	branchStore := branch.NewStore()

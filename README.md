@@ -38,6 +38,7 @@ Status: pre-alpha scaffold. A runnable controller with status and branch-managem
 ## Implemented API (MVP Slice 1)
 
 - `GET /api/v1/status`
+- `GET /api/v1/health`
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
@@ -57,6 +58,8 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 Primary endpoint start/stop/switch and connection APIs currently operate on controller-local endpoint state for workflow development; Neon compute orchestration wiring remains planned.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
+
+Controller startup runs a preflight check for `CONTROLLER_DATA_DIR` writability and exits early on invalid paths.
 
 Validation and JSON parsing failures return stable JSON error envelopes:
 

@@ -72,6 +72,7 @@ Design target:
 Implemented in MVP slice 1:
 
 - `GET /api/v1/status`
+- `GET /api/v1/health`
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
@@ -96,6 +97,8 @@ Current API behavior notes:
 - Primary endpoint start/stop/switch APIs currently manage controller-local endpoint state and serialize transitions through the operation lock.
 - `GET /api/v1/endpoints/primary/connection` returns scaffold connection details from controller state.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
+- `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state.
+- Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
 - State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.

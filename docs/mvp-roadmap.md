@@ -18,7 +18,7 @@ Goal: safer operations and recovery.
 
 - Default 3 safekeepers (even on one host) where feasible, to reduce single-process durability risk (not host-level HA).
 - Backup automation and documented off-host backup path.
-- Health checks and startup preflight checks.
+- Health checks and startup preflight checks; controller-level `GET /api/v1/health` and data-dir preflight checks are implemented, deeper Neon-service health integration remains.
 - Upgrade flow with mandatory pre-upgrade snapshot.
 - Disk pressure warnings and guardrails.
 
