@@ -1,10 +1,25 @@
 # neon-selfhost
 
-`neon-selfhost` aims to be a Docker-first self-hosting project for running open-source Neon with a simple admin web UI.
+`neon-selfhost` is a Docker-first control plane and web console for running open-source Neon locally.
 
-The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
+If you are new to Neon: think of it as PostgreSQL with branchable timelines, so you can spin up safe copies of data for testing, migrations, and rollback drills without cloning full environments.
 
-Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, branch-scoped endpoint lifecycle APIs, and a branch-scoped SQL editor. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, with branch attachment resolution through pageserver APIs.
+Status: pre-alpha. The core branch-first flow works in Docker mode (branch management, branch endpoint publish, branch overview, restore, and branch-scoped SQL execution), but this is still experimental and not production-ready.
+
+## What This Is
+
+- A lightweight admin layer over self-hosted Neon components.
+- A branch-first workflow for local/small-team environments.
+- A safety-oriented tool for app upgrade rehearsals and quick rollback validation.
+
+## Features (Current)
+
+- Web console at `/` with Dashboard, Branches, Branch overview, and SQL Editor pages.
+- Branch lifecycle APIs: list/create/reset/delete (soft-delete).
+- Branch endpoint APIs: publish/unpublish/list/connection, with auto-publish defaults in Docker mode.
+- Branch-scoped SQL execution API and UI integration (single statement, read-only defaults, bounded result sizes/timeouts).
+- Timestamp-based restore API (`POST /api/v1/restore`) backed by pageserver timestamp-to-LSN resolution.
+- Operator basics: HTTP basic auth, branch-state persistence, health/status endpoints, and operation log API.
 
 ## Console Preview
 
@@ -16,25 +31,11 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 
 ![Neon Selfhost SQL editor](docs/img/sql_editor.png)
 
-## What This Project Is
-
-- A thin control plane and web console for self-hosted Neon.
-- Focused on single-node, single-tenant use cases.
-- Optimized for simple operations and safe defaults.
-
-## What This Project Is Not
+## What This Is Not
 
 - A full replacement for the managed `neon.com` platform.
 - A multi-tenant cloud control plane.
-- A "run everything everywhere" orchestration layer.
-
-## Planned MVP Capabilities
-
-- Bring up Neon components with Docker Compose.
-- Manage branches/timelines from a web UI.
-- Restore to a past timestamp by creating a branch at a resolved LSN.
-- Start/stop/switch a primary compute endpoint.
-- Publish branch endpoints for per-branch direct access without primary switching.
+- A fully hardened production database platform.
 
 ## Current Scaffold
 
@@ -224,9 +225,9 @@ SELECT count(*) AS documents FROM app.documents;
 
 To verify branch isolation manually:
 
-1. In the console, switch primary endpoint to a non-`main` branch.
-2. Run a mutation (for example `DELETE FROM app.documents WHERE account_id = 1;`).
-3. Switch back to `main` and rerun counts; `main` should still show 3 accounts and 4 documents.
+1. In the console sidebar, select a non-`main` branch (create one first if needed).
+2. In SQL Editor for that branch, run a mutation (for example `DELETE FROM app.documents WHERE account_id = 1;`).
+3. Switch the sidebar branch selector back to `main` and rerun counts; `main` should still show 3 accounts and 4 documents.
 
 To stop everything:
 
@@ -252,6 +253,8 @@ mise run stack:down
 
 ## Current Status
 
-Planning and scaffolding phase.
+Pre-alpha with working end-to-end local flows for branch lifecycle, branch endpoint publish/unpublish, timestamp restore, and branch-scoped SQL execution.
+
+Expect rapid iteration, breaking changes, and incomplete hardening while the core snapshot/restore/switch model is refined.
 
 See `docs/architecture.md` for the current target design.

@@ -77,3 +77,4 @@
 - Compose controller now exposes a localhost branch endpoint port range (`56000-56049` by default) for published branch connections.
 - Branch endpoint unpublish now maps branch persistence failures to `storage_error` responses consistently with other branch mutation handlers.
 - README now includes embedded console screenshots (dashboard and SQL editor) for quick visual context on GitHub.
+- README top-level framing now includes newcomer-friendly Neon context, a clear "What This Is" and "Features" section, and updated current-state language aligned with branch-first console workflows.
