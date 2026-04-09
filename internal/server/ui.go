@@ -105,6 +105,10 @@ const consoleHTML = `<!doctype html>
       font-size: 0.92rem;
     }
 
+    .nav-list li[data-action] {
+      cursor: pointer;
+    }
+
     .nav-list li.active {
       background: #ffffff;
       border-color: var(--line);
@@ -220,6 +224,15 @@ const consoleHTML = `<!doctype html>
     .grid {
       display: grid;
       gap: 12px;
+    }
+
+    .page-section {
+      display: grid;
+      gap: 12px;
+    }
+
+    .is-hidden {
+      display: none !important;
     }
 
     .grid.two {
@@ -363,8 +376,19 @@ const consoleHTML = `<!doctype html>
       border-bottom: 0;
     }
 
+    .branches-head,
+    .branches-row {
+      min-width: 1020px;
+      grid-template-columns: 1.6fr 1fr .95fr 1.25fr .9fr 1.9fr;
+    }
+
     .cell-strong {
       font-weight: 700;
+    }
+
+    .branch-prefix {
+      color: var(--muted);
+      margin-right: 4px;
     }
 
     .mono {
@@ -576,24 +600,6 @@ const consoleHTML = `<!doctype html>
       font-size: 0.79rem;
     }
 
-    .operations {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 8px;
-      max-height: 220px;
-      overflow: auto;
-    }
-
-    .operations li {
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      background: var(--surface-soft);
-      padding: 8px 10px;
-      font-size: 0.83rem;
-    }
-
     .message {
       min-height: 22px;
       margin: 0;
@@ -661,10 +667,8 @@ const consoleHTML = `<!doctype html>
       <section class="nav-section">
         <h2>Project</h2>
         <ul class="nav-list">
-          <li class="active">Dashboard</li>
-          <li>Branches</li>
-          <li>Restore</li>
-          <li>Operations</li>
+          <li class="active" data-role="nav-dashboard" data-action="navigate" data-page="dashboard">Dashboard</li>
+          <li data-role="nav-branches" data-action="navigate" data-page="branches">Branches</li>
         </ul>
       </section>
 
@@ -680,70 +684,129 @@ const consoleHTML = `<!doctype html>
     <main class="workspace">
       <header class="topbar">
         <div class="title-stack">
-          <h1>Project dashboard</h1>
-          <p>View storage and branch health at a glance, then drive branch and endpoint workflows below.</p>
+          <h1 data-role="page-title">Project dashboard</h1>
+          <p data-role="page-subtitle">View storage and branch health at a glance, then drive branch and endpoint workflows below.</p>
         </div>
         <div class="top-actions">
           <span class="pill" data-role="health-pill">Health: checking...</span>
           <button class="btn-ghost" data-action="refresh">Refresh</button>
+          <button class="btn-primary is-hidden" data-role="new-branch-cta" data-action="focus-new-branch">New Branch</button>
         </div>
       </header>
 
-      <section class="stats">
-        <div class="stat-card">
-          <label>Compute</label>
-          <strong data-role="dashboard-compute">unknown</strong>
-        </div>
-        <div class="stat-card">
-          <label>Storage</label>
-          <strong data-role="dashboard-storage">0 B metadata</strong>
-        </div>
-        <div class="stat-card">
-          <label>Branches</label>
-          <strong data-role="dashboard-branches">0</strong>
-        </div>
-        <div class="stat-card">
-          <label>Published Endpoints</label>
-          <strong data-role="dashboard-endpoints">0</strong>
-        </div>
+      <section class="page-section" data-role="page-dashboard">
+        <section class="stats">
+          <div class="stat-card">
+            <label>Compute</label>
+            <strong data-role="dashboard-compute">unknown</strong>
+          </div>
+          <div class="stat-card">
+            <label>Storage</label>
+            <strong data-role="dashboard-storage">0 B metadata</strong>
+          </div>
+          <div class="stat-card">
+            <label>Branches</label>
+            <strong data-role="dashboard-branches">0</strong>
+          </div>
+          <div class="stat-card">
+            <label>Published Endpoints</label>
+            <strong data-role="dashboard-endpoints">0</strong>
+          </div>
+        </section>
+
+        <section class="grid two">
+          <article class="panel">
+            <header class="panel-header">
+              <h2>Monitoring</h2>
+              <p>placeholder until metrics pipeline lands</p>
+            </header>
+            <div class="panel-body">
+              <div class="monitoring-placeholder" data-role="monitoring-placeholder">
+                <div class="monitoring-chart"></div>
+                <p class="placeholder-note">Metrics are not wired yet. This area will show branch and compute charts in a future slice.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h2>Branches</h2>
+              <p>active branch summary</p>
+            </header>
+            <div class="panel-body">
+              <ul class="dashboard-branch-list" data-role="dashboard-branch-list"></ul>
+            </div>
+          </article>
+        </section>
+
+        <section class="grid two">
+          <article class="panel">
+            <header class="panel-header">
+              <h2>Primary Endpoint</h2>
+              <p data-role="endpoint-note">Loading primary connection...</p>
+            </header>
+            <div class="panel-body">
+              <div class="toolbar">
+                <span class="badge muted" data-role="endpoint-status">unknown</span>
+                <span class="mono" data-role="endpoint-address">127.0.0.1:55433</span>
+              </div>
+
+              <div class="connect-stack">
+                <div class="cmd-row">
+                  <span class="cmd-label mono">psql</span>
+                  <input class="cmd" data-role="connection-command" readonly value="Loading psql command...">
+                  <button class="btn-ghost" data-action="copy-psql-command">Copy psql</button>
+                </div>
+
+                <div class="cmd-row">
+                  <span class="cmd-label mono">DSN</span>
+                  <input class="cmd" data-role="connection-dsn" readonly value="Loading DSN...">
+                  <button class="btn-ghost" data-action="copy-dsn">Copy DSN</button>
+                </div>
+
+                <div class="cmd-row">
+                  <span class="cmd-label mono">Password</span>
+                  <input class="cmd" data-role="connection-password" readonly value="Loading password...">
+                  <button class="btn-ghost" data-action="copy-password">Copy password</button>
+                </div>
+
+                <div class="cmd-row">
+                  <span class="cmd-label mono">.env</span>
+                  <input class="cmd" data-role="connection-env" readonly value="DATABASE_URL=Loading...">
+                  <button class="btn-ghost" data-action="copy-env-snippet">Copy .env</button>
+                </div>
+              </div>
+
+              <div class="toolbar">
+                <button class="btn-primary" data-action="endpoint-start">Start</button>
+                <button class="btn-warn" data-action="endpoint-stop">Stop</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h2>Published Endpoints</h2>
+              <p>direct branch connections without primary switching</p>
+            </header>
+            <div class="panel-body">
+              <ul class="endpoint-list" data-role="endpoint-list"></ul>
+            </div>
+          </article>
+        </section>
       </section>
 
-      <section class="grid two">
-        <article class="panel">
-          <header class="panel-header">
-            <h2>Monitoring</h2>
-            <p>placeholder until metrics pipeline lands</p>
-          </header>
-          <div class="panel-body">
-            <div class="monitoring-placeholder" data-role="monitoring-placeholder">
-              <div class="monitoring-chart"></div>
-              <p class="placeholder-note">Metrics are not wired yet. This area will show branch and compute charts in a future slice.</p>
-            </div>
-          </div>
-        </article>
-
+      <section class="page-section is-hidden" data-role="page-branches">
         <article class="panel">
           <header class="panel-header">
             <h2>Branches</h2>
-            <p>active branch summary</p>
-          </header>
-          <div class="panel-body">
-            <ul class="dashboard-branch-list" data-role="dashboard-branch-list"></ul>
-          </div>
-        </article>
-      </section>
-
-      <section class="grid two">
-        <article class="panel">
-          <header class="panel-header">
-            <h2>Branch Directory</h2>
-            <p>switch, publish, connect, reset, and delete</p>
+            <p>branch list with parent lineage and endpoint controls</p>
           </header>
           <div class="panel-body">
             <form data-action="create-branch">
-              <input name="name" placeholder="new-branch-name" required>
+              <input name="name" data-role="new-branch-name" placeholder="new-branch-name" required>
               <select name="parent" data-role="parent-select"></select>
-              <button class="btn-primary" type="submit">New Branch</button>
+              <button class="btn-primary" type="submit">Create Branch</button>
             </form>
 
             <div class="toolbar">
@@ -751,99 +814,19 @@ const consoleHTML = `<!doctype html>
             </div>
 
             <div class="table-scroll">
-              <div class="table-head">
+              <div class="table-head branches-head">
                 <div>Branch</div>
                 <div>Parent</div>
-                <div>Primary</div>
+                <div>Primary compute</div>
                 <div>Endpoint</div>
+                <div>Created</div>
                 <div style="text-align:right;">Actions</div>
               </div>
               <div data-role="branch-list"></div>
             </div>
           </div>
         </article>
-
-        <article class="panel">
-          <header class="panel-header">
-            <h2>Primary Endpoint</h2>
-            <p data-role="endpoint-note">Loading primary connection...</p>
-          </header>
-          <div class="panel-body">
-            <div class="toolbar">
-              <span class="badge muted" data-role="endpoint-status">unknown</span>
-              <span class="mono" data-role="endpoint-address">127.0.0.1:55433</span>
-            </div>
-
-            <div class="connect-stack">
-              <div class="cmd-row">
-                <span class="cmd-label mono">psql</span>
-                <input class="cmd" data-role="connection-command" readonly value="Loading psql command...">
-                <button class="btn-ghost" data-action="copy-psql-command">Copy psql</button>
-              </div>
-
-              <div class="cmd-row">
-                <span class="cmd-label mono">DSN</span>
-                <input class="cmd" data-role="connection-dsn" readonly value="Loading DSN...">
-                <button class="btn-ghost" data-action="copy-dsn">Copy DSN</button>
-              </div>
-
-              <div class="cmd-row">
-                <span class="cmd-label mono">Password</span>
-                <input class="cmd" data-role="connection-password" readonly value="Loading password...">
-                <button class="btn-ghost" data-action="copy-password">Copy password</button>
-              </div>
-
-              <div class="cmd-row">
-                <span class="cmd-label mono">.env</span>
-                <input class="cmd" data-role="connection-env" readonly value="DATABASE_URL=Loading...">
-                <button class="btn-ghost" data-action="copy-env-snippet">Copy .env</button>
-              </div>
-            </div>
-
-            <div class="toolbar">
-              <button class="btn-primary" data-action="endpoint-start">Start</button>
-              <button class="btn-warn" data-action="endpoint-stop">Stop</button>
-            </div>
-          </div>
-        </article>
       </section>
-
-      <section class="grid two">
-        <article class="panel">
-          <header class="panel-header">
-            <h2>Published Endpoints</h2>
-            <p>direct branch connections without primary switching</p>
-          </header>
-          <div class="panel-body">
-            <ul class="endpoint-list" data-role="endpoint-list"></ul>
-          </div>
-        </article>
-
-        <article class="panel">
-          <header class="panel-header">
-            <h2>Restore To Timestamp</h2>
-            <p>create branch from source timeline history</p>
-          </header>
-          <div class="panel-body">
-            <form data-action="restore-branch">
-              <select name="source" data-role="restore-source"></select>
-              <input type="datetime-local" name="timestamp" required>
-              <input name="name" placeholder="optional restore branch name">
-              <button class="btn-primary" type="submit">Restore Branch</button>
-            </form>
-          </div>
-        </article>
-      </section>
-
-      <article class="panel">
-        <header class="panel-header">
-          <h2>Recent Operations</h2>
-          <p>latest controller operation log entries</p>
-        </header>
-        <div class="panel-body">
-          <ul class="operations" data-role="operations"></ul>
-        </div>
-      </article>
 
       <p class="message" data-role="message"></p>
 
@@ -859,11 +842,19 @@ const consoleHTML = `<!doctype html>
       branches: [],
       connection: null,
       endpoints: [],
-      operations: [],
       branchFilter: '',
+      currentPage: 'dashboard',
     };
 
     const refs = {
+      pageTitle: document.querySelector('[data-role="page-title"]'),
+      pageSubtitle: document.querySelector('[data-role="page-subtitle"]'),
+      pageDashboard: document.querySelector('[data-role="page-dashboard"]'),
+      pageBranches: document.querySelector('[data-role="page-branches"]'),
+      navDashboard: document.querySelector('[data-role="nav-dashboard"]'),
+      navBranches: document.querySelector('[data-role="nav-branches"]'),
+      newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
+      newBranchName: document.querySelector('[data-role="new-branch-name"]'),
       healthPill: document.querySelector('[data-role="health-pill"]'),
       endpointNote: document.querySelector('[data-role="endpoint-note"]'),
       endpointStatus: document.querySelector('[data-role="endpoint-status"]'),
@@ -875,12 +866,10 @@ const consoleHTML = `<!doctype html>
       connectionPassword: document.querySelector('[data-role="connection-password"]'),
       connectionEnv: document.querySelector('[data-role="connection-env"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
-      restoreSource: document.querySelector('[data-role="restore-source"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
       endpointList: document.querySelector('[data-role="endpoint-list"]'),
       dashboardBranchList: document.querySelector('[data-role="dashboard-branch-list"]'),
-      operations: document.querySelector('[data-role="operations"]'),
       dashboardCompute: document.querySelector('[data-role="dashboard-compute"]'),
       dashboardStorage: document.querySelector('[data-role="dashboard-storage"]'),
       dashboardBranches: document.querySelector('[data-role="dashboard-branches"]'),
@@ -907,6 +896,27 @@ const consoleHTML = `<!doctype html>
       if (kind === 'err') {
         refs.message.classList.add('err');
       }
+    }
+
+    function setPage(pageName) {
+      const nextPage = pageName === 'branches' ? 'branches' : 'dashboard';
+      state.currentPage = nextPage;
+
+      const dashboardActive = nextPage === 'dashboard';
+      refs.pageDashboard.classList.toggle('is-hidden', !dashboardActive);
+      refs.pageBranches.classList.toggle('is-hidden', dashboardActive);
+      refs.navDashboard.classList.toggle('active', dashboardActive);
+      refs.navBranches.classList.toggle('active', !dashboardActive);
+      refs.newBranchCTA.classList.toggle('is-hidden', dashboardActive);
+
+      if (dashboardActive) {
+        refs.pageTitle.textContent = 'Project dashboard';
+        refs.pageSubtitle.textContent = 'View storage and branch health at a glance, then drive branch and endpoint workflows below.';
+        return;
+      }
+
+      refs.pageTitle.textContent = String(state.branches.length) + ' Branches';
+      refs.pageSubtitle.textContent = 'Instantly branch your data to deliver faster, safer experimentation and more reliable CI/CD flows.';
     }
 
     function endpointStatusClass(status) {
@@ -1029,7 +1039,6 @@ const consoleHTML = `<!doctype html>
       const payload = JSON.stringify({
         branches: state.branches,
         endpoints: state.endpoints,
-        operations: state.operations.slice(0, 20),
       });
 
       if (typeof TextEncoder !== 'undefined') {
@@ -1141,16 +1150,30 @@ const consoleHTML = `<!doctype html>
         .map((item) => '<option value="' + escapeHTML(item.name) + '">' + escapeHTML(item.name) + '</option>')
         .join('');
 
-      refs.parentSelect.innerHTML = options;
-      refs.restoreSource.innerHTML = options;
+      refs.parentSelect.innerHTML = options || '<option value="main">main</option>';
 
       if (state.connection && state.connection.branch) {
         refs.parentSelect.value = state.connection.branch;
-        refs.restoreSource.value = state.connection.branch;
       } else {
         refs.parentSelect.value = 'main';
-        refs.restoreSource.value = 'main';
       }
+    }
+
+    function formatCreatedAt(value) {
+      if (typeof value !== 'string' || value.trim() === '') {
+        return '-';
+      }
+
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+
+      return parsed.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
     }
 
     function renderBranches() {
@@ -1162,17 +1185,42 @@ const consoleHTML = `<!doctype html>
         return item.name.toLowerCase().includes(query) || String(item.parent || '').toLowerCase().includes(query);
       });
 
-      if (!visible.length) {
-        refs.branchList.innerHTML = '<div class="table-row"><div class="cell-strong">No branches match filter.</div><div>-</div><div>-</div><div>-</div><div class="row-actions"></div></div>';
+      const sorted = visible.slice().sort((left, right) => {
+        if (left.name === 'main') {
+          return -1;
+        }
+        if (right.name === 'main') {
+          return 1;
+        }
+
+        const leftParent = String(left.parent || '');
+        const rightParent = String(right.parent || '');
+        if (leftParent === rightParent) {
+          return left.name.localeCompare(right.name);
+        }
+
+        if (leftParent === 'main') {
+          return -1;
+        }
+        if (rightParent === 'main') {
+          return 1;
+        }
+
+        return leftParent.localeCompare(rightParent);
+      });
+
+      if (!sorted.length) {
+        refs.branchList.innerHTML = '<div class="table-row branches-row"><div class="cell-strong">No branches match filter.</div><div>-</div><div>-</div><div>-</div><div>-</div><div class="row-actions"></div></div>';
         return;
       }
 
-      refs.branchList.innerHTML = visible
+      refs.branchList.innerHTML = sorted
         .map((item) => {
           const branchName = item.name;
           const endpoint = endpointByBranch(branchName);
           const isActiveBranch = state.connection && state.connection.branch === branchName;
           const isProtected = branchName === 'main';
+          const isRootBranch = branchName === 'main';
 
           const primaryStatus = isActiveBranch
             ? (state.connection && state.connection.status ? state.connection.status : 'unknown')
@@ -1190,12 +1238,17 @@ const consoleHTML = `<!doctype html>
           const resetDisabled = isProtected ? 'disabled' : '';
           const deleteDisabled = isProtected ? 'disabled' : '';
           const activeSuffix = isActiveBranch ? ' (active)' : '';
+          const defaultBadge = branchName === 'main' ? ' <span class="badge muted">Default</span>' : '';
+          const createdAt = formatCreatedAt(item.created_at);
+          const branchPrefix = isRootBranch ? '' : '<span class="branch-prefix mono">|-</span>';
+          const parentLabel = isRootBranch ? '-' : (item.parent || '-');
 
-          return '<div class="table-row">'
-            + '<div class="cell-strong">' + escapeHTML(branchName + activeSuffix) + '</div>'
-            + '<div>' + escapeHTML(item.parent || '-') + '</div>'
+          return '<div class="table-row branches-row">'
+            + '<div class="cell-strong">' + branchPrefix + escapeHTML(branchName + activeSuffix) + defaultBadge + '</div>'
+            + '<div>' + escapeHTML(parentLabel) + '</div>'
             + '<div><span class="' + endpointStatusClass(primaryStatus) + '">' + escapeHTML(primaryStatus) + '</span></div>'
             + '<div class="mono">' + escapeHTML(endpointText) + '</div>'
+            + '<div>' + escapeHTML(createdAt) + '</div>'
             + '<div class="row-actions">'
             + '<button class="btn-ghost" data-action="switch-branch" data-branch="' + escapeHTML(branchName) + '">Switch</button>'
             + publishButton
@@ -1237,23 +1290,6 @@ const consoleHTML = `<!doctype html>
         .join('');
     }
 
-    function renderOperations(operations) {
-      if (!operations.length) {
-        refs.operations.innerHTML = '<li>No operations yet.</li>';
-        return;
-      }
-
-      refs.operations.innerHTML = operations
-        .slice(0, 20)
-        .map((item) => {
-          const message = item.message ? ' - ' + item.message : '';
-          return '<li><strong>' + escapeHTML(item.type) + '</strong> '
-            + '<span class="mono">' + escapeHTML(item.status) + '</span>'
-            + '<br><small>' + escapeHTML(item.started_at + message) + '</small></li>';
-        })
-        .join('');
-    }
-
     async function loadAll() {
       try {
         showMessage('Refreshing...', '');
@@ -1263,7 +1299,6 @@ const consoleHTML = `<!doctype html>
           api('GET', '/api/v1/endpoints/primary/connection'),
           api('GET', '/api/v1/branches'),
           api('GET', '/api/v1/endpoints'),
-          api('GET', '/api/v1/operations'),
         ]);
 
         const status = responses[0];
@@ -1271,7 +1306,6 @@ const consoleHTML = `<!doctype html>
         const connection = responses[2];
         const branches = responses[3];
         const endpoints = responses[4];
-        const operations = responses[5];
 
         refs.controllerVersion.textContent = status.version || refs.controllerVersion.textContent;
         renderHealth(health);
@@ -1279,14 +1313,13 @@ const consoleHTML = `<!doctype html>
 
         state.branches = (branches.branches || []).slice();
         state.endpoints = (endpoints.endpoints || []).slice();
-        state.operations = (operations.operations || []).slice();
 
+        setPage(state.currentPage);
         renderStats();
         renderDashboardBranches();
         renderBranchSelectors();
         renderBranches();
         renderEndpoints();
-        renderOperations(state.operations);
         showMessage('Console is up to date.', 'ok');
       } catch (err) {
         showMessage('Refresh failed: ' + err.message, 'err');
@@ -1313,36 +1346,6 @@ const consoleHTML = `<!doctype html>
       }
     }
 
-    async function onRestoreSubmit(event) {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const source = form.elements.source.value.trim();
-      const name = form.elements.name.value.trim();
-      const timestampLocal = form.elements.timestamp.value;
-      if (!timestampLocal) {
-        showMessage('Restore timestamp is required.', 'err');
-        return;
-      }
-
-      const payload = {
-        source_branch: source,
-        timestamp: new Date(timestampLocal).toISOString(),
-      };
-      if (name) {
-        payload.name = name;
-      }
-
-      try {
-        const result = await api('POST', '/api/v1/restore', payload);
-        const branchName = result.restore && result.restore.branch ? result.restore.branch.name : '(unknown)';
-        showMessage('Restore branch created: ' + branchName, 'ok');
-        form.reset();
-        await loadAll();
-      } catch (err) {
-        showMessage('Restore failed: ' + err.message, 'err');
-      }
-    }
-
     async function onPanelClick(event) {
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) {
@@ -1353,6 +1356,19 @@ const consoleHTML = `<!doctype html>
       const branch = actionTarget.getAttribute('data-branch');
 
       try {
+        if (action === 'navigate') {
+          setPage(actionTarget.getAttribute('data-page'));
+          return;
+        }
+
+        if (action === 'focus-new-branch') {
+          setPage('branches');
+          if (refs.newBranchName) {
+            refs.newBranchName.focus();
+          }
+          return;
+        }
+
         if (action === 'switch-branch') {
           await api('POST', '/api/v1/endpoints/primary/switch', { branch });
           showMessage('Switched primary endpoint to ' + branch + '.', 'ok');
@@ -1459,9 +1475,9 @@ const consoleHTML = `<!doctype html>
 
     document.addEventListener('click', onPanelClick);
     document.querySelector('[data-action="create-branch"]').addEventListener('submit', onCreateBranchSubmit);
-    document.querySelector('[data-action="restore-branch"]').addEventListener('submit', onRestoreSubmit);
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
 
+    setPage('dashboard');
     loadAll();
   </script>
 </body>

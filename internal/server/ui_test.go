@@ -95,8 +95,32 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected dashboard branch list in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"page-branches\"") {
+		t.Fatal("expected branches page container in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"nav-branches\"") {
+		t.Fatal("expected branches nav item in UI response")
+	}
+
+	if strings.Contains(body, "Integrations") {
+		t.Fatal("did not expect integrations nav item in UI response")
+	}
+
+	if strings.Contains(body, "Settings") {
+		t.Fatal("did not expect settings nav item in UI response")
+	}
+
 	if !strings.Contains(body, "data-role=\"monitoring-placeholder\"") {
 		t.Fatal("expected monitoring placeholder in UI response")
+	}
+
+	if strings.Contains(body, "Restore To Timestamp") {
+		t.Fatal("did not expect restore panel in UI response")
+	}
+
+	if strings.Contains(body, "Recent Operations") {
+		t.Fatal("did not expect operations panel in UI response")
 	}
 
 	if !strings.Contains(body, "DATABASE_URL=") {
