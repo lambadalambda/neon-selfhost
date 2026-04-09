@@ -79,6 +79,26 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected branch dsn copy action in UI response")
 	}
 
+	if !strings.Contains(body, "Project dashboard") {
+		t.Fatal("expected dashboard heading in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"dashboard-storage\"") {
+		t.Fatal("expected dashboard storage metric in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"dashboard-branches\"") {
+		t.Fatal("expected dashboard branches metric in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"dashboard-branch-list\"") {
+		t.Fatal("expected dashboard branch list in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"monitoring-placeholder\"") {
+		t.Fatal("expected monitoring placeholder in UI response")
+	}
+
 	if !strings.Contains(body, "DATABASE_URL=") {
 		t.Fatal("expected env snippet label in UI response")
 	}

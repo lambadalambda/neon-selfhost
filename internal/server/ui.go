@@ -493,6 +493,89 @@ const consoleHTML = `<!doctype html>
       flex-wrap: wrap;
     }
 
+    .monitoring-placeholder {
+      border: 1px dashed rgba(98, 107, 121, 0.42);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fbfcfe, #f4f7fb);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .monitoring-chart {
+      height: 220px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(103, 114, 131, 0.06), rgba(103, 114, 131, 0.01)),
+        repeating-linear-gradient(to right, rgba(56, 67, 85, 0.08), rgba(56, 67, 85, 0.08) 1px, transparent 1px, transparent 82px),
+        repeating-linear-gradient(to top, rgba(56, 67, 85, 0.08), rgba(56, 67, 85, 0.08) 1px, transparent 1px, transparent 56px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .monitoring-chart::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 26px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, rgba(23, 143, 88, 0.65) 18%, rgba(23, 143, 88, 0.9) 50%, rgba(23, 143, 88, 0.65) 82%, transparent 100%);
+      transform: translateY(0);
+      animation: monitor-wave 5s ease-in-out infinite;
+    }
+
+    @keyframes monitor-wave {
+      0% { transform: translateY(0); }
+      25% { transform: translateY(-12px); }
+      50% { transform: translateY(-5px); }
+      75% { transform: translateY(-16px); }
+      100% { transform: translateY(0); }
+    }
+
+    .placeholder-note {
+      color: var(--muted);
+      font-size: 0.83rem;
+      margin: 0;
+    }
+
+    .dashboard-branch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 8px;
+      max-height: 278px;
+      overflow: auto;
+    }
+
+    .dashboard-branch-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      padding: 9px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .dashboard-branch-meta {
+      display: grid;
+      gap: 2px;
+    }
+
+    .dashboard-branch-meta strong {
+      font-size: 0.92rem;
+    }
+
+    .dashboard-branch-meta small {
+      color: var(--muted);
+      font-size: 0.79rem;
+    }
+
     .operations {
       list-style: none;
       margin: 0;
@@ -578,8 +661,8 @@ const consoleHTML = `<!doctype html>
       <section class="nav-section">
         <h2>Project</h2>
         <ul class="nav-list">
-          <li>Dashboard</li>
-          <li class="active">Branches</li>
+          <li class="active">Dashboard</li>
+          <li>Branches</li>
           <li>Restore</li>
           <li>Operations</li>
         </ul>
@@ -597,8 +680,8 @@ const consoleHTML = `<!doctype html>
     <main class="workspace">
       <header class="topbar">
         <div class="title-stack">
-          <h1>Branches & Computes</h1>
-          <p>Publish branch endpoints, connect directly, and keep primary workflow controls in one place.</p>
+          <h1>Project dashboard</h1>
+          <p>View storage and branch health at a glance, then drive branch and endpoint workflows below.</p>
         </div>
         <div class="top-actions">
           <span class="pill" data-role="health-pill">Health: checking...</span>
@@ -608,21 +691,46 @@ const consoleHTML = `<!doctype html>
 
       <section class="stats">
         <div class="stat-card">
+          <label>Compute</label>
+          <strong data-role="dashboard-compute">unknown</strong>
+        </div>
+        <div class="stat-card">
+          <label>Storage</label>
+          <strong data-role="dashboard-storage">0 B metadata</strong>
+        </div>
+        <div class="stat-card">
           <label>Branches</label>
-          <strong data-role="stat-branches">0</strong>
+          <strong data-role="dashboard-branches">0</strong>
         </div>
         <div class="stat-card">
           <label>Published Endpoints</label>
-          <strong data-role="stat-endpoints">0</strong>
+          <strong data-role="dashboard-endpoints">0</strong>
         </div>
-        <div class="stat-card">
-          <label>Primary Status</label>
-          <strong data-role="stat-primary">unknown</strong>
-        </div>
-        <div class="stat-card">
-          <label>Recent Operations</label>
-          <strong data-role="stat-operations">0</strong>
-        </div>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <header class="panel-header">
+            <h2>Monitoring</h2>
+            <p>placeholder until metrics pipeline lands</p>
+          </header>
+          <div class="panel-body">
+            <div class="monitoring-placeholder" data-role="monitoring-placeholder">
+              <div class="monitoring-chart"></div>
+              <p class="placeholder-note">Metrics are not wired yet. This area will show branch and compute charts in a future slice.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-header">
+            <h2>Branches</h2>
+            <p>active branch summary</p>
+          </header>
+          <div class="panel-body">
+            <ul class="dashboard-branch-list" data-role="dashboard-branch-list"></ul>
+          </div>
+        </article>
       </section>
 
       <section class="grid two">
@@ -771,11 +879,12 @@ const consoleHTML = `<!doctype html>
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
       endpointList: document.querySelector('[data-role="endpoint-list"]'),
+      dashboardBranchList: document.querySelector('[data-role="dashboard-branch-list"]'),
       operations: document.querySelector('[data-role="operations"]'),
-      statBranches: document.querySelector('[data-role="stat-branches"]'),
-      statEndpoints: document.querySelector('[data-role="stat-endpoints"]'),
-      statPrimary: document.querySelector('[data-role="stat-primary"]'),
-      statOperations: document.querySelector('[data-role="stat-operations"]'),
+      dashboardCompute: document.querySelector('[data-role="dashboard-compute"]'),
+      dashboardStorage: document.querySelector('[data-role="dashboard-storage"]'),
+      dashboardBranches: document.querySelector('[data-role="dashboard-branches"]'),
+      dashboardEndpoints: document.querySelector('[data-role="dashboard-endpoints"]'),
       message: document.querySelector('[data-role="message"]'),
       controllerVersion: document.querySelector('[data-role="controller-version"]'),
     };
@@ -898,11 +1007,82 @@ const consoleHTML = `<!doctype html>
       return null;
     }
 
+    function formatBytes(bytes) {
+      const safeBytes = Number(bytes);
+      if (!Number.isFinite(safeBytes) || safeBytes <= 0) {
+        return '0 B';
+      }
+
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = safeBytes;
+      let unitIndex = 0;
+      while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+      }
+
+      const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+      return value.toFixed(precision) + ' ' + units[unitIndex];
+    }
+
+    function estimateMetadataBytes() {
+      const payload = JSON.stringify({
+        branches: state.branches,
+        endpoints: state.endpoints,
+        operations: state.operations.slice(0, 20),
+      });
+
+      if (typeof TextEncoder !== 'undefined') {
+        return new TextEncoder().encode(payload).length;
+      }
+
+      return payload.length;
+    }
+
     function renderStats() {
-      refs.statBranches.textContent = String(state.branches.length);
-      refs.statEndpoints.textContent = String(state.endpoints.length);
-      refs.statPrimary.textContent = state.connection && state.connection.status ? state.connection.status : 'unknown';
-      refs.statOperations.textContent = String(state.operations.length);
+      const primaryStatus = state.connection && state.connection.status ? state.connection.status : 'unknown';
+      refs.dashboardCompute.textContent = primaryStatus;
+      refs.dashboardStorage.textContent = formatBytes(estimateMetadataBytes()) + ' metadata';
+      refs.dashboardBranches.textContent = String(state.branches.length);
+      refs.dashboardEndpoints.textContent = String(state.endpoints.length);
+    }
+
+    function renderDashboardBranches() {
+      if (!state.branches.length) {
+        refs.dashboardBranchList.innerHTML = '<li class="dashboard-branch-item"><div class="dashboard-branch-meta"><strong>No branches yet</strong><small>Create a branch to see dashboard activity.</small></div></li>';
+        return;
+      }
+
+      const activeBranch = state.connection && state.connection.branch ? state.connection.branch : '';
+      refs.dashboardBranchList.innerHTML = state.branches
+        .slice(0, 8)
+        .map((item) => {
+          const endpoint = endpointByBranch(item.name);
+          const isActive = item.name === activeBranch;
+
+          let status = 'idle';
+          if (isActive) {
+            status = state.connection && state.connection.status ? state.connection.status : 'unknown';
+          } else if (endpoint && endpoint.published) {
+            status = endpoint.status || 'published';
+          }
+
+          let endpointSummary = 'no published endpoint';
+          if (endpoint && endpoint.published && endpoint.port > 0) {
+            endpointSummary = (endpoint.host || '127.0.0.1') + ':' + String(endpoint.port);
+          }
+
+          const parent = item.parent || '-';
+          const activeSuffix = isActive ? ' (active)' : '';
+          return '<li class="dashboard-branch-item">'
+            + '<div class="dashboard-branch-meta">'
+            + '<strong>' + escapeHTML(item.name + activeSuffix) + '</strong>'
+            + '<small>parent: ' + escapeHTML(parent) + ' | ' + escapeHTML(endpointSummary) + '</small>'
+            + '</div>'
+            + '<span class="' + endpointStatusClass(status) + '">' + escapeHTML(status) + '</span>'
+            + '</li>';
+        })
+        .join('');
     }
 
     function renderConnection(connection) {
@@ -1102,6 +1282,7 @@ const consoleHTML = `<!doctype html>
         state.operations = (operations.operations || []).slice();
 
         renderStats();
+        renderDashboardBranches();
         renderBranchSelectors();
         renderBranches();
         renderEndpoints();
