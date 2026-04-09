@@ -103,6 +103,30 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected branch overview DSN copy action in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"nav-branch-overview\"") {
+		t.Fatal("expected branch overview nav item in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"nav-sql-editor\"") {
+		t.Fatal("expected sql editor nav item in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"page-sql-editor\"") {
+		t.Fatal("expected sql editor page container in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"sql-editor-input\"") {
+		t.Fatal("expected sql editor input in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"run-sql\"") {
+		t.Fatal("expected run sql action in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"sql-history-list\"") {
+		t.Fatal("expected sql history list in UI response")
+	}
+
 	if strings.Contains(body, "Restore To Timestamp") {
 		t.Fatal("did not expect restore panel in UI response")
 	}

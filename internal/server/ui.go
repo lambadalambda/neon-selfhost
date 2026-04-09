@@ -575,6 +575,183 @@ const consoleHTML = `<!doctype html>
       flex-wrap: wrap;
     }
 
+    .sql-shell {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      min-height: 520px;
+    }
+
+    .sql-library {
+      border-right: 1px solid var(--line);
+      background: #fafbfc;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .sql-library h3 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .sql-library small {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .sql-tabstrip {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      width: fit-content;
+      background: #fff;
+    }
+
+    .sql-tabstrip button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-radius: 0;
+      padding: 8px 12px;
+      background: #fff;
+      font-weight: 600;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .sql-tabstrip button:last-child {
+      border-right: 0;
+    }
+
+    .sql-tabstrip button.active {
+      background: #eff2f6;
+    }
+
+    .sql-history {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 8px;
+      max-height: 420px;
+      overflow: auto;
+    }
+
+    .sql-history-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 9px;
+      display: grid;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .sql-history-item strong {
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+
+    .sql-history-item small {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .sql-workspace {
+      display: grid;
+      grid-template-rows: auto 1fr auto auto;
+      min-height: 520px;
+    }
+
+    .sql-toolbar {
+      border-bottom: 1px solid var(--line);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+    }
+
+    .sql-toolbar .sql-tag {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 10px;
+      background: #fff;
+      color: #2c3440;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .sql-editor-wrap {
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      min-height: 320px;
+      max-height: 520px;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sql-lines {
+      margin: 0;
+      padding: 10px 8px;
+      border-right: 1px solid var(--line);
+      background: #f7f9fc;
+      color: #68809f;
+      font: 500 0.85rem/1.5 "JetBrains Mono", "SF Mono", monospace;
+      text-align: right;
+      overflow: hidden;
+      user-select: none;
+      white-space: pre;
+    }
+
+    .sql-editor-input {
+      border: 0;
+      border-radius: 0;
+      padding: 10px 12px;
+      width: 100%;
+      height: 100%;
+      resize: none;
+      outline: none;
+      font: 500 0.98rem/1.5 "JetBrains Mono", "SF Mono", monospace;
+      background: #ffffff;
+      color: #17304e;
+    }
+
+    .sql-status {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.9rem;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .sql-runbar {
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .sql-results {
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      background: #fcfcfd;
+      color: #2d3442;
+      font-size: 0.86rem;
+      min-height: 54px;
+    }
+
     .monitoring-placeholder {
       border: 1px dashed rgba(98, 107, 121, 0.42);
       border-radius: 10px;
@@ -709,6 +886,19 @@ const consoleHTML = `<!doctype html>
         grid-template-columns: 1fr;
       }
 
+      .sql-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sql-library {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sql-toolbar {
+        grid-template-columns: 1fr;
+      }
+
       .cmd-row {
         grid-template-columns: 1fr;
       }
@@ -740,6 +930,7 @@ const consoleHTML = `<!doctype html>
         <select class="sidebar-select" data-role="sidebar-branch-select"></select>
         <ul class="nav-list">
           <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview">Overview</li>
+          <li data-role="nav-sql-editor" data-action="navigate" data-page="sql-editor">SQL Editor</li>
         </ul>
         <div class="branch-chip">
           <span>Per-branch endpoints</span>
@@ -886,6 +1077,44 @@ const consoleHTML = `<!doctype html>
         </article>
       </section>
 
+      <section class="page-section is-hidden" data-role="page-sql-editor">
+        <div class="sql-shell">
+          <aside class="sql-library">
+            <h3>SQL Editor</h3>
+            <small data-role="sql-editor-branch-label">branch: main</small>
+            <div class="sql-tabstrip">
+              <button class="active" data-action="sql-tab" data-sql-tab="saved">Saved</button>
+              <button data-action="sql-tab" data-sql-tab="history">History</button>
+            </div>
+            <ul class="sql-history" data-role="sql-history-list"></ul>
+          </aside>
+
+          <section class="sql-workspace">
+            <div class="sql-toolbar">
+              <input data-role="sql-query-title" value="Untitled" aria-label="Query title">
+              <button class="btn-ghost" data-action="save-sql">Save</button>
+              <span class="sql-tag" data-role="sql-editor-branch-pill">main · endpoint unknown</span>
+            </div>
+
+            <div class="sql-editor-wrap">
+              <pre class="sql-lines mono" data-role="sql-editor-lines">1</pre>
+              <textarea class="sql-editor-input" data-role="sql-editor-input" spellcheck="false">SELECT now();</textarea>
+            </div>
+
+            <div class="sql-status">
+              <span data-role="sql-editor-status">Ready to connect</span>
+              <button class="btn-ghost" data-action="copy-overview-dsn">Copy branch DSN</button>
+            </div>
+
+            <div class="sql-runbar">
+              <button class="btn-primary" data-action="run-sql">Run</button>
+            </div>
+
+            <div class="sql-results" data-role="sql-editor-result">Select a branch, review SQL, then click Run.</div>
+          </section>
+        </div>
+      </section>
+
       <section class="page-section is-hidden" data-role="page-branches">
         <article class="panel">
           <header class="panel-header">
@@ -933,6 +1162,17 @@ const consoleHTML = `<!doctype html>
       endpoints: [],
       selectedBranch: 'main',
       selectedBranchConnection: null,
+      sqlTab: 'saved',
+      sqlHistory: [
+        {
+          id: 'seed-1',
+          title: 'show branch tables',
+          query: 'SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN (\'pg_catalog\', \'information_schema\') ORDER BY 1,2;',
+          saved: true,
+          branch: 'main',
+          timestamp: 'sample',
+        },
+      ],
       branchFilter: '',
       currentPage: 'dashboard',
     };
@@ -942,10 +1182,12 @@ const consoleHTML = `<!doctype html>
       pageSubtitle: document.querySelector('[data-role="page-subtitle"]'),
       pageDashboard: document.querySelector('[data-role="page-dashboard"]'),
       pageBranchOverview: document.querySelector('[data-role="page-branch-overview"]'),
+      pageSqlEditor: document.querySelector('[data-role="page-sql-editor"]'),
       pageBranches: document.querySelector('[data-role="page-branches"]'),
       navDashboard: document.querySelector('[data-role="nav-dashboard"]'),
       navBranches: document.querySelector('[data-role="nav-branches"]'),
       navBranchOverview: document.querySelector('[data-role="nav-branch-overview"]'),
+      navSqlEditor: document.querySelector('[data-role="nav-sql-editor"]'),
       newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
       newBranchName: document.querySelector('[data-role="new-branch-name"]'),
       healthPill: document.querySelector('[data-role="health-pill"]'),
@@ -959,6 +1201,15 @@ const consoleHTML = `<!doctype html>
       branchOverviewDSN: document.querySelector('[data-role="branch-overview-dsn"]'),
       branchOverviewPSQL: document.querySelector('[data-role="branch-overview-psql"]'),
       branchOverviewPassword: document.querySelector('[data-role="branch-overview-password"]'),
+      sqlEditorBranchLabel: document.querySelector('[data-role="sql-editor-branch-label"]'),
+      sqlEditorBranchPill: document.querySelector('[data-role="sql-editor-branch-pill"]'),
+      sqlHistoryList: document.querySelector('[data-role="sql-history-list"]'),
+      sqlQueryTitle: document.querySelector('[data-role="sql-query-title"]'),
+      sqlEditorInput: document.querySelector('[data-role="sql-editor-input"]'),
+      sqlEditorLines: document.querySelector('[data-role="sql-editor-lines"]'),
+      sqlEditorStatus: document.querySelector('[data-role="sql-editor-status"]'),
+      sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
+      sqlRunButton: document.querySelector('[data-action="run-sql"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
@@ -993,19 +1244,22 @@ const consoleHTML = `<!doctype html>
     }
 
     function setPage(pageName) {
-      const nextPage = pageName === 'branches' || pageName === 'branch-overview' ? pageName : 'dashboard';
+      const nextPage = pageName === 'branches' || pageName === 'branch-overview' || pageName === 'sql-editor' ? pageName : 'dashboard';
       state.currentPage = nextPage;
 
       const dashboardActive = nextPage === 'dashboard';
       const branchOverviewActive = nextPage === 'branch-overview';
+      const sqlEditorActive = nextPage === 'sql-editor';
       const branchesActive = nextPage === 'branches';
 
       refs.pageDashboard.classList.toggle('is-hidden', !dashboardActive);
       refs.pageBranchOverview.classList.toggle('is-hidden', !branchOverviewActive);
+      refs.pageSqlEditor.classList.toggle('is-hidden', !sqlEditorActive);
       refs.pageBranches.classList.toggle('is-hidden', !branchesActive);
       refs.navDashboard.classList.toggle('active', dashboardActive);
       refs.navBranches.classList.toggle('active', branchesActive);
       refs.navBranchOverview.classList.toggle('active', branchOverviewActive);
+      refs.navSqlEditor.classList.toggle('active', sqlEditorActive);
       refs.newBranchCTA.classList.toggle('is-hidden', !branchesActive);
 
       if (dashboardActive) {
@@ -1017,6 +1271,18 @@ const consoleHTML = `<!doctype html>
       if (branchesActive) {
         refs.pageTitle.textContent = String(state.branches.length) + ' Branches';
         refs.pageSubtitle.textContent = 'Instantly branch your data to deliver faster, safer experimentation and more reliable CI/CD flows.';
+        return;
+      }
+
+      if (sqlEditorActive) {
+        const selectedBranchForSQL = branchByName(state.selectedBranch);
+        refs.pageTitle.textContent = 'SQL Editor';
+        if (!selectedBranchForSQL) {
+          refs.pageSubtitle.textContent = 'Select a branch from the left sidebar to open SQL editor context.';
+          return;
+        }
+
+        refs.pageSubtitle.textContent = selectedBranchForSQL.name + (selectedBranchForSQL.name === 'main' ? ' (default)' : '') + ' · run queries against this branch endpoint';
         return;
       }
 
@@ -1328,6 +1594,7 @@ const consoleHTML = `<!doctype html>
       if (!state.selectedBranch) {
         state.selectedBranchConnection = null;
         renderBranchOverview();
+        renderSQLEditorContext();
         return;
       }
 
@@ -1342,6 +1609,104 @@ const consoleHTML = `<!doctype html>
       }
 
       renderBranchOverview();
+      renderSQLEditorContext();
+    }
+
+    function renderSQLEditorLineNumbers() {
+      const value = refs.sqlEditorInput.value || '';
+      const totalLines = value.split('\n').length;
+      const rows = [];
+      for (let line = 1; line <= totalLines; line += 1) {
+        rows.push(String(line));
+      }
+      refs.sqlEditorLines.textContent = rows.join('\n');
+      refs.sqlEditorLines.scrollTop = refs.sqlEditorInput.scrollTop;
+    }
+
+    function formatSQLHistoryTime(value) {
+      if (value === 'sample') {
+        return 'sample';
+      }
+
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+
+      return parsed.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+
+    function renderSQLHistory() {
+      const selectedBranch = state.selectedBranch || 'main';
+      const entries = state.sqlHistory.filter((item) => {
+        if (state.sqlTab === 'saved' && !item.saved) {
+          return false;
+        }
+        if (state.sqlTab === 'history' && item.saved) {
+          return false;
+        }
+
+        if (item.branch === selectedBranch) {
+          return true;
+        }
+
+        return item.branch === 'main' && selectedBranch === 'main';
+      });
+
+      if (!entries.length) {
+        refs.sqlHistoryList.innerHTML = '<li class="sql-history-item"><strong>No ' + escapeHTML(state.sqlTab) + ' queries for this branch yet.</strong><small>Run or save a query to populate this list.</small></li>';
+        return;
+      }
+
+      refs.sqlHistoryList.innerHTML = entries
+        .slice(0, 24)
+        .map((entry) => {
+          return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '">'
+            + '<strong>' + escapeHTML(entry.title) + '</strong>'
+            + '<small>' + escapeHTML((entry.branch || selectedBranch) + ' · ' + formatSQLHistoryTime(entry.timestamp)) + '</small>'
+            + '</li>';
+        })
+        .join('');
+    }
+
+    function setSQLTab(tabName) {
+      state.sqlTab = tabName === 'history' ? 'history' : 'saved';
+      document.querySelectorAll('[data-action="sql-tab"]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-sql-tab') === state.sqlTab);
+      });
+      renderSQLHistory();
+    }
+
+    function renderSQLEditorContext() {
+      const selectedBranch = branchByName(state.selectedBranch);
+      if (!selectedBranch) {
+        refs.sqlEditorBranchLabel.textContent = 'branch: (none)';
+        refs.sqlEditorBranchPill.textContent = 'no branch selected';
+        refs.sqlEditorStatus.textContent = 'Select a branch to prepare SQL connection context';
+        refs.sqlRunButton.disabled = true;
+        return;
+      }
+
+      refs.sqlEditorBranchLabel.textContent = 'branch: ' + selectedBranch.name;
+
+      const endpoint = endpointByBranch(selectedBranch.name);
+      const endpointStatus = endpoint && endpoint.published ? (endpoint.status || 'published') : 'unpublished';
+      refs.sqlEditorBranchPill.textContent = selectedBranch.name + ' · ' + endpointStatus;
+
+      const connection = state.selectedBranchConnection;
+      if (!connection || !connection.published || !connection.port) {
+        refs.sqlEditorStatus.textContent = 'Endpoint is not published for this branch yet';
+        refs.sqlRunButton.disabled = true;
+        return;
+      }
+
+      refs.sqlEditorStatus.textContent = 'Ready to connect · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
+      refs.sqlRunButton.disabled = false;
     }
 
     function formatCreatedAt(value) {
@@ -1498,6 +1863,8 @@ const consoleHTML = `<!doctype html>
         renderDashboardBranches();
         renderBranches();
         renderEndpoints();
+        renderSQLHistory();
+        renderSQLEditorLineNumbers();
         showMessage('Console is up to date.', 'ok');
       } catch (err) {
         showMessage('Refresh failed: ' + err.message, 'err');
@@ -1547,6 +1914,71 @@ const consoleHTML = `<!doctype html>
           return;
         }
 
+        if (action === 'sql-tab') {
+          setSQLTab(actionTarget.getAttribute('data-sql-tab'));
+          return;
+        }
+
+        if (action === 'open-sql-history') {
+          const sqlID = actionTarget.getAttribute('data-sql-id');
+          const entry = state.sqlHistory.find((item) => item.id === sqlID);
+          if (!entry) {
+            return;
+          }
+
+          refs.sqlQueryTitle.value = entry.title;
+          refs.sqlEditorInput.value = entry.query;
+          renderSQLEditorLineNumbers();
+          setPage('sql-editor');
+          showMessage('Loaded query from ' + state.sqlTab + ' list.', 'ok');
+          return;
+        }
+
+        if (action === 'save-sql') {
+          const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
+          const query = refs.sqlEditorInput.value;
+          const branchName = state.selectedBranch || 'main';
+          state.sqlHistory.unshift({
+            id: 'saved-' + Date.now(),
+            title,
+            query,
+            saved: true,
+            branch: branchName,
+            timestamp: new Date().toISOString(),
+          });
+          setSQLTab('saved');
+          showMessage('Query saved locally for ' + branchName + '.', 'ok');
+          return;
+        }
+
+        if (action === 'run-sql') {
+          const branchName = state.selectedBranch || 'main';
+          const connection = state.selectedBranchConnection;
+          if (!connection || !connection.published || !connection.port) {
+            throw new Error('branch endpoint is not published');
+          }
+
+          const query = refs.sqlEditorInput.value.trim();
+          if (!query) {
+            throw new Error('query is empty');
+          }
+
+          const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
+          state.sqlHistory.unshift({
+            id: 'run-' + Date.now(),
+            title,
+            query,
+            saved: false,
+            branch: branchName,
+            timestamp: new Date().toISOString(),
+          });
+          renderSQLHistory();
+
+          refs.sqlEditorResult.textContent = 'Execution preview: SQL runner endpoint is not implemented yet. Use Copy DSN and run this query via psql or your client.';
+          showMessage('Query recorded in history for ' + branchName + '.', 'ok');
+          return;
+        }
+
         if (action === 'copy-branch-dsn') {
           if (branch && branch !== state.selectedBranch) {
             state.selectedBranch = branch;
@@ -1567,8 +1999,9 @@ const consoleHTML = `<!doctype html>
         }
 
         if (action === 'copy-overview-dsn') {
-          await copyTextToClipboard(refs.branchOverviewDSN.value);
-          showMessage('Branch overview DSN copied.', 'ok');
+          const value = state.currentPage === 'sql-editor' ? (state.selectedBranchConnection && state.selectedBranchConnection.dsn ? state.selectedBranchConnection.dsn : refs.branchOverviewDSN.value) : refs.branchOverviewDSN.value;
+          await copyTextToClipboard(value);
+          showMessage('Branch DSN copied.', 'ok');
           return;
         }
 
@@ -1619,6 +2052,7 @@ const consoleHTML = `<!doctype html>
 
     async function onSidebarBranchSelectChange(event) {
       state.selectedBranch = event.target.value.trim();
+      renderSQLHistory();
       setPage('branch-overview');
       renderBranches();
       await refreshSelectedBranchConnection(false);
@@ -1628,7 +2062,13 @@ const consoleHTML = `<!doctype html>
     document.querySelector('[data-action="create-branch"]').addEventListener('submit', onCreateBranchSubmit);
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
     refs.sidebarBranchSelect.addEventListener('change', onSidebarBranchSelectChange);
+    refs.sqlEditorInput.addEventListener('input', renderSQLEditorLineNumbers);
+    refs.sqlEditorInput.addEventListener('scroll', function onSQLEditorScroll() {
+      refs.sqlEditorLines.scrollTop = refs.sqlEditorInput.scrollTop;
+    });
 
+    setSQLTab('saved');
+    renderSQLEditorLineNumbers();
     setPage('dashboard');
     loadAll();
   </script>
