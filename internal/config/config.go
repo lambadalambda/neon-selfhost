@@ -23,6 +23,9 @@ const (
 	defaultDockerComposeProject    = "neon-selfhost"
 	defaultPageserverAPI           = "http://pageserver:9898"
 	defaultPageserverPGVersion     = 16
+	defaultBranchEndpointBindHost  = "127.0.0.1"
+	defaultBranchEndpointPortStart = 56000
+	defaultBranchEndpointPortEnd   = 56049
 )
 
 type Config struct {
@@ -46,6 +49,10 @@ type Config struct {
 
 	PageserverAPI       string
 	PageserverPGVersion int
+
+	BranchEndpointBindHost  string
+	BranchEndpointPortStart int
+	BranchEndpointPortEnd   int
 }
 
 func Load() (Config, error) {
@@ -141,6 +148,33 @@ func Load() (Config, error) {
 		pageserverPGVersion = parsedPageserverPGVersion
 	}
 
+	branchEndpointBindHost := strings.TrimSpace(os.Getenv("BRANCH_ENDPOINT_BIND_HOST"))
+	if branchEndpointBindHost == "" {
+		branchEndpointBindHost = defaultBranchEndpointBindHost
+	}
+
+	branchEndpointPortStart := defaultBranchEndpointPortStart
+	if rawPortStart, exists := os.LookupEnv("BRANCH_ENDPOINT_PORT_START"); exists && rawPortStart != "" {
+		parsedPortStart, err := strconv.Atoi(rawPortStart)
+		if err != nil || parsedPortStart < 1 || parsedPortStart > 65535 {
+			return Config{}, fmt.Errorf("invalid BRANCH_ENDPOINT_PORT_START %q", rawPortStart)
+		}
+		branchEndpointPortStart = parsedPortStart
+	}
+
+	branchEndpointPortEnd := defaultBranchEndpointPortEnd
+	if rawPortEnd, exists := os.LookupEnv("BRANCH_ENDPOINT_PORT_END"); exists && rawPortEnd != "" {
+		parsedPortEnd, err := strconv.Atoi(rawPortEnd)
+		if err != nil || parsedPortEnd < 1 || parsedPortEnd > 65535 {
+			return Config{}, fmt.Errorf("invalid BRANCH_ENDPOINT_PORT_END %q", rawPortEnd)
+		}
+		branchEndpointPortEnd = parsedPortEnd
+	}
+
+	if branchEndpointPortEnd < branchEndpointPortStart {
+		return Config{}, fmt.Errorf("BRANCH_ENDPOINT_PORT_END must be greater than or equal to BRANCH_ENDPOINT_PORT_START")
+	}
+
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
 	}
@@ -170,6 +204,10 @@ func Load() (Config, error) {
 
 		PageserverAPI:       pageserverAPI,
 		PageserverPGVersion: pageserverPGVersion,
+
+		BranchEndpointBindHost:  branchEndpointBindHost,
+		BranchEndpointPortStart: branchEndpointPortStart,
+		BranchEndpointPortEnd:   branchEndpointPortEnd,
 	}, nil
 }
 

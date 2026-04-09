@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const defaultDockerSocketPath = "/var/run/docker.sock"
+const (
+	defaultDockerSocketPath  = "/var/run/docker.sock"
+	dockerEngineHTTPTimeout  = 30 * time.Second
+	dockerContainerStopGrace = 10
+)
 
 type dockerPrimaryEndpointRuntime struct {
 	engine  dockerEngine
@@ -35,6 +39,49 @@ type dockerContainerSummary struct {
 
 type dockerEngineClient struct {
 	httpClient *http.Client
+}
+
+type dockerContainerInspect struct {
+	ID     string `json:"Id"`
+	Name   string `json:"Name"`
+	Config struct {
+		Image string `json:"Image"`
+	} `json:"Config"`
+	State struct {
+		Status  string `json:"Status"`
+		Running bool   `json:"Running"`
+	} `json:"State"`
+}
+
+type dockerCreateContainerRequest struct {
+	Name        string
+	Image       string
+	Entrypoint  []string
+	Env         []string
+	Labels      map[string]string
+	HostConfig  dockerCreateHostConfig
+	Networking  map[string]dockerCreateEndpointSettings
+	AutoRemove  bool
+	WorkingDir  string
+	User        string
+	AttachStdin bool
+}
+
+type dockerCreateHostConfig struct {
+	NetworkMode string              `json:"NetworkMode,omitempty"`
+	Mounts      []dockerMountConfig `json:"Mounts,omitempty"`
+	AutoRemove  bool                `json:"AutoRemove,omitempty"`
+}
+
+type dockerMountConfig struct {
+	Type     string `json:"Type"`
+	Source   string `json:"Source"`
+	Target   string `json:"Target"`
+	ReadOnly bool   `json:"ReadOnly,omitempty"`
+}
+
+type dockerCreateEndpointSettings struct {
+	Aliases []string `json:"Aliases,omitempty"`
 }
 
 func newDockerPrimaryEndpointRuntime(socketPath string, project string, service string) (primaryEndpointRuntime, error) {
@@ -148,7 +195,7 @@ func newDockerEngineClient(socketPath string) (*dockerEngineClient, error) {
 				return dialer.DialContext(ctx, "unix", socketPath)
 			},
 		},
-		Timeout: 10 * time.Second,
+		Timeout: dockerEngineHTTPTimeout,
 	}
 
 	return &dockerEngineClient{httpClient: httpClient}, nil
@@ -230,7 +277,8 @@ func (c *dockerEngineClient) StartContainer(containerID string) error {
 }
 
 func (c *dockerEngineClient) StopContainer(containerID string) error {
-	req, err := http.NewRequest(http.MethodPost, "http://docker/containers/"+containerID+"/stop?t=10", nil)
+	stopURL := fmt.Sprintf("http://docker/containers/%s/stop?t=%d", containerID, dockerContainerStopGrace)
+	req, err := http.NewRequest(http.MethodPost, stopURL, nil)
 	if err != nil {
 		return fmt.Errorf("%w: build docker stop request: %v", ErrPrimaryEndpointUnavailable, err)
 	}
@@ -251,6 +299,152 @@ func (c *dockerEngineClient) StopContainer(containerID string) error {
 
 	body := readResponseBody(res.Body)
 	return fmt.Errorf("%w: docker stop failed with status %d: %s", ErrPrimaryEndpointUnavailable, res.StatusCode, body)
+}
+
+func (c *dockerEngineClient) InspectContainerByName(name string) (dockerContainerInspect, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return dockerContainerInspect{}, false, fmt.Errorf("%w: container name is required", ErrPrimaryEndpointUnavailable)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "http://docker/containers/"+url.PathEscape(name)+"/json", nil)
+	if err != nil {
+		return dockerContainerInspect{}, false, fmt.Errorf("%w: build docker inspect request: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return dockerContainerInspect{}, false, fmt.Errorf("%w: inspect docker container: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNotFound {
+		return dockerContainerInspect{}, false, nil
+	}
+
+	if res.StatusCode != http.StatusOK {
+		body := readResponseBody(res.Body)
+		return dockerContainerInspect{}, false, fmt.Errorf("%w: docker inspect failed with status %d: %s", ErrPrimaryEndpointUnavailable, res.StatusCode, body)
+	}
+
+	var payload dockerContainerInspect
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return dockerContainerInspect{}, false, fmt.Errorf("%w: decode docker inspect response: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	return payload, true, nil
+}
+
+func (c *dockerEngineClient) CreateContainer(reqSpec dockerCreateContainerRequest) (string, error) {
+	if strings.TrimSpace(reqSpec.Name) == "" {
+		return "", fmt.Errorf("%w: container name is required", ErrPrimaryEndpointUnavailable)
+	}
+
+	if strings.TrimSpace(reqSpec.Image) == "" {
+		return "", fmt.Errorf("%w: container image is required", ErrPrimaryEndpointUnavailable)
+	}
+
+	payload := struct {
+		Image            string                               `json:"Image"`
+		Entrypoint       []string                             `json:"Entrypoint,omitempty"`
+		Env              []string                             `json:"Env,omitempty"`
+		Labels           map[string]string                    `json:"Labels,omitempty"`
+		HostConfig       dockerCreateHostConfig               `json:"HostConfig,omitempty"`
+		WorkingDir       string                               `json:"WorkingDir,omitempty"`
+		User             string                               `json:"User,omitempty"`
+		AttachStdin      bool                                 `json:"AttachStdin,omitempty"`
+		NetworkingConfig *dockerCreateNetworkingConfigPayload `json:"NetworkingConfig,omitempty"`
+	}{
+		Image:       reqSpec.Image,
+		Entrypoint:  reqSpec.Entrypoint,
+		Env:         reqSpec.Env,
+		Labels:      reqSpec.Labels,
+		HostConfig:  reqSpec.HostConfig,
+		WorkingDir:  reqSpec.WorkingDir,
+		User:        reqSpec.User,
+		AttachStdin: reqSpec.AttachStdin,
+	}
+
+	if len(reqSpec.Networking) > 0 {
+		payload.NetworkingConfig = &dockerCreateNetworkingConfigPayload{EndpointsConfig: reqSpec.Networking}
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("%w: encode docker create request: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	query := url.Values{}
+	query.Set("name", reqSpec.Name)
+
+	httpReq, err := http.NewRequest(http.MethodPost, "http://docker/containers/create?"+query.Encode(), strings.NewReader(string(body)))
+	if err != nil {
+		return "", fmt.Errorf("%w: build docker create request: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("%w: create docker container: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusCreated {
+		body := readResponseBody(res.Body)
+		return "", fmt.Errorf("%w: docker create failed with status %d: %s", ErrPrimaryEndpointUnavailable, res.StatusCode, body)
+	}
+
+	var createPayload struct {
+		ID string `json:"Id"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&createPayload); err != nil {
+		return "", fmt.Errorf("%w: decode docker create response: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	if strings.TrimSpace(createPayload.ID) == "" {
+		return "", fmt.Errorf("%w: docker create returned empty container id", ErrPrimaryEndpointUnavailable)
+	}
+
+	return createPayload.ID, nil
+}
+
+type dockerCreateNetworkingConfigPayload struct {
+	EndpointsConfig map[string]dockerCreateEndpointSettings `json:"EndpointsConfig"`
+}
+
+func (c *dockerEngineClient) RemoveContainer(containerID string, force bool) error {
+	containerID = strings.TrimSpace(containerID)
+	if containerID == "" {
+		return nil
+	}
+
+	query := url.Values{}
+	if force {
+		query.Set("force", "1")
+	}
+
+	urlPath := "http://docker/containers/" + url.PathEscape(containerID)
+	if encoded := query.Encode(); encoded != "" {
+		urlPath += "?" + encoded
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, urlPath, nil)
+	if err != nil {
+		return fmt.Errorf("%w: build docker remove request: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: remove docker container: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusNoContent || res.StatusCode == http.StatusNotFound {
+		return nil
+	}
+
+	body := readResponseBody(res.Body)
+	return fmt.Errorf("%w: docker remove failed with status %d: %s", ErrPrimaryEndpointUnavailable, res.StatusCode, body)
 }
 
 func readResponseBody(body io.Reader) string {

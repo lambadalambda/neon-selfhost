@@ -4,13 +4,13 @@
 
 `neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute and Docker-backed compute lifecycle orchestration.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute and Docker-backed primary/branch compute lifecycle orchestration.
 
 Design target:
 
 - One admin user.
 - One tenant.
-- One primary database endpoint.
+- One primary database endpoint plus optional published branch endpoints.
 - Branching and restore workflows that are safe and easy.
 
 ## Terminology
@@ -30,7 +30,7 @@ Design target:
 2. Neon data-plane services
    - Pageserver for timeline/page history.
    - Safekeeper(s) for WAL durability.
-   - Compute endpoint for PostgreSQL client traffic.
+   - Compute endpoint for primary PostgreSQL traffic plus branch-specific on-demand endpoints.
    - Broker if required by the selected Neon runtime wiring (Neon internal coordination service used by some control/runtime paths).
 
 3. Persistent storage
@@ -41,6 +41,7 @@ Design target:
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
   - `55433` -> Primary PostgreSQL endpoint
+  - `56000-56049` -> Published branch PostgreSQL endpoints (configurable)
 - If exposing beyond localhost, terminate TLS in a reverse proxy and do not treat basic auth alone as Internet-grade security.
 - Internal-only services:
   - Storage broker gRPC port
@@ -65,9 +66,16 @@ Design target:
    - Fail clearly when the timestamp is outside retained history or required WAL/page history is unavailable.
 
 3. Switch primary endpoint
-   - Stop endpoint.
-   - Reattach/start on target branch.
-   - Return fresh connection details.
+    - Stop endpoint.
+    - Reattach/start on target branch.
+    - Return fresh connection details.
+
+4. Publish branch endpoint
+   - Resolve branch tenant/timeline attachment.
+   - Allocate a branch endpoint host port from configured range.
+   - Start controller-side TCP gateway listener.
+   - Lazily start branch compute on first client connection.
+   - Return branch-scoped connection details without switching primary.
 
 ## Controller API
 
@@ -79,12 +87,16 @@ Implemented in MVP slice 1:
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `POST /api/v1/branches/{name}/reset`
+- `POST /api/v1/branches/{name}/publish`
+- `POST /api/v1/branches/{name}/unpublish`
+- `GET /api/v1/branches/{name}/connection`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
 - `POST /api/v1/endpoints/primary/stop`
 - `POST /api/v1/endpoints/primary/switch`
 - `GET /api/v1/endpoints/primary/connection`
+- `GET /api/v1/endpoints` (published branch endpoint list)
 - `GET /api/v1/operations`
 
 Planned for later slices:
@@ -100,9 +112,13 @@ Current API behavior notes:
 - `POST /api/v1/restore` resolves timestamp-to-LSN via pageserver APIs and creates a restore timeline using `ancestor_start_lsn`.
 - `POST /api/v1/restore` fails closed with `restore_unavailable` when pageserver-backed restore integration is unavailable.
 - `POST /api/v1/branches/{name}/reset` creates a fresh child timeline from the branch parent head and re-attaches the branch to that timeline.
+- Branch endpoint publish/unpublish/list/connection APIs are implemented; publish allocates a per-branch host port and unpublish tears down listener/container state.
+- Branch endpoint publish state (`published` + `port`) is persisted with branch metadata.
+- Published branch endpoints are available in Docker mode and use a controller TCP gateway that lazy-starts branch compute on first client connection.
 - Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
+- Branch reset refreshes published branch endpoint selection metadata; branch delete unpublishes branch endpoint state before soft-delete.
 - Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
 - Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
 - Endpoint connection responses include endpoint credential metadata (`user`, `password`) alongside runtime diagnostics.

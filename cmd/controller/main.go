@@ -57,6 +57,11 @@ func main() {
 	))
 
 	branchAttachmentResolver := server.NewNoopBranchAttachmentResolver()
+	branchEndpoints := server.NewNoopBranchEndpointController(
+		cfg.PrimaryEndpointHost,
+		cfg.PrimaryEndpointDatabase,
+		cfg.PrimaryEndpointUser,
+	)
 
 	if cfg.PrimaryEndpointMode == "docker" {
 		dockerPrimaryEndpoint, err := server.NewDockerPrimaryEndpointController(server.DockerPrimaryEndpointOptions{
@@ -86,6 +91,25 @@ func main() {
 		}
 
 		branchAttachmentResolver = pageserverResolver
+
+		dockerBranchEndpoints, err := server.NewDockerBranchEndpointController(server.DockerBranchEndpointOptions{
+			Store:          branchStore,
+			SocketPath:     cfg.DockerSocketPath,
+			ComposeProject: cfg.DockerComposeProject,
+			AdvertisedHost: cfg.PrimaryEndpointHost,
+			BindHost:       cfg.BranchEndpointBindHost,
+			PortStart:      cfg.BranchEndpointPortStart,
+			PortEnd:        cfg.BranchEndpointPortEnd,
+			Database:       cfg.PrimaryEndpointDatabase,
+			User:           cfg.PrimaryEndpointUser,
+			ComputeDataDir: cfg.ComputeDataDir,
+			PGVersion:      cfg.PageserverPGVersion,
+		})
+		if err != nil {
+			log.Fatalf("init docker branch endpoint controller: %v", err)
+		}
+
+		branchEndpoints = dockerBranchEndpoints
 	}
 
 	handler := server.New(server.Config{
@@ -93,6 +117,7 @@ func main() {
 		BranchStore:              branchStore,
 		BranchAttachmentResolver: branchAttachmentResolver,
 		PrimaryEndpoint:          primaryEndpoint,
+		BranchEndpoints:          branchEndpoints,
 		BasicAuthUser:            cfg.BasicAuthUser,
 		BasicAuthPassword:        cfg.BasicAuthPassword,
 	})

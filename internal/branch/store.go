@@ -30,6 +30,9 @@ type Branch struct {
 	TenantID   string
 	TimelineID string
 	Password   string
+
+	EndpointPublished bool
+	EndpointPort      int
 }
 
 type Store struct {
@@ -177,6 +180,40 @@ func (s *Store) SetPassword(name string, password string) (Branch, error) {
 	}
 
 	return branch, nil
+}
+
+func (s *Store) SetEndpoint(name string, published bool, port int) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Branch{}, ErrNotFound
+	}
+
+	if published {
+		if port < 1 || port > 65535 {
+			return Branch{}, ErrInvalidName
+		}
+	} else {
+		port = 0
+	}
+
+	b, exists := s.branches[name]
+	if !exists || b.Deleted {
+		return Branch{}, ErrNotFound
+	}
+
+	b.EndpointPublished = published
+	b.EndpointPort = port
+
+	nextBranches := cloneBranches(s.branches)
+	nextBranches[name] = b
+	if err := s.persistAndSwap(nextBranches); err != nil {
+		return Branch{}, classifyPersistError(err)
+	}
+
+	return b, nil
 }
 
 func (s *Store) Create(name string, parent string) (Branch, error) {

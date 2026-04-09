@@ -13,4 +13,9 @@ RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries && \
 RUN mkdir -p /ext-src/pg_hint_plan-src /postgres/contrib/file_fdw /ext-src/postgis-src/ && \
     chown postgres /ext-src/pg_hint_plan-src /postgres/contrib/file_fdw /ext-src/postgis-src
 
+RUN mkdir -p /shell /var/db/postgres/configs
+COPY --chown=postgres:postgres shell/ /shell/
+COPY --chown=postgres:postgres var/db/postgres/configs/ /var/db/postgres/configs/
+RUN chmod 0755 /shell/compute.sh
+
 USER postgres

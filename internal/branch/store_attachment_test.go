@@ -126,3 +126,63 @@ func TestCreateWithAttachmentAndPasswordPersistsCredentials(t *testing.T) {
 		t.Fatalf("unexpected credentials on created branch: tenant=%q timeline=%q password=%q", created.TenantID, created.TimelineID, created.Password)
 	}
 }
+
+func TestSetEndpointPersistsPublishedPort(t *testing.T) {
+	store := NewStore()
+
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	updated, err := store.SetEndpoint("feature-a", true, 56001)
+	if err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+
+	if !updated.EndpointPublished || updated.EndpointPort != 56001 {
+		t.Fatalf("expected published endpoint on port %d, got published=%v port=%d", 56001, updated.EndpointPublished, updated.EndpointPort)
+	}
+
+	fetched, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get active branch: %v", err)
+	}
+
+	if !fetched.EndpointPublished || fetched.EndpointPort != 56001 {
+		t.Fatalf("expected persisted endpoint published=%v port=%d, got published=%v port=%d", true, 56001, fetched.EndpointPublished, fetched.EndpointPort)
+	}
+}
+
+func TestSetEndpointClearsPortWhenUnpublished(t *testing.T) {
+	store := NewStore()
+
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	if _, err := store.SetEndpoint("feature-a", true, 56001); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+
+	updated, err := store.SetEndpoint("feature-a", false, 12345)
+	if err != nil {
+		t.Fatalf("clear endpoint: %v", err)
+	}
+
+	if updated.EndpointPublished || updated.EndpointPort != 0 {
+		t.Fatalf("expected unpublished endpoint with port 0, got published=%v port=%d", updated.EndpointPublished, updated.EndpointPort)
+	}
+}
+
+func TestSetEndpointRejectsInvalidPort(t *testing.T) {
+	store := NewStore()
+
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	_, err := store.SetEndpoint("feature-a", true, 0)
+	if !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("expected %v, got %v", ErrInvalidName, err)
+	}
+}

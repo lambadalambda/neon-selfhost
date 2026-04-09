@@ -25,6 +25,10 @@ func TestPersistentStoreReloadsState(t *testing.T) {
 		t.Fatalf("set attachment: %v", err)
 	}
 
+	if _, err := store.SetEndpoint("feature-a", true, 56001); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+
 	if _, err := store.SoftDelete("feature-a"); err != nil {
 		t.Fatalf("soft delete branch: %v", err)
 	}
@@ -45,6 +49,10 @@ func TestPersistentStoreReloadsState(t *testing.T) {
 
 	if _, err := reloaded.Create("feature-a", "main"); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("expected %v after reload, got %v", ErrAlreadyExists, err)
+	}
+
+	if _, err := reloaded.SetEndpoint("feature-a", true, 56002); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected %v when setting endpoint on deleted branch, got %v", ErrNotFound, err)
 	}
 
 	feature, err := reloaded.GetActive("main")

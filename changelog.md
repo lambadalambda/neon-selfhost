@@ -33,6 +33,10 @@
 - Primary endpoint connection payload now includes endpoint password metadata, and the web console exposes password-aware connection helpers.
 - Branch-scoped credential generation with random passwords for create/restore flows, persisted in branch state and applied on endpoint start/switch.
 - Branch reset endpoint at `POST /api/v1/branches/{name}/reset` to recreate branch attachment from parent timeline head.
+- Branch endpoint APIs for per-branch direct access: `POST /api/v1/branches/{name}/publish`, `POST /api/v1/branches/{name}/unpublish`, `GET /api/v1/branches/{name}/connection`, and `GET /api/v1/endpoints`.
+- Docker-backed branch endpoint controller with persisted publish metadata, per-branch host-port allocation, and lazy branch-compute startup on first client connection.
+- Branch endpoint controller wiring in the controller runtime, including Docker-mode initialization and branch endpoint config via `BRANCH_ENDPOINT_BIND_HOST`, `BRANCH_ENDPOINT_PORT_START`, and `BRANCH_ENDPOINT_PORT_END`.
+- Branch endpoint API tests covering publish/unpublish/list/connection behavior and reset/delete integration points.
 
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.
@@ -41,6 +45,8 @@
 - Endpoint selection file writes now use cross-container-readable permissions so compute can consume updated branch attachment metadata.
 - Compute wrapper startup now clears stale local Postgres socket lock files before launching compute to avoid restart-time lock collisions after branch switches.
 - Reset/seed tooling now pins compose operations to this repository, adds HTTP timeout + transport-failure handling, and adds a non-local target safety gate for destructive resets.
+- Compute wrapper image now bakes in `/shell/compute.sh` and compute config assets so dynamically created branch compute containers can boot without host bind mounts.
+- Docker endpoint stop orchestration now uses a longer Docker Engine API client timeout to avoid premature timeout errors during primary endpoint branch switches.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -55,3 +61,5 @@
 - Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is unavailable.
 - Documentation now clarifies readiness-based DSN emission and unhealthy primary endpoint status behavior.
 - Reset/seed workflow now sets `branch_lab` default search path to `app, public` so seeded tables are visible with `\d`/`\dt` in `psql`.
+- Branch reset now refreshes published branch endpoint attachment selection, and branch delete now unpublishes branch endpoint state before soft-delete.
+- Compose controller now exposes a localhost branch endpoint port range (`56000-56049` by default) for published branch connections.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type Config struct {
 	BranchStore              *branch.Store
 	BranchAttachmentResolver BranchAttachmentResolver
 	PrimaryEndpoint          PrimaryEndpointController
+	BranchEndpoints          BranchEndpointController
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -105,6 +107,14 @@ type primaryEndpointConnectionResponse struct {
 	Connection primaryEndpointPayload `json:"connection"`
 }
 
+type branchEndpointConnectionEnvelope struct {
+	Connection branchEndpointPayload `json:"connection"`
+}
+
+type branchEndpointsEnvelope struct {
+	Endpoints []branchEndpointPayload `json:"endpoints"`
+}
+
 type primaryEndpointPayload struct {
 	Status         string `json:"status"`
 	Ready          bool   `json:"ready"`
@@ -119,6 +129,22 @@ type primaryEndpointPayload struct {
 	TenantID       string `json:"tenant_id,omitempty"`
 	TimelineID     string `json:"timeline_id,omitempty"`
 	DSN            string `json:"dsn,omitempty"`
+}
+
+type branchEndpointPayload struct {
+	Branch            string `json:"branch"`
+	Published         bool   `json:"published"`
+	Status            string `json:"status"`
+	Host              string `json:"host"`
+	Port              int    `json:"port"`
+	Database          string `json:"database"`
+	User              string `json:"user"`
+	Password          string `json:"password,omitempty"`
+	TenantID          string `json:"tenant_id,omitempty"`
+	TimelineID        string `json:"timeline_id,omitempty"`
+	ActiveConnections int    `json:"active_connections,omitempty"`
+	LastError         string `json:"last_error,omitempty"`
+	DSN               string `json:"dsn,omitempty"`
 }
 
 var ErrRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
@@ -142,6 +168,11 @@ func New(cfg Config) http.Handler {
 	attachmentResolver := cfg.BranchAttachmentResolver
 	if attachmentResolver == nil {
 		attachmentResolver = NewNoopBranchAttachmentResolver()
+	}
+
+	branchEndpoints := cfg.BranchEndpoints
+	if branchEndpoints == nil {
+		branchEndpoints = NewNoopBranchEndpointController(defaultPrimaryEndpointHost, defaultPrimaryEndpointDatabase, defaultPrimaryEndpointUser)
 	}
 
 	operations := newOperationManager(nil, defaultOperationLogLimit)
@@ -219,6 +250,145 @@ func New(cfg Config) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, primaryEndpointConnectionResponse{Connection: makePrimaryConnectionPayload(state)})
+	})
+
+	mux.HandleFunc("GET /api/v1/endpoints", func(w http.ResponseWriter, _ *http.Request) {
+		states, err := branchEndpoints.List()
+		if err != nil {
+			if isPrimaryEndpointUnavailable(err) {
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+				return
+			}
+
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		payload := make([]branchEndpointPayload, 0, len(states))
+		for _, state := range states {
+			payload = append(payload, makeBranchEndpointPayload(state))
+		}
+
+		writeJSON(w, http.StatusOK, branchEndpointsEnvelope{Endpoints: payload})
+	})
+
+	mux.HandleFunc("POST /api/v1/branches/{name}/publish", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+
+		var state branchEndpointState
+		err := operations.Run("publish_branch_endpoint", func() error {
+			if _, getErr := store.GetActive(branchName); getErr != nil {
+				return getErr
+			}
+
+			attachment, resolveErr := attachmentResolver.Resolve(branchName)
+			if resolveErr != nil {
+				return resolveErr
+			}
+
+			if _, setErr := store.SetAttachment(branchName, attachment.TenantID, attachment.TimelineID); setErr != nil {
+				return setErr
+			}
+
+			securedBranch, passwordErr := ensureBranchPassword(store, branchName)
+			if passwordErr != nil {
+				return passwordErr
+			}
+
+			var publishErr error
+			state, publishErr = branchEndpoints.Publish(branchName, attachment, securedBranch.Password)
+			return publishErr
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, branchEndpointConnectionEnvelope{Connection: makeBranchEndpointPayload(state)})
+	})
+
+	mux.HandleFunc("POST /api/v1/branches/{name}/unpublish", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+
+		var state branchEndpointState
+		err := operations.Run("unpublish_branch_endpoint", func() error {
+			if _, getErr := store.GetActive(branchName); getErr != nil {
+				return getErr
+			}
+
+			var unpublishErr error
+			state, unpublishErr = branchEndpoints.Unpublish(branchName)
+			return unpublishErr
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, branchEndpointConnectionEnvelope{Connection: makeBranchEndpointPayload(state)})
+	})
+
+	mux.HandleFunc("GET /api/v1/branches/{name}/connection", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+
+		if _, err := store.GetActive(branchName); err != nil {
+			if errors.Is(err, branch.ErrNotFound) {
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+				return
+			}
+
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		state, err := branchEndpoints.Connection(branchName)
+		if err != nil {
+			switch {
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, branchEndpointConnectionEnvelope{Connection: makeBranchEndpointPayload(state)})
 	})
 
 	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
@@ -513,6 +683,10 @@ func New(cfg Config) http.Handler {
 				return attachErr
 			}
 
+			if refreshErr := branchEndpoints.Refresh(branchName, attachment, securedBranch.Password); refreshErr != nil {
+				return refreshErr
+			}
+
 			connectionState, connErr := primaryEndpoint.Connection()
 			if connErr != nil {
 				return connErr
@@ -552,6 +726,14 @@ func New(cfg Config) http.Handler {
 		branchName := r.PathValue("name")
 		var deleted branch.Branch
 		err := operations.Run("delete_branch", func() error {
+			if _, getErr := store.GetActive(branchName); getErr != nil {
+				return getErr
+			}
+
+			if _, unpublishErr := branchEndpoints.Unpublish(branchName); unpublishErr != nil {
+				return unpublishErr
+			}
+
 			var deleteErr error
 			deleted, deleteErr = store.SoftDelete(branchName)
 			return deleteErr
@@ -564,6 +746,8 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
 			case errors.Is(err, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
 			case errors.Is(err, branch.ErrPersistFailed):
@@ -658,6 +842,36 @@ func makeRestorePayload(restored branch.Branch, requestedAt time.Time, resolvedL
 		RequestedAt: requestedAt.UTC().Format(time.RFC3339),
 		ResolvedLSN: resolvedLSN,
 	}
+}
+
+func makeBranchEndpointPayload(state branchEndpointState) branchEndpointPayload {
+	payload := branchEndpointPayload{
+		Branch:            state.Branch,
+		Published:         state.Published,
+		Status:            state.Status,
+		Host:              state.Host,
+		Port:              state.Port,
+		Database:          state.Database,
+		User:              state.User,
+		Password:          state.Password,
+		TenantID:          state.TenantID,
+		TimelineID:        state.TimelineID,
+		ActiveConnections: state.ActiveConnections,
+		LastError:         state.LastError,
+	}
+
+	ready := payload.Published && (payload.Status == "running" || payload.Status == "active")
+	if ready && payload.Host != "" && payload.Port > 0 && payload.Database != "" && payload.User != "" {
+		payload.DSN = (&url.URL{
+			Scheme:   "postgres",
+			User:     url.UserPassword(payload.User, payload.Password),
+			Host:     fmt.Sprintf("%s:%d", payload.Host, payload.Port),
+			Path:     "/" + url.PathEscape(payload.Database),
+			RawQuery: "sslmode=disable",
+		}).String()
+	}
+
+	return payload
 }
 
 func normalizeRestoreRequest(req restoreRequest) (string, time.Time, string, error) {

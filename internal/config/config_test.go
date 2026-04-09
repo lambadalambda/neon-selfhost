@@ -159,6 +159,18 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	if cfg.PageserverPGVersion != defaultPageserverPGVersion {
 		t.Fatalf("expected pageserver pg version %d, got %d", defaultPageserverPGVersion, cfg.PageserverPGVersion)
 	}
+
+	if cfg.BranchEndpointBindHost != defaultBranchEndpointBindHost {
+		t.Fatalf("expected branch endpoint bind host %q, got %q", defaultBranchEndpointBindHost, cfg.BranchEndpointBindHost)
+	}
+
+	if cfg.BranchEndpointPortStart != defaultBranchEndpointPortStart {
+		t.Fatalf("expected branch endpoint port start %d, got %d", defaultBranchEndpointPortStart, cfg.BranchEndpointPortStart)
+	}
+
+	if cfg.BranchEndpointPortEnd != defaultBranchEndpointPortEnd {
+		t.Fatalf("expected branch endpoint port end %d, got %d", defaultBranchEndpointPortEnd, cfg.BranchEndpointPortEnd)
+	}
 }
 
 func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
@@ -173,6 +185,9 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("DOCKER_COMPOSE_PROJECT", "custom-project")
 	t.Setenv("PAGESERVER_API", "http://pageserver.internal:9898")
 	t.Setenv("PAGESERVER_PG_VERSION", "17")
+	t.Setenv("BRANCH_ENDPOINT_BIND_HOST", "0.0.0.0")
+	t.Setenv("BRANCH_ENDPOINT_PORT_START", "56100")
+	t.Setenv("BRANCH_ENDPOINT_PORT_END", "56199")
 
 	cfg, err := Load()
 	if err != nil {
@@ -222,6 +237,18 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	if cfg.PageserverPGVersion != 17 {
 		t.Fatalf("expected pageserver pg version %d, got %d", 17, cfg.PageserverPGVersion)
 	}
+
+	if cfg.BranchEndpointBindHost != "0.0.0.0" {
+		t.Fatalf("expected branch endpoint bind host %q, got %q", "0.0.0.0", cfg.BranchEndpointBindHost)
+	}
+
+	if cfg.BranchEndpointPortStart != 56100 {
+		t.Fatalf("expected branch endpoint port start %d, got %d", 56100, cfg.BranchEndpointPortStart)
+	}
+
+	if cfg.BranchEndpointPortEnd != 56199 {
+		t.Fatalf("expected branch endpoint port end %d, got %d", 56199, cfg.BranchEndpointPortEnd)
+	}
 }
 
 func TestLoadRejectsInvalidPrimaryEndpointMode(t *testing.T) {
@@ -248,5 +275,15 @@ func TestLoadRejectsInvalidPageserverPGVersion(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid pageserver pg version")
+	}
+}
+
+func TestLoadRejectsInvalidBranchEndpointPortRange(t *testing.T) {
+	t.Setenv("BRANCH_ENDPOINT_PORT_START", "56200")
+	t.Setenv("BRANCH_ENDPOINT_PORT_END", "56100")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid branch endpoint port range")
 	}
 }

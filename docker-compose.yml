@@ -25,8 +25,12 @@ services:
       DOCKER_COMPOSE_PROJECT: neon-selfhost
       PAGESERVER_API: http://pageserver:9898
       PAGESERVER_PG_VERSION: "16"
+      BRANCH_ENDPOINT_BIND_HOST: 0.0.0.0
+      BRANCH_ENDPOINT_PORT_START: "56000"
+      BRANCH_ENDPOINT_PORT_END: "56049"
     ports:
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:56000-56049:56000-56049"
     volumes:
       - controller_state:/var/lib/neon/controller
       - compute_state:/var/lib/neon/compute

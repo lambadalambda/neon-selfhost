@@ -255,6 +255,56 @@ func TestResetBranchReturnsUnavailableWithoutPageserverResolver(t *testing.T) {
 	assertAPIErrorCode(t, res, "endpoint_unavailable")
 }
 
+func TestResetBranchRefreshesPublishedEndpoint(t *testing.T) {
+	store := branch.NewStore()
+	branchEndpoints := &fakeBranchEndpointController{}
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{resets: map[string]BranchAttachment{
+			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-reset"},
+		}},
+		BranchEndpoints: branchEndpoints,
+	})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	if _, err := store.SetAttachment("feature-a", "tenant-main", "timeline-old"); err != nil {
+		t.Fatalf("set initial attachment: %v", err)
+	}
+
+	resetRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if resetRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, resetRes.Code)
+	}
+
+	if len(branchEndpoints.refreshCalls) != 1 || branchEndpoints.refreshCalls[0] != "feature-a" {
+		t.Fatalf("expected refresh call for feature-a, got %#v", branchEndpoints.refreshCalls)
+	}
+}
+
+func TestDeleteBranchUnpublishesEndpointBeforeDelete(t *testing.T) {
+	branchEndpoints := &fakeBranchEndpointController{}
+	handler := New(Config{Version: "test-version", BranchEndpoints: branchEndpoints})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	deleteRes := performRequest(t, handler, http.MethodDelete, "/api/v1/branches/feature-a", "")
+	if deleteRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, deleteRes.Code)
+	}
+
+	if len(branchEndpoints.unpublishCalls) != 1 || branchEndpoints.unpublishCalls[0] != "feature-a" {
+		t.Fatalf("expected unpublish call for feature-a, got %#v", branchEndpoints.unpublishCalls)
+	}
+}
+
 func performRequest(t *testing.T, handler http.Handler, method string, path string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 

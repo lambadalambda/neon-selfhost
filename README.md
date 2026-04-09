@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, and endpoint lifecycle APIs. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, and endpoint switch/start resolve branch tenant/timeline attachments through pageserver APIs.
+Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, and endpoint lifecycle APIs. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, with primary endpoint switch/start and branch endpoint publish flows resolving tenant/timeline attachments through pageserver APIs.
 
 ## What This Project Is
 
@@ -24,13 +24,14 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 - Manage branches/timelines from a web UI.
 - Restore to a past timestamp by creating a branch at a resolved LSN.
 - Start/stop/switch a primary compute endpoint.
+- Publish branch endpoints for per-branch direct access without primary switching.
 
 ## Current Scaffold
 
 - `cmd/controller` contains the Go controller entrypoint.
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
-- `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, primary endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
+- `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, primary and branch endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
 - `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers/compute under the `neon` profile.
 - `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
 - `configs/neon/compute_wrapper` contains the compute wrapper image/build files used by compose for local compute startup.
@@ -43,12 +44,16 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `POST /api/v1/branches/{name}/reset`
+- `POST /api/v1/branches/{name}/publish`
+- `POST /api/v1/branches/{name}/unpublish`
+- `GET /api/v1/branches/{name}/connection`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
 - `POST /api/v1/endpoints/primary/stop`
 - `POST /api/v1/endpoints/primary/switch`
 - `GET /api/v1/endpoints/primary/connection`
+- `GET /api/v1/endpoints` (published branch endpoints)
 - `GET /api/v1/operations`
 
 When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console and API routes require HTTP basic auth.
@@ -70,6 +75,10 @@ Connection `dsn` is returned only when `ready=true`.
 The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, password value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
+
+Published branch endpoints are Docker-mode only: `POST /api/v1/branches/{name}/publish` allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
+
+Branch reset (`POST /api/v1/branches/{name}/reset`) refreshes published branch endpoint attachment metadata in addition to primary-endpoint metadata. Branch delete now unpublishes branch endpoint state before soft-delete.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
@@ -116,8 +125,10 @@ mise run stack:ps
 ```
 
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
-The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
+The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
 Use `PRIMARY_ENDPOINT_PASSWORD` if endpoint credentials differ from the default `cloud_admin` value.
+
+Compose also exposes a localhost branch endpoint range (`56000-56049` by default). Tune this via `BRANCH_ENDPOINT_BIND_HOST`, `BRANCH_ENDPOINT_PORT_START`, and `BRANCH_ENDPOINT_PORT_END`.
 
 ## Smoke Testing
 
