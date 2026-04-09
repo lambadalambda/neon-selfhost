@@ -156,6 +156,50 @@ The backing script is `scripts/reset_seed_data.sh`.
 If your SQL password differs from the default, set `DB_PASSWORD` when running these tasks.
 This workflow drops and recreates the target database; it refuses non-local `BASE_URL` by default unless you explicitly set `ALLOW_REMOTE_RESET=1` (or pass `--force` to the script).
 
+### Seeded Test Dataset
+
+`mise run db:reset-seed` (or `mise run db:verify*`) creates database `branch_lab` on `main` with:
+
+- Schema: `app`
+- Tables:
+  - `app.accounts` (`id`, `slug`, `tier`, `created_at`)
+  - `app.documents` (`id`, `account_id`, `title`, `body`, `created_at`)
+- Seed rows:
+  - `app.accounts`: `acme` (`pro`), `globex` (`starter`), `initech` (`enterprise`)
+  - `app.documents`: 4 rows total (2 for `acme`, 1 for `globex`, 1 for `initech`)
+
+### View Seed Data With psql
+
+Connect to the seeded DB:
+
+```bash
+PGPASSWORD=cloud_admin psql "postgresql://cloud_admin@127.0.0.1:55433/branch_lab?sslmode=disable"
+```
+
+Useful inspection queries:
+
+```sql
+\dt app.*
+
+SELECT id, slug, tier, created_at
+FROM app.accounts
+ORDER BY id;
+
+SELECT d.id, a.slug AS account, d.title, d.body, d.created_at
+FROM app.documents d
+JOIN app.accounts a ON a.id = d.account_id
+ORDER BY d.id;
+
+SELECT count(*) AS accounts FROM app.accounts;
+SELECT count(*) AS documents FROM app.documents;
+```
+
+To verify branch isolation manually:
+
+1. In the console, switch primary endpoint to a non-`main` branch.
+2. Run a mutation (for example `DELETE FROM app.documents WHERE account_id = 1;`).
+3. Switch back to `main` and rerun counts; `main` should still show 3 accounts and 4 documents.
+
 To stop everything:
 
 ```bash

@@ -44,6 +44,7 @@
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
 - Compose controller service now requires explicit basic auth password configuration.
 - Documentation now reflects implemented auth, persistence, and operation logging behavior.
+- Documentation now describes the seeded `branch_lab` fixture dataset and includes `psql` queries for manual branch-isolation checks.
 - Branch mutation/restore APIs now return explicit `storage_error` responses for persistence failures.
 - Documentation now reflects concrete compose storage-plane wiring and remaining compute-orchestration gap.
 - Documentation now reflects health/preflight behavior and current scope boundaries for Neon-service health integration.
