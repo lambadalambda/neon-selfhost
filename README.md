@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha scaffold. A runnable controller with status, branch-management, restore, and endpoint lifecycle endpoints is included. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, and endpoint switch/start now resolve branch tenant/timeline attachments through pageserver APIs.
+Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, and endpoint lifecycle APIs. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, and endpoint switch/start resolve branch tenant/timeline attachments through pageserver APIs.
 
 ## What This Project Is
 
@@ -30,7 +30,7 @@ Status: pre-alpha scaffold. A runnable controller with status, branch-management
 - `cmd/controller` contains the Go controller entrypoint.
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
-- `internal/server` contains the HTTP router, status/health endpoints, branch and restore endpoints, primary endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
+- `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, primary endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
 - `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers/compute under the `neon` profile.
 - `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
 - `configs/neon/compute_wrapper` contains the compute wrapper image/build files used by compose for local compute startup.
@@ -50,7 +50,7 @@ Status: pre-alpha scaffold. A runnable controller with status, branch-management
 - `GET /api/v1/endpoints/primary/connection`
 - `GET /api/v1/operations`
 
-When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, API routes require HTTP basic auth.
+When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console and API routes require HTTP basic auth.
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
@@ -88,7 +88,7 @@ mise exec -- go test ./...
 mise exec -- go run ./cmd/controller
 ```
 
-Then open `http://127.0.0.1:8080/api/v1/status`.
+Then open `http://127.0.0.1:8080/`.
 
 To run with basic auth enabled:
 

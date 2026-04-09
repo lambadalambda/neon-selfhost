@@ -73,6 +73,7 @@ Design target:
 
 Implemented in MVP slice 1:
 
+- `GET /` (controller web console)
 - `GET /api/v1/status`
 - `GET /api/v1/health`
 - `GET /api/v1/branches`
@@ -92,6 +93,7 @@ Planned for later slices:
 Current API behavior notes:
 
 - Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to a local JSON state file.
+- `GET /` serves a single-page controller console for branch, restore, endpoint, and operation-log workflows.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
 - `POST /api/v1/restore` resolves timestamp-to-LSN via pageserver APIs and creates a restore timeline using `ancestor_start_lsn`.
@@ -106,7 +108,7 @@ Current API behavior notes:
 - `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
-- When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, API routes require HTTP basic auth.
+- When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, the web console and API routes require HTTP basic auth.
 - State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.
 
 ## Safety Principles

@@ -146,6 +146,10 @@ func New(cfg Config) http.Handler {
 	operations := newOperationManager(nil, defaultOperationLogLimit)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+		writeConsoleUI(w, version)
+	})
+
 	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		response := statusResponse{
 			Status:  "ok",
