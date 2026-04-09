@@ -59,12 +59,40 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected branch reset action in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"branch-filter\"") {
+		t.Fatal("expected branch filter in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"endpoint-list\"") {
+		t.Fatal("expected published endpoint list in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"publish-branch-endpoint\"") {
+		t.Fatal("expected publish endpoint action in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"unpublish-branch-endpoint\"") {
+		t.Fatal("expected unpublish endpoint action in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-branch-dsn\"") {
+		t.Fatal("expected branch dsn copy action in UI response")
+	}
+
 	if !strings.Contains(body, "DATABASE_URL=") {
 		t.Fatal("expected env snippet label in UI response")
 	}
 
 	if !strings.Contains(body, "/api/v1/endpoints/primary/connection") {
 		t.Fatal("expected UI script to call primary connection API")
+	}
+
+	if !strings.Contains(body, "/api/v1/endpoints") {
+		t.Fatal("expected UI script to call branch endpoints list API")
+	}
+
+	if !strings.Contains(body, "/connection") {
+		t.Fatal("expected UI script to call per-branch connection API")
 	}
 }
 

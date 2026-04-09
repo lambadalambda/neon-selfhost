@@ -37,6 +37,7 @@
 - Docker-backed branch endpoint controller with persisted publish metadata, per-branch host-port allocation, and lazy branch-compute startup on first client connection.
 - Branch endpoint controller wiring in the controller runtime, including Docker-mode initialization and branch endpoint config via `BRANCH_ENDPOINT_BIND_HOST`, `BRANCH_ENDPOINT_PORT_START`, and `BRANCH_ENDPOINT_PORT_END`.
 - Branch endpoint API tests covering publish/unpublish/list/connection behavior and reset/delete integration points.
+- Console branch management UI now includes branch endpoint publish/unpublish controls, branch DSN copy actions, published endpoint status list, and branch filtering in a Neon-style branch/compute layout.
 
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.
