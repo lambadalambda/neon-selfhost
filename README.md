@@ -113,7 +113,27 @@ Validation and JSON parsing failures return stable JSON error envelopes:
 
 Oversized JSON request bodies return `request_too_large` (`413`): most write/control routes cap request bodies at 1 MiB, and `POST /api/v1/branches/{name}/sql/execute` uses a tighter 128 KiB cap.
 
-## Quickstart (Controller Dev)
+## Quickstart (Full Local Stack)
+
+```bash
+BASIC_AUTH_PASSWORD=change-me mise run stack:up
+mise run stack:ps
+```
+
+Then open `http://127.0.0.1:8080/` and sign in with:
+
+- user: `admin`
+- password: `change-me`
+
+This starts a usable controller + Neon storage/compute stack immediately.
+
+To stop the stack:
+
+```bash
+mise run stack:down
+```
+
+## Quickstart (Controller Dev Only)
 
 ```bash
 mise exec -- go test ./...
@@ -129,7 +149,7 @@ BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=change-me mise exec -- go run ./cmd/co
 curl -u admin:change-me http://127.0.0.1:8080/api/v1/status
 ```
 
-To bring up the controller plus Neon storage/compute services, set `BASIC_AUTH_PASSWORD` and run:
+To bring up the controller plus Neon storage/compute services without mise tasks, set `BASIC_AUTH_PASSWORD` and run:
 
 ```bash
 BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
