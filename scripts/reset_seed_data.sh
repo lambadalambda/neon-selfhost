@@ -4,7 +4,7 @@ set -euo pipefail
 AUTH_USER="${BASIC_AUTH_USER:-admin}"
 AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
-DB_PASSWORD="${DB_PASSWORD:-cloud_admin}"
+DB_PASSWORD="${DB_PASSWORD:-}"
 SEED_DATABASE="${SEED_DATABASE:-branch_lab}"
 ALLOW_REMOTE_RESET="${ALLOW_REMOTE_RESET:-0}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
@@ -39,7 +39,7 @@ Environment:
   BASIC_AUTH_PASSWORD   Controller basic auth password (default: change-me)
   BASE_URL              Controller base URL (default: http://127.0.0.1:8080)
   ALLOW_REMOTE_RESET    Set to 1 to allow destructive reset on non-local BASE_URL.
-  DB_PASSWORD           SQL password for endpoint user (default: cloud_admin)
+  DB_PASSWORD           SQL password override for endpoint user (default: active branch password from API)
   SEED_DATABASE         Database to drop/create/seed (default: branch_lab)
   CURL_CONNECT_TIMEOUT  Curl connect timeout in seconds (default: 5)
   CURL_MAX_TIME         Curl request timeout in seconds (default: 30)
@@ -192,11 +192,12 @@ wait_for_ready_branch() {
 
 wait_for_sql_ready() {
   local database_name="$1"
-  local uri attempt
+  local uri password attempt
   uri="$(db_uri_for "${database_name}")"
+  password="$(db_password_for)"
 
   for attempt in $(seq 1 90); do
-    if PGPASSWORD="${DB_PASSWORD}" psql "${uri}" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' >/dev/null 2>&1; then
+    if PGPASSWORD="${password}" psql "${uri}" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -237,14 +238,35 @@ db_uri_for() {
   printf 'postgresql://%s@%s:%s/%s?sslmode=disable' "${user}" "${host}" "${port}" "${database_name}"
 }
 
+db_password_for() {
+  local connection_json
+  connection_json="$(api_json GET /api/v1/endpoints/primary/connection)"
+
+  local connection_password
+  connection_password="$(jq -r '.connection.password // empty' <<<"${connection_json}")"
+
+  if [[ -n "${DB_PASSWORD}" ]]; then
+    printf '%s' "${DB_PASSWORD}"
+    return 0
+  fi
+
+  if [[ -n "${connection_password}" ]]; then
+    printf '%s' "${connection_password}"
+    return 0
+  fi
+
+  printf '%s' "cloud_admin"
+}
+
 psql_exec() {
   local database_name="$1"
   local sql_text="$2"
-  local uri attempt
+  local uri password attempt
   uri="$(db_uri_for "${database_name}")"
+  password="$(db_password_for)"
 
   for attempt in $(seq 1 5); do
-    if PGPASSWORD="${DB_PASSWORD}" psql "${uri}" -v ON_ERROR_STOP=1 -qAt -c "${sql_text}"; then
+    if PGPASSWORD="${password}" psql "${uri}" -v ON_ERROR_STOP=1 -qAt -c "${sql_text}"; then
       return 0
     fi
 
@@ -259,14 +281,15 @@ psql_exec() {
 psql_exec_file() {
   local database_name="$1"
   local sql_text="$2"
-  local uri attempt sql_file
+  local uri password attempt sql_file
   uri="$(db_uri_for "${database_name}")"
+  password="$(db_password_for)"
 
   sql_file="$(mktemp)"
   printf '%s\n' "${sql_text}" >"${sql_file}"
 
   for attempt in $(seq 1 5); do
-    if PGPASSWORD="${DB_PASSWORD}" psql "${uri}" -v ON_ERROR_STOP=1 -f "${sql_file}"; then
+    if PGPASSWORD="${password}" psql "${uri}" -v ON_ERROR_STOP=1 -f "${sql_file}"; then
       rm -f "${sql_file}"
       return 0
     fi

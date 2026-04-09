@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"neon-selfhost/internal/branch"
 )
 
 type branchesListResponse struct {
@@ -190,6 +192,67 @@ func TestDeleteUnknownBranchNotFound(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "not_found")
+}
+
+func TestResetBranchUpdatesAttachment(t *testing.T) {
+	store := branch.NewStore()
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{resets: map[string]BranchAttachment{
+			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-reset"},
+		}},
+	})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	if _, err := store.SetAttachment("feature-a", "tenant-main", "timeline-old"); err != nil {
+		t.Fatalf("set initial attachment: %v", err)
+	}
+
+	resetRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if resetRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, resetRes.Code)
+	}
+
+	updated, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get active branch: %v", err)
+	}
+
+	if updated.TenantID != "tenant-main" || updated.TimelineID != "timeline-reset" {
+		t.Fatalf("expected reset attachment tenant=%q timeline=%q, got tenant=%q timeline=%q", "tenant-main", "timeline-reset", updated.TenantID, updated.TimelineID)
+	}
+}
+
+func TestResetBranchRejectsMain(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/reset", "")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "validation_error")
+}
+
+func TestResetBranchReturnsUnavailableWithoutPageserverResolver(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "endpoint_unavailable")
 }
 
 func performRequest(t *testing.T, handler http.Handler, method string, path string, body string) *httptest.ResponseRecorder {

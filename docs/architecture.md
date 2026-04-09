@@ -78,6 +78,7 @@ Implemented in MVP slice 1:
 - `GET /api/v1/health`
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
+- `POST /api/v1/branches/{name}/reset`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
@@ -98,12 +99,14 @@ Current API behavior notes:
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
 - `POST /api/v1/restore` resolves timestamp-to-LSN via pageserver APIs and creates a restore timeline using `ancestor_start_lsn`.
 - `POST /api/v1/restore` fails closed with `restore_unavailable` when pageserver-backed restore integration is unavailable.
+- `POST /api/v1/branches/{name}/reset` creates a fresh child timeline from the branch parent head and re-attaches the branch to that timeline.
 - Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
 - Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
 - Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
 - Endpoint connection responses include endpoint credential metadata (`user`, `password`) alongside runtime diagnostics.
+- Branch credentials are branch-specific and controller-managed; create/restore operations assign random passwords persisted with branch state.
 - Endpoint connection DSN is emitted only when `ready=true`.
 - The web console exposes one-click connection helpers (`psql` command copy, DSN copy, password copy, and `DATABASE_URL` snippet copy) for the current primary branch endpoint.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.

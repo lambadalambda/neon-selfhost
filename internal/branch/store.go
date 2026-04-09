@@ -29,6 +29,7 @@ type Branch struct {
 
 	TenantID   string
 	TimelineID string
+	Password   string
 }
 
 type Store struct {
@@ -148,11 +149,53 @@ func (s *Store) SetAttachment(name string, tenantID string, timelineID string) (
 	return branch, nil
 }
 
+func (s *Store) SetPassword(name string, password string) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Branch{}, ErrNotFound
+	}
+
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return Branch{}, ErrInvalidName
+	}
+
+	branch, exists := s.branches[name]
+	if !exists || branch.Deleted {
+		return Branch{}, ErrNotFound
+	}
+
+	branch.Password = password
+
+	nextBranches := cloneBranches(s.branches)
+	nextBranches[name] = branch
+	if err := s.persistAndSwap(nextBranches); err != nil {
+		return Branch{}, classifyPersistError(err)
+	}
+
+	return branch, nil
+}
+
 func (s *Store) Create(name string, parent string) (Branch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.createLocked(name, parent, "", "")
+	return s.createLocked(name, parent, "", "", "")
+}
+
+func (s *Store) CreateWithPassword(name string, parent string, password string) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return Branch{}, ErrInvalidName
+	}
+
+	return s.createLocked(name, parent, "", "", password)
 }
 
 func (s *Store) CreateWithAttachment(name string, parent string, tenantID string, timelineID string) (Branch, error) {
@@ -165,10 +208,24 @@ func (s *Store) CreateWithAttachment(name string, parent string, tenantID string
 		return Branch{}, ErrInvalidName
 	}
 
-	return s.createLocked(name, parent, tenantID, timelineID)
+	return s.createLocked(name, parent, tenantID, timelineID, "")
 }
 
-func (s *Store) createLocked(name string, parent string, tenantID string, timelineID string) (Branch, error) {
+func (s *Store) CreateWithAttachmentAndPassword(name string, parent string, tenantID string, timelineID string, password string) (Branch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tenantID = strings.TrimSpace(tenantID)
+	timelineID = strings.TrimSpace(timelineID)
+	password = strings.TrimSpace(password)
+	if tenantID == "" || timelineID == "" || password == "" {
+		return Branch{}, ErrInvalidName
+	}
+
+	return s.createLocked(name, parent, tenantID, timelineID, password)
+}
+
+func (s *Store) createLocked(name string, parent string, tenantID string, timelineID string, password string) (Branch, error) {
 
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -195,6 +252,7 @@ func (s *Store) createLocked(name string, parent string, tenantID string, timeli
 		CreatedAt:  s.now().UTC(),
 		TenantID:   tenantID,
 		TimelineID: timelineID,
+		Password:   password,
 	}
 	nextBranches := cloneBranches(s.branches)
 	nextBranches[name] = created

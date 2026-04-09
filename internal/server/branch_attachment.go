@@ -30,6 +30,7 @@ type BranchAttachment struct {
 
 type BranchAttachmentResolver interface {
 	Resolve(branchName string) (BranchAttachment, error)
+	ResolveReset(branchName string) (BranchAttachment, error)
 	ResolveRestore(sourceBranch string, restoreBranch string, restoreAt time.Time) (BranchAttachment, string, error)
 }
 
@@ -48,6 +49,10 @@ func NewNoopBranchAttachmentResolver() BranchAttachmentResolver {
 
 func (noopBranchAttachmentResolver) Resolve(_ string) (BranchAttachment, error) {
 	return BranchAttachment{}, nil
+}
+
+func (noopBranchAttachmentResolver) ResolveReset(_ string) (BranchAttachment, error) {
+	return BranchAttachment{}, fmt.Errorf("%w: reset requires pageserver integration", ErrPrimaryEndpointUnavailable)
 }
 
 func (noopBranchAttachmentResolver) ResolveRestore(_ string, _ string, _ time.Time) (BranchAttachment, string, error) {
@@ -240,6 +245,42 @@ func (r *pageserverBranchAttachmentResolver) ResolveRestore(sourceBranch string,
 	}
 
 	return BranchAttachment{TenantID: sourceAttachment.TenantID, TimelineID: newTimelineID}, lsn, nil
+}
+
+func (r *pageserverBranchAttachmentResolver) ResolveReset(branchName string) (BranchAttachment, error) {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return BranchAttachment{}, branch.ErrNotFound
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	target, err := r.store.GetActive(branchName)
+	if err != nil {
+		return BranchAttachment{}, err
+	}
+
+	parentName := strings.TrimSpace(target.Parent)
+	if branchName == "main" || parentName == "" {
+		return BranchAttachment{}, branch.ErrProtected
+	}
+
+	parentAttachment, err := r.resolveLocked(parentName, map[string]bool{})
+	if err != nil {
+		return BranchAttachment{}, err
+	}
+
+	newTimelineID, err := randomHexID(16)
+	if err != nil {
+		return BranchAttachment{}, fmt.Errorf("%w: generate reset timeline id: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	if err := r.client.CreateTimeline(parentAttachment.TenantID, newTimelineID, parentAttachment.TimelineID, ""); err != nil {
+		return BranchAttachment{}, err
+	}
+
+	return BranchAttachment{TenantID: parentAttachment.TenantID, TimelineID: newTimelineID}, nil
 }
 
 func randomHexID(byteLength int) (string, error) {

@@ -31,6 +31,8 @@
 - Restore safety hardening: timestamp-to-LSN requests now send correct query parameters, unknown pageserver timestamp kinds are rejected, and restore branches are created atomically with attachment metadata.
 - Primary endpoint status hardening: connection payload now clamps `ready=false` when runtime is stopped and returns `status=unhealthy` for running-but-unhealthy runtime state.
 - Primary endpoint connection payload now includes endpoint password metadata, and the web console exposes password-aware connection helpers.
+- Branch-scoped credential generation with random passwords for create/restore flows, persisted in branch state and applied on endpoint start/switch.
+- Branch reset endpoint at `POST /api/v1/branches/{name}/reset` to recreate branch attachment from parent timeline head.
 
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.

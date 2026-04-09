@@ -42,6 +42,7 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 - `GET /api/v1/health`
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
+- `POST /api/v1/branches/{name}/reset`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
@@ -67,6 +68,8 @@ Endpoint switch still branches from the selected parent timeline head, while res
 Connection `dsn` is returned only when `ready=true`.
 
 The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, password value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
+
+Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
@@ -153,7 +156,7 @@ mise run db:verify:fresh
 ```
 
 The backing script is `scripts/reset_seed_data.sh`.
-If your SQL password differs from the default, set `DB_PASSWORD` when running these tasks.
+By default the script uses the active branch password returned by `GET /api/v1/endpoints/primary/connection`; set `DB_PASSWORD` only to override that.
 This workflow drops and recreates the target database; it refuses non-local `BASE_URL` by default unless you explicitly set `ALLOW_REMOTE_RESET=1` (or pass `--force` to the script).
 
 ### Seeded Test Dataset
@@ -174,7 +177,8 @@ This workflow drops and recreates the target database; it refuses non-local `BAS
 Connect to the seeded DB:
 
 ```bash
-PGPASSWORD=cloud_admin psql "postgresql://cloud_admin@127.0.0.1:55433/branch_lab?sslmode=disable"
+DB_PASSWORD=$(curl -sS -u admin:change-me http://127.0.0.1:8080/api/v1/endpoints/primary/connection | jq -r '.connection.password')
+PGPASSWORD="$DB_PASSWORD" psql "postgresql://cloud_admin@127.0.0.1:55433/branch_lab?sslmode=disable"
 ```
 
 Useful inspection queries:

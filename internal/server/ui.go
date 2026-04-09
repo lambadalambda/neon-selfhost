@@ -710,6 +710,7 @@ const consoleHTML = `<!doctype html>
           const isActive = state.connection && branch.name === state.connection.branch;
           const activeTag = isActive ? ' (active)' : '';
           const deleteDisabled = branch.name === 'main' ? 'disabled' : '';
+          const resetDisabled = branch.name === 'main' ? 'disabled' : '';
           return '<div class="branch-row">'
             + '<div class="branch-meta">'
             + '<strong>' + escapeHTML(branch.name + activeTag) + '</strong>'
@@ -717,6 +718,7 @@ const consoleHTML = `<!doctype html>
             + '</div>'
             + '<div class="row-actions">'
             + '<button class="quiet" data-action="switch-branch" data-branch="' + escapeHTML(branch.name) + '">Switch</button>'
+            + '<button class="warn" data-action="reset-branch" data-branch="' + escapeHTML(branch.name) + '" ' + resetDisabled + '>Reset</button>'
             + '<button class="danger" data-action="delete-branch" data-branch="' + escapeHTML(branch.name) + '" ' + deleteDisabled + '>Delete</button>'
             + '</div>'
             + '</div>';
@@ -839,6 +841,16 @@ const consoleHTML = `<!doctype html>
           }
           await api('DELETE', '/api/v1/branches/' + encodeURIComponent(branch));
           showMessage('Deleted branch ' + branch + '.', 'ok');
+          await loadAll();
+          return;
+        }
+
+        if (action === 'reset-branch') {
+          if (!confirm('Reset branch ' + branch + ' from its parent? This will replace its attachment timeline.')) {
+            return;
+          }
+          await api('POST', '/api/v1/branches/' + encodeURIComponent(branch) + '/reset');
+          showMessage('Reset branch ' + branch + ' from parent.', 'ok');
           await loadAll();
           return;
         }

@@ -12,6 +12,7 @@ func TestWriteEndpointSelectionPersistsSelection(t *testing.T) {
 		Branch:     "feature-a",
 		TenantID:   "tenant-1",
 		TimelineID: "timeline-1",
+		Password:   "secret-1",
 	}
 
 	if err := writeEndpointSelection(path, want); err != nil {

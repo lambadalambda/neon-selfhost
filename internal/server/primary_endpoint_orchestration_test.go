@@ -155,6 +155,10 @@ func (f failingPrimaryEndpointController) SetBranchAttachment(_ string, _ string
 	return f.setErr
 }
 
+func (f failingPrimaryEndpointController) SetBranchPassword(_ string, _ string) error {
+	return f.setErr
+}
+
 func (f failingPrimaryEndpointController) Start() (primaryEndpointState, error) {
 	if f.startErr != nil {
 		return primaryEndpointState{}, f.startErr

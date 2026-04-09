@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ var (
 type PrimaryEndpointController interface {
 	Connection() (primaryEndpointState, error)
 	SetBranchAttachment(branch string, tenantID string, timelineID string) error
+	SetBranchPassword(branch string, password string) error
 	Start() (primaryEndpointState, error)
 	Stop() (primaryEndpointState, error)
 	SwitchToBranch(branch string) (primaryEndpointState, error)
@@ -90,6 +92,7 @@ type endpointSelectionState struct {
 	Branch     string `json:"branch"`
 	TenantID   string `json:"tenant_id,omitempty"`
 	TimelineID string `json:"timeline_id,omitempty"`
+	Password   string `json:"password,omitempty"`
 }
 
 type primaryEndpointManager struct {
@@ -99,6 +102,7 @@ type primaryEndpointManager struct {
 	branch      string
 	attachment  primaryEndpointAttachment
 	attachments map[string]primaryEndpointAttachment
+	passwords   map[string]string
 
 	selectionPath string
 }
@@ -147,6 +151,7 @@ func newPrimaryEndpointManagerWithRuntime(runtime primaryEndpointRuntime, connIn
 		connInfo:      connInfo,
 		branch:        "main",
 		attachments:   map[string]primaryEndpointAttachment{},
+		passwords:     map[string]string{"main": connInfo.Password},
 		selectionPath: strings.TrimSpace(selectionPath),
 	}
 
@@ -160,6 +165,12 @@ func newPrimaryEndpointManagerWithRuntime(runtime primaryEndpointRuntime, connIn
 			attachment := primaryEndpointAttachment{TenantID: strings.TrimSpace(selection.TenantID), TimelineID: strings.TrimSpace(selection.TimelineID)}
 			manager.attachment = attachment
 			manager.attachments[manager.branch] = attachment
+		}
+
+		selectionPassword := strings.TrimSpace(selection.Password)
+		if selectionPassword != "" {
+			manager.passwords[manager.branch] = selectionPassword
+			manager.connInfo.Password = selectionPassword
 		}
 	}
 
@@ -247,6 +258,28 @@ func (m *primaryEndpointManager) SetBranchAttachment(branch string, tenantID str
 	return nil
 }
 
+func (m *primaryEndpointManager) SetBranchPassword(branch string, password string) error {
+	branch = strings.TrimSpace(branch)
+	password = strings.TrimSpace(password)
+
+	if branch == "" {
+		return errors.New("branch name is required")
+	}
+	if password == "" {
+		return errors.New("password is required")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.passwords[branch] = password
+	if m.branch == branch {
+		m.connInfo.Password = password
+	}
+
+	return nil
+}
+
 func (m *primaryEndpointManager) Start() (primaryEndpointState, error) {
 	m.mu.Lock()
 	runtime := m.runtime
@@ -255,6 +288,10 @@ func (m *primaryEndpointManager) Start() (primaryEndpointState, error) {
 		Branch:     m.branch,
 		TenantID:   m.attachment.TenantID,
 		TimelineID: m.attachment.TimelineID,
+		Password:   m.passwords[m.branch],
+	}
+	if strings.TrimSpace(selection.Password) == "" {
+		selection.Password = m.connInfo.Password
 	}
 	m.mu.Unlock()
 
@@ -290,15 +327,21 @@ func (m *primaryEndpointManager) SwitchToBranch(branch string) (primaryEndpointS
 	m.mu.Lock()
 	runtime := m.runtime
 	selectionPath := m.selectionPath
-	previousSelection := endpointSelectionState{Branch: m.branch, TenantID: m.attachment.TenantID, TimelineID: m.attachment.TimelineID}
+	previousSelection := endpointSelectionState{Branch: m.branch, TenantID: m.attachment.TenantID, TimelineID: m.attachment.TimelineID, Password: m.passwords[m.branch]}
 	attachment := m.attachments[branch]
+	password := m.passwords[branch]
+	fallbackPassword := m.connInfo.User
 	m.mu.Unlock()
+
+	if strings.TrimSpace(password) == "" {
+		password = fallbackPassword
+	}
 
 	if err := runtime.Stop(); err != nil {
 		return primaryEndpointState{}, fmt.Errorf("stop primary endpoint for branch switch: %w", err)
 	}
 
-	nextSelection := endpointSelectionState{Branch: branch, TenantID: attachment.TenantID, TimelineID: attachment.TimelineID}
+	nextSelection := endpointSelectionState{Branch: branch, TenantID: attachment.TenantID, TimelineID: attachment.TimelineID, Password: password}
 	if err := writeEndpointSelection(selectionPath, nextSelection); err != nil {
 		return primaryEndpointState{}, err
 	}
@@ -311,6 +354,11 @@ func (m *primaryEndpointManager) SwitchToBranch(branch string) (primaryEndpointS
 	m.mu.Lock()
 	m.branch = branch
 	m.attachment = attachment
+	if password == "" {
+		password = m.connInfo.User
+		m.passwords[branch] = password
+	}
+	m.connInfo.Password = password
 	m.mu.Unlock()
 
 	return m.Connection()
@@ -454,7 +502,13 @@ func makePrimaryConnectionPayload(state primaryEndpointState) primaryEndpointPay
 
 		if ready {
 			payload.Status = "running"
-			payload.DSN = fmt.Sprintf("postgres://%s@%s:%d/%s?sslmode=disable", state.User, state.Host, state.Port, state.Database)
+			payload.DSN = (&url.URL{
+				Scheme:   "postgres",
+				User:     url.UserPassword(state.User, state.Password),
+				Host:     fmt.Sprintf("%s:%d", state.Host, state.Port),
+				Path:     "/" + url.PathEscape(state.Database),
+				RawQuery: "sslmode=disable",
+			}).String()
 		}
 	}
 

@@ -229,6 +229,15 @@ func New(cfg Config) http.Handler {
 				return currentErr
 			}
 
+			securedBranch, passwordErr := ensureBranchPassword(store, current.Branch)
+			if passwordErr != nil {
+				return passwordErr
+			}
+
+			if setPasswordErr := primaryEndpoint.SetBranchPassword(current.Branch, securedBranch.Password); setPasswordErr != nil {
+				return setPasswordErr
+			}
+
 			attachment, resolveErr := attachmentResolver.Resolve(current.Branch)
 			if resolveErr != nil {
 				return resolveErr
@@ -304,6 +313,15 @@ func New(cfg Config) http.Handler {
 				return branch.ErrParentMissing
 			}
 
+			securedBranch, passwordErr := ensureBranchPassword(store, targetBranch)
+			if passwordErr != nil {
+				return passwordErr
+			}
+
+			if setPasswordErr := primaryEndpoint.SetBranchPassword(targetBranch, securedBranch.Password); setPasswordErr != nil {
+				return setPasswordErr
+			}
+
 			attachment, resolveErr := attachmentResolver.Resolve(targetBranch)
 			if resolveErr != nil {
 				return resolveErr
@@ -377,8 +395,13 @@ func New(cfg Config) http.Handler {
 				return fmt.Errorf("%w: restore resolver returned incomplete attachment", ErrPrimaryEndpointUnavailable)
 			}
 
+			password, passwordErr := generateBranchPassword()
+			if passwordErr != nil {
+				return fmt.Errorf("%w: %v", ErrPrimaryEndpointUnavailable, passwordErr)
+			}
+
 			var createErr error
-			restored, createErr = store.CreateWithAttachment(restoreName, source.Name, tenantID, timelineID)
+			restored, createErr = store.CreateWithAttachmentAndPassword(restoreName, source.Name, tenantID, timelineID, password)
 			return createErr
 		})
 		if err != nil {
@@ -415,8 +438,13 @@ func New(cfg Config) http.Handler {
 
 		var created branch.Branch
 		err := operations.Run("create_branch", func() error {
+			password, passwordErr := generateBranchPassword()
+			if passwordErr != nil {
+				return fmt.Errorf("%w: %v", ErrPrimaryEndpointUnavailable, passwordErr)
+			}
+
 			var createErr error
-			created, createErr = store.Create(req.Name, req.Parent)
+			created, createErr = store.CreateWithPassword(req.Name, req.Parent, password)
 			return createErr
 		})
 		if err != nil {
@@ -438,6 +466,86 @@ func New(cfg Config) http.Handler {
 		}
 
 		writeJSON(w, http.StatusCreated, branchResponse{Branch: makeBranchPayload(created)})
+	})
+
+	mux.HandleFunc("POST /api/v1/branches/{name}/reset", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+		if branchName == "main" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch is protected")
+			return
+		}
+
+		var updated branch.Branch
+		err := operations.Run("reset_branch", func() error {
+			target, targetErr := store.GetActive(branchName)
+			if targetErr != nil {
+				return targetErr
+			}
+			if strings.TrimSpace(target.Parent) == "" {
+				return branch.ErrProtected
+			}
+
+			securedBranch, passwordErr := ensureBranchPassword(store, branchName)
+			if passwordErr != nil {
+				return passwordErr
+			}
+
+			if setPasswordErr := primaryEndpoint.SetBranchPassword(branchName, securedBranch.Password); setPasswordErr != nil {
+				return setPasswordErr
+			}
+
+			attachment, resolveErr := attachmentResolver.ResolveReset(branchName)
+			if resolveErr != nil {
+				return resolveErr
+			}
+
+			var setErr error
+			updated, setErr = store.SetAttachment(branchName, attachment.TenantID, attachment.TimelineID)
+			if setErr != nil {
+				return setErr
+			}
+
+			if attachErr := primaryEndpoint.SetBranchAttachment(branchName, attachment.TenantID, attachment.TimelineID); attachErr != nil {
+				return attachErr
+			}
+
+			connectionState, connErr := primaryEndpoint.Connection()
+			if connErr != nil {
+				return connErr
+			}
+
+			if connectionState.Branch != branchName {
+				return nil
+			}
+
+			_, switchErr := primaryEndpoint.SwitchToBranch(branchName)
+			return switchErr
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOperationInProgress):
+				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case errors.Is(err, branch.ErrProtected), errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
+				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, branchResponse{Branch: makeBranchPayload(updated)})
 	})
 
 	mux.HandleFunc("DELETE /api/v1/branches/{name}", func(w http.ResponseWriter, r *http.Request) {

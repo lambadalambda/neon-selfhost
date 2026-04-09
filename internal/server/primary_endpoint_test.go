@@ -284,3 +284,51 @@ func TestPrimaryConnectionIncludesConfiguredPassword(t *testing.T) {
 		t.Fatalf("expected configured password %q, got %q", "super-secret", payload.Connection.Password)
 	}
 }
+
+func TestPrimaryConnectionPasswordDiffersAcrossBranches(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	startRes := performRequest(t, handler, http.MethodPost, "/api/v1/endpoints/primary/start", "")
+	if startRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, startRes.Code)
+	}
+
+	var started primaryConnectionResponse
+	decodeJSON(t, startRes, &started)
+	mainPassword := started.Connection.Password
+	if mainPassword == "" {
+		t.Fatal("expected main password in start response")
+	}
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	switchFeatureRes := performRequest(t, handler, http.MethodPost, "/api/v1/endpoints/primary/switch", `{"branch":"feature-a"}`)
+	if switchFeatureRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, switchFeatureRes.Code)
+	}
+
+	var switched primaryConnectionResponse
+	decodeJSON(t, switchFeatureRes, &switched)
+	featurePassword := switched.Connection.Password
+	if featurePassword == "" {
+		t.Fatal("expected feature branch password in switch response")
+	}
+
+	if featurePassword == mainPassword {
+		t.Fatal("expected feature branch password to differ from main")
+	}
+
+	switchMainRes := performRequest(t, handler, http.MethodPost, "/api/v1/endpoints/primary/switch", `{"branch":"main"}`)
+	if switchMainRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, switchMainRes.Code)
+	}
+
+	var backToMain primaryConnectionResponse
+	decodeJSON(t, switchMainRes, &backToMain)
+	if backToMain.Connection.Password != mainPassword {
+		t.Fatalf("expected main password %q after switch back, got %q", mainPassword, backToMain.Connection.Password)
+	}
+}

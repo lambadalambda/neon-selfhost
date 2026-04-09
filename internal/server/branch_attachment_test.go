@@ -138,6 +138,46 @@ func TestPrimaryEndpointSwitchReturnsUnavailableWhenResolverFails(t *testing.T) 
 	assertAPIErrorCode(t, res, "endpoint_unavailable")
 }
 
+func TestResetActiveBranchAppliesAttachmentAndRestarts(t *testing.T) {
+	controller := &capturingPrimaryEndpointController{state: primaryEndpointState{Branch: "feature-a", Running: true}}
+	resolver := staticBranchAttachmentResolver{resets: map[string]BranchAttachment{
+		"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-reset"},
+	}}
+
+	handler := New(Config{
+		Version:                  "test-version",
+		PrimaryEndpoint:          controller,
+		BranchAttachmentResolver: resolver,
+	})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	if controller.lastSetBranch != "feature-a" {
+		t.Fatalf("expected reset to set attachment for %q, got %q", "feature-a", controller.lastSetBranch)
+	}
+
+	if controller.lastSetTimelineID != "timeline-reset" {
+		t.Fatalf("expected reset timeline %q, got %q", "timeline-reset", controller.lastSetTimelineID)
+	}
+
+	if controller.lastSetPassword == "" {
+		t.Fatal("expected reset to set branch password")
+	}
+
+	if controller.lastSwitchBranch != "feature-a" {
+		t.Fatalf("expected reset to restart active branch %q, got %q", "feature-a", controller.lastSwitchBranch)
+	}
+}
+
 func TestPageserverBranchAttachmentResolverResolveRestoreCreatesTimelineAtResolvedLSN(t *testing.T) {
 	store := branch.NewStore()
 	client := &fakePageserverAttachmentClient{getLSNKind: "future", getLSNValue: "0/16B6F50"}
@@ -221,8 +261,50 @@ func TestPageserverBranchAttachmentResolverResolveRestoreRejectsUnknownKind(t *t
 	}
 }
 
+func TestPageserverBranchAttachmentResolverResolveResetCreatesNewTimelineFromParent(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	client := &fakePageserverAttachmentClient{}
+	resolver := &pageserverBranchAttachmentResolver{
+		store:     store,
+		client:    client,
+		pgVersion: 16,
+	}
+
+	mainAttachment, err := resolver.Resolve("main")
+	if err != nil {
+		t.Fatalf("resolve main attachment: %v", err)
+	}
+
+	resetAttachment, err := resolver.ResolveReset("feature-a")
+	if err != nil {
+		t.Fatalf("resolve reset attachment: %v", err)
+	}
+
+	if resetAttachment.TenantID != mainAttachment.TenantID {
+		t.Fatalf("expected reset tenant %q, got %q", mainAttachment.TenantID, resetAttachment.TenantID)
+	}
+
+	if resetAttachment.TimelineID == "" || resetAttachment.TimelineID == mainAttachment.TimelineID {
+		t.Fatalf("expected reset timeline to differ from main timeline %q, got %q", mainAttachment.TimelineID, resetAttachment.TimelineID)
+	}
+
+	resetCall := client.createTimelineCalls[len(client.createTimelineCalls)-1]
+	if resetCall.AncestorTimelineID != mainAttachment.TimelineID {
+		t.Fatalf("expected reset ancestor timeline %q, got %q", mainAttachment.TimelineID, resetCall.AncestorTimelineID)
+	}
+
+	if resetCall.AncestorStartLSN != "" {
+		t.Fatalf("expected reset ancestor_start_lsn to be empty, got %q", resetCall.AncestorStartLSN)
+	}
+}
+
 type staticBranchAttachmentResolver struct {
 	attachments map[string]BranchAttachment
+	resets      map[string]BranchAttachment
 	restore     BranchAttachment
 	restoreLSN  string
 	err         error
@@ -234,6 +316,19 @@ func (r staticBranchAttachmentResolver) Resolve(branchName string) (BranchAttach
 	}
 
 	attachment, exists := r.attachments[branchName]
+	if !exists {
+		return BranchAttachment{}, branch.ErrNotFound
+	}
+
+	return attachment, nil
+}
+
+func (r staticBranchAttachmentResolver) ResolveReset(branchName string) (BranchAttachment, error) {
+	if r.err != nil {
+		return BranchAttachment{}, r.err
+	}
+
+	attachment, exists := r.resets[branchName]
 	if !exists {
 		return BranchAttachment{}, branch.ErrNotFound
 	}
@@ -259,6 +354,7 @@ type capturingPrimaryEndpointController struct {
 	lastSetBranch     string
 	lastSetTenantID   string
 	lastSetTimelineID string
+	lastSetPassword   string
 	lastSwitchBranch  string
 }
 
@@ -278,6 +374,19 @@ func (c *capturingPrimaryEndpointController) SetBranchAttachment(branchName stri
 	if c.state.Branch == branchName {
 		c.state.TenantID = tenantID
 		c.state.TimelineID = timelineID
+	}
+
+	return nil
+}
+
+func (c *capturingPrimaryEndpointController) SetBranchPassword(branchName string, password string) error {
+	if strings.TrimSpace(branchName) == "" || strings.TrimSpace(password) == "" {
+		return errors.New("invalid password")
+	}
+
+	c.lastSetPassword = password
+	if c.state.Branch == branchName {
+		c.state.Password = password
 	}
 
 	return nil

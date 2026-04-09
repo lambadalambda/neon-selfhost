@@ -20,14 +20,44 @@ echo "Pageserver is ready"
 
 cp "${CONFIG_FILE_ORG}" "${CONFIG_FILE}"
 
+role_name="$(jq -r '.spec.cluster.roles[0].name // "cloud_admin"' "${CONFIG_FILE}")"
+
+md5_role_password() {
+  local role_password="$1"
+  local role_user="$2"
+  local digest=""
+
+  if command -v md5sum >/dev/null 2>&1; then
+    digest="$(printf '%s%s' "${role_password}" "${role_user}" | md5sum | awk '{print $1}')"
+  elif command -v md5 >/dev/null 2>&1; then
+    digest="$(printf '%s%s' "${role_password}" "${role_user}" | md5 -q)"
+  else
+    echo "No md5 tool available for password hashing" >&2
+    return 1
+  fi
+
+  printf '%s' "${digest}"
+}
+
 if [[ -f "${ENDPOINT_SELECTION_FILE}" ]]; then
   selected_tenant_id="$(jq -r '.tenant_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
   selected_timeline_id="$(jq -r '.timeline_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
+  selected_password="$(jq -r '.password // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
 
   if [[ -n "${selected_tenant_id}" && -n "${selected_timeline_id}" ]]; then
     TENANT_ID=${selected_tenant_id}
     TIMELINE_ID=${selected_timeline_id}
     export TENANT_ID TIMELINE_ID
+  fi
+
+  if [[ -n "${selected_password}" ]]; then
+    encrypted_password="$(md5_role_password "${selected_password}" "${role_name}")"
+
+    updated_config="$(mktemp)"
+    jq --arg role_name "${role_name}" --arg encrypted_password "${encrypted_password}" '
+      (.spec.cluster.roles[] | select(.name == $role_name).encrypted_password) = $encrypted_password
+    ' "${CONFIG_FILE}" >"${updated_config}"
+    mv "${updated_config}" "${CONFIG_FILE}"
   fi
 fi
 

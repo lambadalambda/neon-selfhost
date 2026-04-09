@@ -55,6 +55,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected password copy action in UI response")
 	}
 
+	if !strings.Contains(body, "data-action=\"reset-branch\"") {
+		t.Fatal("expected branch reset action in UI response")
+	}
+
 	if !strings.Contains(body, "DATABASE_URL=") {
 		t.Fatal("expected env snippet label in UI response")
 	}
