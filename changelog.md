@@ -28,6 +28,7 @@
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.
 - Compose controller now runs as root in Docker mode so it can access the mounted Docker socket for endpoint start/stop/switch orchestration.
+- Compose primary endpoint defaults now use host port `55433` (instead of `5432`) to avoid conflicts with local PostgreSQL instances.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.

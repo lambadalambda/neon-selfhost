@@ -40,7 +40,7 @@ Design target:
 
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
-  - `5432` -> Primary PostgreSQL endpoint
+  - `55433` -> Primary PostgreSQL endpoint
 - If exposing beyond localhost, terminate TLS in a reverse proxy and do not treat basic auth alone as Internet-grade security.
 - Internal-only services:
   - Storage broker gRPC port

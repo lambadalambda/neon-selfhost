@@ -17,7 +17,7 @@ services:
       PRIMARY_ENDPOINT_MODE: docker
       PRIMARY_ENDPOINT_SERVICE: compute
       PRIMARY_ENDPOINT_HOST: 127.0.0.1
-      PRIMARY_ENDPOINT_PORT: "5432"
+      PRIMARY_ENDPOINT_PORT: "55433"
       PRIMARY_ENDPOINT_DATABASE: postgres
       PRIMARY_ENDPOINT_USER: cloud_admin
       DOCKER_SOCKET_PATH: /var/run/docker.sock
@@ -129,7 +129,7 @@ services:
     entrypoint:
       - /shell/compute.sh
     ports:
-      - "127.0.0.1:5432:55433"
+      - "127.0.0.1:55433:55433"
     depends_on:
       - pageserver
       - safekeeper1
