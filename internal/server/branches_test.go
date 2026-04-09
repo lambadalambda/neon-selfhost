@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,119 @@ func TestCreateBranchAndList(t *testing.T) {
 
 	if len(listed.Branches) != 2 {
 		t.Fatalf("expected 2 branches, got %d", len(listed.Branches))
+	}
+}
+
+func TestCreateBranchAutoPublishesWithResolver(t *testing.T) {
+	store := branch.NewStore()
+	branchEndpoints := &fakeBranchEndpointController{}
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{attachments: map[string]BranchAttachment{
+			"main":      {TenantID: "tenant-main", TimelineID: "timeline-main"},
+			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-feature"},
+		}},
+		BranchEndpoints: branchEndpoints,
+	})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a","parent":"main"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	if countString(branchEndpoints.publishCalls, "main") != 1 {
+		t.Fatalf("expected startup auto-publish for main, got %#v", branchEndpoints.publishCalls)
+	}
+
+	if countString(branchEndpoints.publishCalls, "feature-a") != 1 {
+		t.Fatalf("expected auto-publish for feature-a create, got %#v", branchEndpoints.publishCalls)
+	}
+
+	created, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get created branch: %v", err)
+	}
+
+	if created.TenantID != "tenant-main" || created.TimelineID != "timeline-feature" {
+		t.Fatalf("expected created branch attachment tenant-main/timeline-feature, got %s/%s", created.TenantID, created.TimelineID)
+	}
+}
+
+func TestServerAutoPublishesExistingBranchesOnStartup(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithPassword("feature-a", "main", "secret-1"); err != nil {
+		t.Fatalf("create feature-a: %v", err)
+	}
+
+	branchEndpoints := &fakeBranchEndpointController{}
+	_ = New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{attachments: map[string]BranchAttachment{
+			"main":      {TenantID: "tenant-main", TimelineID: "timeline-main"},
+			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-feature"},
+		}},
+		BranchEndpoints: branchEndpoints,
+	})
+
+	if countString(branchEndpoints.publishCalls, "main") != 1 {
+		t.Fatalf("expected startup auto-publish for main, got %#v", branchEndpoints.publishCalls)
+	}
+
+	if countString(branchEndpoints.publishCalls, "feature-a") != 1 {
+		t.Fatalf("expected startup auto-publish for feature-a, got %#v", branchEndpoints.publishCalls)
+	}
+
+	mainBranch, err := store.GetActive("main")
+	if err != nil {
+		t.Fatalf("get main branch: %v", err)
+	}
+	if mainBranch.TenantID != "tenant-main" || mainBranch.TimelineID != "timeline-main" {
+		t.Fatalf("expected main branch attachment tenant-main/timeline-main, got %s/%s", mainBranch.TenantID, mainBranch.TimelineID)
+	}
+
+	featureBranch, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get feature-a branch: %v", err)
+	}
+	if featureBranch.TenantID != "tenant-main" || featureBranch.TimelineID != "timeline-feature" {
+		t.Fatalf("expected feature-a attachment tenant-main/timeline-feature, got %s/%s", featureBranch.TenantID, featureBranch.TimelineID)
+	}
+}
+
+func TestCreateBranchRollsBackWhenAutoPublishFails(t *testing.T) {
+	store := branch.NewStore()
+	branchEndpoints := &fakeBranchEndpointController{publishErr: branch.ErrNoSpace}
+	handler := New(Config{
+		Version:     "test-version",
+		BranchStore: store,
+		BranchAttachmentResolver: staticBranchAttachmentResolver{attachments: map[string]BranchAttachment{
+			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-feature"},
+		}},
+		BranchEndpoints: branchEndpoints,
+	})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusInsufficientStorage {
+		t.Fatalf("expected status %d, got %d", http.StatusInsufficientStorage, createRes.Code)
+	}
+
+	assertAPIErrorCode(t, createRes, "storage_error")
+
+	if _, err := store.GetActive("feature-a"); !errors.Is(err, branch.ErrNotFound) {
+		t.Fatalf("expected feature-a to be rolled back on publish failure, got %v", err)
+	}
+
+	listRes := performRequest(t, handler, http.MethodGet, "/api/v1/branches", "")
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, listRes.Code)
+	}
+
+	var listed branchesListResponse
+	decodeJSON(t, listRes, &listed)
+	if len(listed.Branches) != 1 || listed.Branches[0].Name != "main" {
+		t.Fatalf("expected only main active after rollback, got %+v", listed.Branches)
 	}
 }
 
@@ -261,9 +375,14 @@ func TestResetBranchRefreshesPublishedEndpoint(t *testing.T) {
 	handler := New(Config{
 		Version:     "test-version",
 		BranchStore: store,
-		BranchAttachmentResolver: staticBranchAttachmentResolver{resets: map[string]BranchAttachment{
-			"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-reset"},
-		}},
+		BranchAttachmentResolver: staticBranchAttachmentResolver{
+			attachments: map[string]BranchAttachment{
+				"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-old"},
+			},
+			resets: map[string]BranchAttachment{
+				"feature-a": {TenantID: "tenant-main", TimelineID: "timeline-reset"},
+			},
+		},
 		BranchEndpoints: branchEndpoints,
 	})
 
@@ -303,6 +422,17 @@ func TestDeleteBranchUnpublishesEndpointBeforeDelete(t *testing.T) {
 	if len(branchEndpoints.unpublishCalls) != 1 || branchEndpoints.unpublishCalls[0] != "feature-a" {
 		t.Fatalf("expected unpublish call for feature-a, got %#v", branchEndpoints.unpublishCalls)
 	}
+}
+
+func countString(values []string, target string) int {
+	count := 0
+	for _, value := range values {
+		if value == target {
+			count++
+		}
+	}
+
+	return count
 }
 
 func performRequest(t *testing.T, handler http.Handler, method string, path string, body string) *httptest.ResponseRecorder {

@@ -54,8 +54,8 @@ func TestPublishBranchEndpointReturnsConnectionAndPersistsAttachment(t *testing.
 		t.Fatalf("expected status %d, got %d", http.StatusOK, publishRes.Code)
 	}
 
-	if len(controller.publishCalls) != 1 || controller.publishCalls[0] != "feature-a" {
-		t.Fatalf("expected publish call for feature-a, got %#v", controller.publishCalls)
+	if len(controller.publishCalls) != 2 || controller.publishCalls[0] != "feature-a" || controller.publishCalls[1] != "feature-a" {
+		t.Fatalf("expected auto+manual publish calls for feature-a, got %#v", controller.publishCalls)
 	}
 
 	var payload branchEndpointConnectionResponse

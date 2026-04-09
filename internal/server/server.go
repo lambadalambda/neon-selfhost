@@ -175,6 +175,11 @@ func New(cfg Config) http.Handler {
 		branchEndpoints = NewNoopBranchEndpointController(defaultPrimaryEndpointHost, defaultPrimaryEndpointDatabase, defaultPrimaryEndpointUser)
 	}
 
+	autoPublishBranches := shouldAutoPublishBranches(branchEndpoints, attachmentResolver)
+	if autoPublishBranches {
+		autoPublishExistingBranches(store, attachmentResolver, branchEndpoints)
+	}
+
 	operations := newOperationManager(nil, defaultOperationLogLimit)
 
 	mux := http.NewServeMux()
@@ -576,7 +581,23 @@ func New(cfg Config) http.Handler {
 
 			var createErr error
 			restored, createErr = store.CreateWithAttachmentAndPassword(restoreName, source.Name, tenantID, timelineID, password)
-			return createErr
+			if createErr != nil {
+				return createErr
+			}
+
+			if !autoPublishBranches {
+				return nil
+			}
+
+			if publishErr := ensureBranchPublished(store, attachmentResolver, branchEndpoints, restored.Name); publishErr != nil {
+				if _, rollbackErr := store.SoftDelete(restored.Name); rollbackErr != nil {
+					return fmt.Errorf("%w: auto-publish restored branch %q: %v (rollback failed: %v)", ErrPrimaryEndpointUnavailable, restored.Name, publishErr, rollbackErr)
+				}
+
+				return publishErr
+			}
+
+			return nil
 		})
 		if err != nil {
 			switch {
@@ -619,7 +640,23 @@ func New(cfg Config) http.Handler {
 
 			var createErr error
 			created, createErr = store.CreateWithPassword(req.Name, req.Parent, password)
-			return createErr
+			if createErr != nil {
+				return createErr
+			}
+
+			if !autoPublishBranches {
+				return nil
+			}
+
+			if publishErr := ensureBranchPublished(store, attachmentResolver, branchEndpoints, created.Name); publishErr != nil {
+				if _, rollbackErr := store.SoftDelete(created.Name); rollbackErr != nil {
+					return fmt.Errorf("%w: auto-publish branch %q: %v (rollback failed: %v)", ErrPrimaryEndpointUnavailable, created.Name, publishErr, rollbackErr)
+				}
+
+				return publishErr
+			}
+
+			return nil
 		})
 		if err != nil {
 			switch {
@@ -629,6 +666,8 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			case errors.Is(err, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
 			case errors.Is(err, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
 			case errors.Is(err, branch.ErrPersistFailed):
@@ -876,6 +915,70 @@ func makeBranchEndpointPayload(state branchEndpointState) branchEndpointPayload 
 	}
 
 	return payload
+}
+
+func shouldAutoPublishBranches(branchEndpoints BranchEndpointController, attachmentResolver BranchAttachmentResolver) bool {
+	if branchEndpoints == nil || attachmentResolver == nil {
+		return false
+	}
+
+	switch branchEndpoints.(type) {
+	case noopBranchEndpointController, *noopBranchEndpointController:
+		return false
+	}
+
+	switch attachmentResolver.(type) {
+	case noopBranchAttachmentResolver, *noopBranchAttachmentResolver:
+		return false
+	}
+
+	return true
+}
+
+func autoPublishExistingBranches(store *branch.Store, attachmentResolver BranchAttachmentResolver, branchEndpoints BranchEndpointController) {
+	for _, active := range store.ListActive() {
+		_ = ensureBranchPublished(store, attachmentResolver, branchEndpoints, active.Name)
+	}
+}
+
+func ensureBranchPublished(store *branch.Store, attachmentResolver BranchAttachmentResolver, branchEndpoints BranchEndpointController, branchName string) error {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return branch.ErrNotFound
+	}
+
+	securedBranch, err := ensureBranchPassword(store, branchName)
+	if err != nil {
+		return err
+	}
+
+	attachment, err := resolveAttachmentForAutoPublish(attachmentResolver, branchName)
+	if err != nil {
+		return err
+	}
+
+	tenantID := strings.TrimSpace(attachment.TenantID)
+	timelineID := strings.TrimSpace(attachment.TimelineID)
+	if tenantID == "" || timelineID == "" {
+		return fmt.Errorf("%w: attachment resolver returned incomplete attachment for %q", ErrPrimaryEndpointUnavailable, branchName)
+	}
+
+	if _, err := store.SetAttachment(branchName, tenantID, timelineID); err != nil {
+		return err
+	}
+
+	_, err = branchEndpoints.Publish(branchName, BranchAttachment{TenantID: tenantID, TimelineID: timelineID}, securedBranch.Password)
+	return err
+}
+
+func resolveAttachmentForAutoPublish(attachmentResolver BranchAttachmentResolver, branchName string) (BranchAttachment, error) {
+	attachment, err := attachmentResolver.Resolve(branchName)
+	if err == nil || !errors.Is(err, branch.ErrNotFound) {
+		return attachment, err
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	return attachmentResolver.Resolve(branchName)
 }
 
 func normalizeRestoreRequest(req restoreRequest) (string, time.Time, string, error) {
