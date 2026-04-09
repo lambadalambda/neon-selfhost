@@ -167,6 +167,7 @@ This workflow drops and recreates the target database; it refuses non-local `BAS
 - Seed rows:
   - `app.accounts`: `acme` (`pro`), `globex` (`starter`), `initech` (`enterprise`)
   - `app.documents`: 4 rows total (2 for `acme`, 1 for `globex`, 1 for `initech`)
+- Default DB search path is set to `app, public` so `\d` and `\dt` in `psql` show the seeded tables directly.
 
 ### View Seed Data With psql
 
@@ -179,7 +180,8 @@ PGPASSWORD=cloud_admin psql "postgresql://cloud_admin@127.0.0.1:55433/branch_lab
 Useful inspection queries:
 
 ```sql
-\dt app.*
+\d
+\dt
 
 SELECT id, slug, tier, created_at
 FROM app.accounts

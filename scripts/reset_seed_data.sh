@@ -426,6 +426,7 @@ SQL
 )"
 
 psql_exec_file "${SEED_DATABASE}" "${seed_sql}"
+psql_exec postgres "ALTER DATABASE ${SEED_DATABASE} SET search_path = app, public;"
 
 baseline_docs="$(psql_exec "${SEED_DATABASE}" 'SELECT count(*) FROM app.documents;')"
 baseline_accounts="$(psql_exec "${SEED_DATABASE}" 'SELECT count(*) FROM app.accounts;')"

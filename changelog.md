@@ -52,3 +52,4 @@
 - Documentation now reflects implemented endpoint readiness diagnostics and the remaining deeper Neon-runtime diagnostics gap.
 - Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is unavailable.
 - Documentation now clarifies readiness-based DSN emission and unhealthy primary endpoint status behavior.
+- Reset/seed workflow now sets `branch_lab` default search path to `app, public` so seeded tables are visible with `\d`/`\dt` in `psql`.
