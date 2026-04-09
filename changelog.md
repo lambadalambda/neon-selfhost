@@ -48,6 +48,7 @@
 - Reset/seed tooling now pins compose operations to this repository, adds HTTP timeout + transport-failure handling, and adds a non-local target safety gate for destructive resets.
 - Compute wrapper image now bakes in `/shell/compute.sh` and compute config assets so dynamically created branch compute containers can boot without host bind mounts.
 - Docker endpoint stop orchestration now uses a longer Docker Engine API client timeout to avoid premature timeout errors during primary endpoint branch switches.
+- Branch names can now be reused after soft-delete; recreating a deleted branch key starts a fresh active branch record instead of returning `branch already exists`.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.

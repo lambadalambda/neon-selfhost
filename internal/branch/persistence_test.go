@@ -1,7 +1,6 @@
 package branch
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,12 +46,21 @@ func TestPersistentStoreReloadsState(t *testing.T) {
 		t.Fatalf("expected active branch %q, got %q", "main", active[0].Name)
 	}
 
-	if _, err := reloaded.Create("feature-a", "main"); !errors.Is(err, ErrAlreadyExists) {
-		t.Fatalf("expected %v after reload, got %v", ErrAlreadyExists, err)
+	recreated, err := reloaded.Create("feature-a", "main")
+	if err != nil {
+		t.Fatalf("recreate soft-deleted branch after reload: %v", err)
 	}
 
-	if _, err := reloaded.SetEndpoint("feature-a", true, 56002); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected %v when setting endpoint on deleted branch, got %v", ErrNotFound, err)
+	if recreated.Deleted {
+		t.Fatal("expected recreated branch to be active")
+	}
+
+	if recreated.DeletedAt != nil {
+		t.Fatal("expected recreated branch deleted_at to be cleared")
+	}
+
+	if recreated.TenantID != "" || recreated.TimelineID != "" {
+		t.Fatalf("expected recreated branch without attachment, got tenant=%q timeline=%q", recreated.TenantID, recreated.TimelineID)
 	}
 
 	feature, err := reloaded.GetActive("main")

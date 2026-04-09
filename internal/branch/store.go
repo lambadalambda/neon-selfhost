@@ -279,7 +279,7 @@ func (s *Store) createLocked(name string, parent string, tenantID string, timeli
 		return Branch{}, ErrParentMissing
 	}
 
-	if _, exists := s.branches[name]; exists {
+	if existing, exists := s.branches[name]; exists && !existing.Deleted {
 		return Branch{}, ErrAlreadyExists
 	}
 

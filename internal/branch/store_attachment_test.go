@@ -186,3 +186,49 @@ func TestSetEndpointRejectsInvalidPort(t *testing.T) {
 		t.Fatalf("expected %v, got %v", ErrInvalidName, err)
 	}
 }
+
+func TestCreateAllowsReusingSoftDeletedBranchName(t *testing.T) {
+	store := NewStore()
+
+	if _, err := store.CreateWithAttachmentAndPassword("feature-a", "main", "tenant-1", "timeline-1", "secret-1"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	if _, err := store.SetEndpoint("feature-a", true, 56001); err != nil {
+		t.Fatalf("publish endpoint: %v", err)
+	}
+
+	if _, err := store.SoftDelete("feature-a"); err != nil {
+		t.Fatalf("soft delete branch: %v", err)
+	}
+
+	recreated, err := store.Create("feature-a", "main")
+	if err != nil {
+		t.Fatalf("recreate branch: %v", err)
+	}
+
+	if recreated.Deleted {
+		t.Fatal("expected recreated branch to be active")
+	}
+
+	if recreated.DeletedAt != nil {
+		t.Fatal("expected recreated branch deleted_at to be cleared")
+	}
+
+	if recreated.TenantID != "" || recreated.TimelineID != "" || recreated.Password != "" {
+		t.Fatalf("expected recreated branch credentials to reset, got tenant=%q timeline=%q password=%q", recreated.TenantID, recreated.TimelineID, recreated.Password)
+	}
+
+	if recreated.EndpointPublished || recreated.EndpointPort != 0 {
+		t.Fatalf("expected recreated branch endpoint metadata to reset, got published=%v port=%d", recreated.EndpointPublished, recreated.EndpointPort)
+	}
+
+	active, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get active branch: %v", err)
+	}
+
+	if active.Name != "feature-a" || active.Parent != "main" {
+		t.Fatalf("unexpected recreated branch payload: %+v", active)
+	}
+}
