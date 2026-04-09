@@ -105,8 +105,37 @@ To bring up the controller plus Neon storage/compute services, set `BASIC_AUTH_P
 BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
 ```
 
+Or use mise tasks:
+
+```bash
+mise run stack:up
+mise run stack:ps
+```
+
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
 The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
+
+## Smoke Testing
+
+Run the API smoke test against an already-running stack:
+
+```bash
+mise run smoke
+```
+
+Run smoke test with automatic stack start/stop for a clean run:
+
+```bash
+mise run smoke:fresh
+```
+
+The smoke test script lives at `scripts/smoke.sh` and validates status/health, branch create/switch/delete, restore, and operation-log behavior.
+
+To stop everything:
+
+```bash
+mise run stack:down
+```
 
 ## Operational Caveats (MVP)
 

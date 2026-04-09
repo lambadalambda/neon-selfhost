@@ -1,2 +1,30 @@
 [tools]
 go = "1.25.7"
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test ./..."
+
+[tasks."stack:up"]
+description = "Start controller + Neon stack"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon up -d --build'
+
+[tasks."stack:down"]
+description = "Stop controller + Neon stack"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon down'
+
+[tasks."stack:ps"]
+description = "Show stack container status"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon ps -a'
+
+[tasks."stack:logs"]
+description = "Show recent stack logs"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon logs --no-color --tail=200'
+
+[tasks.smoke]
+description = "Run API smoke test against active stack"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.sh'
+
+[tasks."smoke:fresh"]
+description = "Run smoke test with managed stack lifecycle"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.sh --manage-stack'

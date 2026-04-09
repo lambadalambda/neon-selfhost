@@ -9,6 +9,8 @@
 - Restore endpoint scaffold at `POST /api/v1/restore` with RFC3339 validation, source-history checks, and restore-branch creation.
 - Primary endpoint control API scaffold at `POST /api/v1/endpoints/primary/start|stop|switch` and `GET /api/v1/endpoints/primary/connection`.
 - Controller web console at `GET /` with endpoint status, copyable connection helpers (`psql`, DSN, `DATABASE_URL` snippet), branch create/switch/delete actions, restore form, and operation log view.
+- Smoke test automation script at `scripts/smoke.sh` for status/health, branch lifecycle, restore, and operation-log verification.
+- Mise task shortcuts for stack lifecycle (`stack:up`, `stack:down`, `stack:ps`, `stack:logs`) and smoke runs (`smoke`, `smoke:fresh`).
 - New tests for config loading, auth enforcement, operation logging, restore behavior, primary endpoint controls, and branch persistence.
 - Persistence error classification for branch state updates, including explicit insufficient-disk-space handling.
 - Concrete Neon image/command wiring in `docker-compose.yml` for storage broker, pageserver, and 3 safekeepers under the `neon` profile.
