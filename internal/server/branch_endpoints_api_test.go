@@ -124,6 +124,24 @@ func TestUnpublishBranchEndpointReturnsUnpublishedState(t *testing.T) {
 	}
 }
 
+func TestUnpublishBranchEndpointReturnsStorageErrorOnPersistenceFailure(t *testing.T) {
+	store := branch.NewStore()
+	controller := &fakeBranchEndpointController{unpublishErr: branch.ErrNoSpace}
+	handler := New(Config{Version: "test-version", BranchStore: store, BranchEndpoints: controller})
+
+	createRes := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, createRes.Code)
+	}
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/unpublish", "")
+	if res.Code != http.StatusInsufficientStorage {
+		t.Fatalf("expected status %d, got %d", http.StatusInsufficientStorage, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "storage_error")
+}
+
 func TestListBranchEndpointsReturnsPublishedEndpoints(t *testing.T) {
 	store := branch.NewStore()
 	controller := &fakeBranchEndpointController{

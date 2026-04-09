@@ -349,6 +349,10 @@ func New(cfg Config) http.Handler {
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
 			case isPrimaryEndpointUnavailable(err):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, branch.ErrNoSpace):
+				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
+			case errors.Is(err, branch.ErrPersistFailed):
+				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			}

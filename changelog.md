@@ -49,6 +49,9 @@
 - Compute wrapper image now bakes in `/shell/compute.sh` and compute config assets so dynamically created branch compute containers can boot without host bind mounts.
 - Docker endpoint stop orchestration now uses a longer Docker Engine API client timeout to avoid premature timeout errors during primary endpoint branch switches.
 - Branch names can now be reused after soft-delete; recreating a deleted branch key starts a fresh active branch record instead of returning `branch already exists`.
+- Branch endpoint publish flow now avoids persisting `published=true` on failed listener/selection setup and rolls back listener state on persistence failures.
+- Controller startup now tolerates branch-endpoint listener restore failures per branch (recorded as endpoint errors) instead of failing the whole process.
+- Branch endpoint runtime IDs (selection paths/container names) now include a deterministic branch-name hash suffix to avoid slug-collision cross-branch routing.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
@@ -65,3 +68,4 @@
 - Reset/seed workflow now sets `branch_lab` default search path to `app, public` so seeded tables are visible with `\d`/`\dt` in `psql`.
 - Branch reset now refreshes published branch endpoint attachment selection, and branch delete now unpublishes branch endpoint state before soft-delete.
 - Compose controller now exposes a localhost branch endpoint port range (`56000-56049` by default) for published branch connections.
+- Branch endpoint unpublish now maps branch persistence failures to `storage_error` responses consistently with other branch mutation handlers.

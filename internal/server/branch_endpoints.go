@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -273,8 +275,11 @@ func (c *dockerBranchEndpointController) restorePublishedListeners() error {
 		}
 
 		if err := c.startListener(b.Name, b.EndpointPort); err != nil {
-			return fmt.Errorf("%w: restore branch endpoint listener for %q: %v", ErrPrimaryEndpointUnavailable, b.Name, err)
+			c.recordError(b.Name, fmt.Errorf("%w: restore branch endpoint listener for %q: %v", ErrPrimaryEndpointUnavailable, b.Name, err))
+			continue
 		}
+
+		c.clearError(b.Name)
 	}
 
 	return nil
@@ -299,24 +304,29 @@ func (c *dockerBranchEndpointController) Publish(branchName string, attachment B
 	}
 
 	port := b.EndpointPort
-	if !b.EndpointPublished || port <= 0 {
-		allocatedPort, allocErr := c.allocatePortLocked()
+	newPublish := !b.EndpointPublished || port <= 0
+	if newPublish {
+		allocatedPort, allocErr := c.allocatePortAndStartListener(branchName)
 		if allocErr != nil {
 			return branchEndpointState{}, allocErr
 		}
 		port = allocatedPort
-
-		if _, setErr := c.store.SetEndpoint(branchName, true, port); setErr != nil {
-			return branchEndpointState{}, setErr
-		}
-	}
-
-	if err := c.startListener(branchName, port); err != nil {
+	} else if err := c.startListener(branchName, port); err != nil {
 		return branchEndpointState{}, fmt.Errorf("%w: start branch endpoint listener: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
 	if err := c.writeSelection(branchName, attachment, password); err != nil {
+		if newPublish {
+			c.stopListener(branchName)
+		}
 		return branchEndpointState{}, err
+	}
+
+	if newPublish {
+		if _, setErr := c.store.SetEndpoint(branchName, true, port); setErr != nil {
+			c.stopListener(branchName)
+			return branchEndpointState{}, setErr
+		}
 	}
 
 	return c.Connection(branchName)
@@ -485,7 +495,7 @@ func (c *dockerBranchEndpointController) List() ([]branchEndpointState, error) {
 	return states, nil
 }
 
-func (c *dockerBranchEndpointController) allocatePortLocked() (int, error) {
+func (c *dockerBranchEndpointController) allocatePortAndStartListener(branchName string) (int, error) {
 	usedPorts := map[int]bool{}
 	for _, b := range c.store.ListActive() {
 		if b.EndpointPublished && b.EndpointPort > 0 {
@@ -493,11 +503,23 @@ func (c *dockerBranchEndpointController) allocatePortLocked() (int, error) {
 		}
 	}
 
+	var lastBindErr error
+
 	for port := c.portStart; port <= c.portEnd; port++ {
 		if usedPorts[port] {
 			continue
 		}
+
+		if err := c.startListener(branchName, port); err != nil {
+			lastBindErr = err
+			continue
+		}
+
 		return port, nil
+	}
+
+	if lastBindErr != nil {
+		return 0, fmt.Errorf("%w: no available branch endpoint port in range %d-%d: %v", ErrPrimaryEndpointUnavailable, c.portStart, c.portEnd, lastBindErr)
 	}
 
 	return 0, fmt.Errorf("%w: branch endpoint port range exhausted", ErrPrimaryEndpointUnavailable)
@@ -505,11 +527,18 @@ func (c *dockerBranchEndpointController) allocatePortLocked() (int, error) {
 
 func (c *dockerBranchEndpointController) startListener(branchName string, port int) error {
 	c.mu.Lock()
-	if _, exists := c.listeners[branchName]; exists {
+	if existing, exists := c.listeners[branchName]; exists {
+		if addr, ok := existing.Addr().(*net.TCPAddr); ok && addr.Port == port {
+			c.mu.Unlock()
+			return nil
+		}
+
+		delete(c.listeners, branchName)
 		c.mu.Unlock()
-		return nil
+		_ = existing.Close()
+	} else {
+		c.mu.Unlock()
 	}
-	c.mu.Unlock()
 
 	listener, err := net.Listen("tcp", net.JoinHostPort(c.bindHost, strconv.Itoa(port)))
 	if err != nil {
@@ -710,11 +739,22 @@ func (c *dockerBranchEndpointController) writeSelection(branchName string, attac
 }
 
 func (c *dockerBranchEndpointController) selectionPath(branchName string) string {
-	return filepath.Join(c.computeDataDir, "endpoints", sanitizeEndpointBranchName(branchName), "endpoint-selection.json")
+	return filepath.Join(c.computeDataDir, "endpoints", endpointBranchIdentifier(branchName), "endpoint-selection.json")
 }
 
 func (c *dockerBranchEndpointController) containerName(branchName string) string {
-	return fmt.Sprintf("%s-branch-%s", c.composeProject, sanitizeEndpointBranchName(branchName))
+	return fmt.Sprintf("%s-branch-%s", c.composeProject, endpointBranchIdentifier(branchName))
+}
+
+func endpointBranchIdentifier(branchName string) string {
+	trimmed := strings.TrimSpace(branchName)
+	if trimmed == "" {
+		trimmed = "main"
+	}
+
+	slug := sanitizeEndpointBranchName(trimmed)
+	hash := sha1.Sum([]byte(trimmed))
+	return slug + "-" + hex.EncodeToString(hash[:4])
 }
 
 func sanitizeEndpointBranchName(branchName string) string {
