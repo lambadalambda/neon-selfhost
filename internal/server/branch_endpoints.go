@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,8 @@ const (
 	defaultBranchEndpointTimeout   = 60 * time.Second
 	branchComputePort              = 55433
 )
+
+var noopBranchEndpointLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 type BranchEndpointController interface {
 	Publish(branchName string, attachment BranchAttachment, password string) (branchEndpointState, error)
@@ -72,6 +75,7 @@ type DockerBranchEndpointOptions struct {
 	PGVersion      int
 
 	StartupTimeout time.Duration
+	Logger         *slog.Logger
 }
 
 type noopBranchEndpointController struct {
@@ -154,6 +158,7 @@ type dockerBranchEndpointController struct {
 	computeDataDir string
 	pgVersion      int
 	startupTimeout time.Duration
+	logger         *slog.Logger
 
 	mu               sync.Mutex
 	listeners        map[string]net.Listener
@@ -255,6 +260,7 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		computeDataDir:   computeDataDir,
 		pgVersion:        pgVersion,
 		startupTimeout:   startupTimeout,
+		logger:           loggerOrDefault(opts.Logger),
 		listeners:        map[string]net.Listener{},
 		activeConns:      map[string]int{},
 		lastErrors:       map[string]string{},
@@ -275,10 +281,12 @@ func (c *dockerBranchEndpointController) restorePublishedListeners() error {
 		}
 
 		if err := c.startListener(b.Name, b.EndpointPort); err != nil {
+			c.log().Warn("restore branch endpoint listener failed", "branch", b.Name, "port", b.EndpointPort, "error", err)
 			c.recordError(b.Name, fmt.Errorf("%w: restore branch endpoint listener for %q: %v", ErrPrimaryEndpointUnavailable, b.Name, err))
 			continue
 		}
 
+		c.log().Info("restored branch endpoint listener", "branch", b.Name, "port", b.EndpointPort)
 		c.clearError(b.Name)
 	}
 
@@ -327,6 +335,7 @@ func (c *dockerBranchEndpointController) Publish(branchName string, attachment B
 			c.stopListener(branchName)
 			return branchEndpointState{}, setErr
 		}
+		c.log().Info("published branch endpoint", "branch", branchName, "port", port, "tenant_id", attachment.TenantID, "timeline_id", attachment.TimelineID)
 	}
 
 	return c.Connection(branchName)
@@ -361,6 +370,8 @@ func (c *dockerBranchEndpointController) Unpublish(branchName string) (branchEnd
 		if _, setErr := c.store.SetEndpoint(branchName, false, 0); setErr != nil {
 			return branchEndpointState{}, setErr
 		}
+
+		c.log().Info("unpublished branch endpoint", "branch", branchName, "port", b.EndpointPort)
 	}
 
 	return c.Connection(branchName)
@@ -556,6 +567,7 @@ func (c *dockerBranchEndpointController) startListener(branchName string, port i
 	c.mu.Unlock()
 
 	go c.acceptLoop(branchName, listener)
+	c.log().Info("started branch endpoint listener", "branch", branchName, "addr", listener.Addr().String())
 	return nil
 }
 
@@ -571,6 +583,7 @@ func (c *dockerBranchEndpointController) stopListener(branchName string) {
 
 	if exists {
 		_ = listener.Close()
+		c.log().Info("stopped branch endpoint listener", "branch", branchName)
 	}
 }
 
@@ -581,6 +594,7 @@ func (c *dockerBranchEndpointController) acceptLoop(branchName string, listener 
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
+			c.log().Warn("accept branch endpoint connection failed", "branch", branchName, "error", err)
 			c.recordError(branchName, fmt.Errorf("accept branch endpoint connection: %w", err))
 			continue
 		}
@@ -596,6 +610,7 @@ func (c *dockerBranchEndpointController) handleClientConnection(branchName strin
 
 	b, err := c.store.GetActive(branchName)
 	if err != nil {
+		c.log().Warn("load active branch failed", "branch", branchName, "error", err)
 		c.recordError(branchName, err)
 		return
 	}
@@ -612,12 +627,14 @@ func (c *dockerBranchEndpointController) handleClientConnection(branchName strin
 
 	backendAddress, err := c.ensureComputeRunning(branchName, BranchAttachment{TenantID: b.TenantID, TimelineID: b.TimelineID}, b.Password)
 	if err != nil {
+		c.log().Warn("ensure branch compute running failed", "branch", branchName, "error", err)
 		c.recordError(branchName, err)
 		return
 	}
 
 	backendConn, err := net.DialTimeout("tcp", backendAddress, 10*time.Second)
 	if err != nil {
+		c.log().Warn("dial branch compute backend failed", "branch", branchName, "backend", backendAddress, "error", err)
 		c.recordError(branchName, fmt.Errorf("dial branch compute backend: %w", err))
 		return
 	}
@@ -688,14 +705,17 @@ func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string,
 		if createErr != nil {
 			return "", createErr
 		}
+		c.log().Info("created branch compute container", "branch", branchName, "container", containerName, "container_id", containerID)
 
 		if startErr := c.engine.StartContainer(containerID); startErr != nil {
 			return "", startErr
 		}
+		c.log().Info("started branch compute container", "branch", branchName, "container", containerName)
 	} else if !inspect.State.Running {
 		if startErr := c.engine.StartContainer(inspect.ID); startErr != nil {
 			return "", startErr
 		}
+		c.log().Info("started existing branch compute container", "branch", branchName, "container", containerName)
 	}
 
 	return c.waitForBackend(containerName)
@@ -807,6 +827,7 @@ func (c *dockerBranchEndpointController) recordError(branchName string, err erro
 	c.mu.Lock()
 	c.lastErrors[branchName] = err.Error()
 	c.mu.Unlock()
+	c.log().Warn("branch endpoint error", "branch", branchName, "error", err)
 }
 
 func (c *dockerBranchEndpointController) clearError(branchName string) {
@@ -826,4 +847,20 @@ func (c *dockerBranchEndpointController) branchLock(branchName string) *sync.Mut
 	lock := &sync.Mutex{}
 	c.branchStartLocks[branchName] = lock
 	return lock
+}
+
+func (c *dockerBranchEndpointController) log() *slog.Logger {
+	if c != nil && c.logger != nil {
+		return c.logger
+	}
+
+	return noopBranchEndpointLogger
+}
+
+func loggerOrDefault(logger *slog.Logger) *slog.Logger {
+	if logger == nil {
+		return noopBranchEndpointLogger
+	}
+
+	return logger
 }

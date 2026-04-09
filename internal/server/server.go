@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,6 +32,7 @@ type Config struct {
 
 	BasicAuthUser     string
 	BasicAuthPassword string
+	Logger            *slog.Logger
 }
 
 type statusResponse struct {
@@ -222,12 +224,15 @@ func New(cfg Config) http.Handler {
 		sqlExecutor = NewBranchEndpointSQLQueryExecutor(branchEndpoints)
 	}
 
+	logger := cfg.Logger
+	logger = loggerOrDefault(logger)
+
 	autoPublishBranches := shouldAutoPublishBranches(branchEndpoints, attachmentResolver)
 	if autoPublishBranches {
-		autoPublishExistingBranches(store, attachmentResolver, branchEndpoints)
+		autoPublishExistingBranches(store, attachmentResolver, branchEndpoints, logger)
 	}
 
-	operations := newOperationManager(nil, defaultOperationLogLimit)
+	operations := newOperationManager(nil, defaultOperationLogLimit, logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
@@ -477,6 +482,7 @@ func New(cfg Config) http.Handler {
 
 		result, err := sqlExecutor.Execute(r.Context(), branchName, req.SQL, !req.AllowWrites)
 		if err != nil {
+			logger.Warn("sql execution failed", "branch", branchName, "read_only", !req.AllowWrites, "error", err)
 			switch {
 			case errors.Is(err, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
@@ -497,6 +503,8 @@ func New(cfg Config) http.Handler {
 			}
 			return
 		}
+
+		logger.Info("sql execution succeeded", "branch", branchName, "read_only", result.ReadOnly, "command_tag", result.CommandTag, "duration_ms", result.DurationMS, "row_count", result.RowCount, "truncated", result.Truncated)
 
 		writeJSON(w, http.StatusOK, sqlExecuteEnvelope{Result: makeSQLExecutePayload(result)})
 	})
@@ -1087,9 +1095,18 @@ func shouldAutoPublishBranches(branchEndpoints BranchEndpointController, attachm
 	return true
 }
 
-func autoPublishExistingBranches(store *branch.Store, attachmentResolver BranchAttachmentResolver, branchEndpoints BranchEndpointController) {
+func autoPublishExistingBranches(store *branch.Store, attachmentResolver BranchAttachmentResolver, branchEndpoints BranchEndpointController, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	for _, active := range store.ListActive() {
-		_ = ensureBranchPublished(store, attachmentResolver, branchEndpoints, active.Name)
+		if err := ensureBranchPublished(store, attachmentResolver, branchEndpoints, active.Name); err != nil {
+			logger.Warn("auto publish branch failed", "branch", active.Name, "error", err)
+			continue
+		}
+
+		logger.Info("auto published branch endpoint", "branch", active.Name)
 	}
 }
 

@@ -82,3 +82,4 @@
 - SQL execution now defaults to read-only mode but can be explicitly switched to write-enabled mode per request (`allow_writes=true`); the SQL Editor now includes an "Enable write queries" toggle to reduce accidental mutations.
 - Console UI now has a modernized interaction pass: keyboard-accessible sidebar/history actions, visible focus states, improved hover/disabled feedback, reduced-motion handling, and clearer SQL mode signaling (read-only vs write-enabled styling + indicator).
 - README quickstart now leads with the `mise run stack:up` flow (full usable local stack immediately), while keeping controller-only startup as a separate dev path.
+- Controller/server logging now uses structured `slog` output for startup/shutdown and core operation flows (operation lifecycle, branch endpoint lifecycle, SQL execution outcomes, and auto-publish failures), improving operator observability.

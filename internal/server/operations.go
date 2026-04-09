@@ -2,6 +2,8 @@ package server
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -32,13 +34,18 @@ type operationManager struct {
 	maxEntries int
 	nextID     uint64
 	running    bool
+	logger     *slog.Logger
 }
 
-func newOperationManager(now func() time.Time, maxEntries int) *operationManager {
+func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logger) *operationManager {
 	if now == nil {
 		now = func() time.Time {
 			return time.Now().UTC()
 		}
+	}
+
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
 	if maxEntries < 1 {
@@ -48,6 +55,7 @@ func newOperationManager(now func() time.Time, maxEntries int) *operationManager
 	return &operationManager{
 		now:        now,
 		maxEntries: maxEntries,
+		logger:     logger,
 	}
 }
 
@@ -55,16 +63,21 @@ func (m *operationManager) Run(operationType string, fn func() error) error {
 	operationID, err := m.start(operationType)
 	if err != nil {
 		m.reject(operationType, err.Error())
+		m.logger.Warn("operation rejected", "type", operationType, "error", err)
 		return err
 	}
+
+	m.logger.Info("operation started", "id", operationID, "type", operationType)
 
 	err = fn()
 	if err != nil {
 		m.finish(operationID, operationStatusFailed, err.Error())
+		m.logger.Error("operation failed", "id", operationID, "type", operationType, "error", err)
 		return err
 	}
 
 	m.finish(operationID, operationStatusSucceeded, "")
+	m.logger.Info("operation succeeded", "id", operationID, "type", operationType)
 	return nil
 }
 

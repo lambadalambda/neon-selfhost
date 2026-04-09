@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -21,23 +21,30 @@ import (
 var version = "dev"
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		logger.Error("load config", "error", err)
+		os.Exit(1)
 	}
 
 	if err := preflight.CheckControllerDataDir(cfg.ControllerDataDir); err != nil {
-		log.Fatalf("startup preflight: %v", err)
+		logger.Error("startup preflight", "error", err)
+		os.Exit(1)
 	}
 	if err := preflight.CheckControllerDataDir(cfg.ComputeDataDir); err != nil {
-		log.Fatalf("compute data preflight: %v", err)
+		logger.Error("compute data preflight", "error", err)
+		os.Exit(1)
 	}
 
 	branchStore := branch.NewStore()
 	if cfg.ControllerDataDir != "" {
 		persistentStore, err := branch.NewPersistentStore(cfg.ControllerDataDir)
 		if err != nil {
-			log.Fatalf("init persistent branch store: %v", err)
+			logger.Error("init persistent branch store", "error", err)
+			os.Exit(1)
 		}
 		branchStore = persistentStore
 	}
@@ -76,7 +83,8 @@ func main() {
 			SelectionPath:  endpointSelectionPath,
 		})
 		if err != nil {
-			log.Fatalf("init docker primary endpoint controller: %v", err)
+			logger.Error("init docker primary endpoint controller", "error", err)
+			os.Exit(1)
 		}
 
 		primaryEndpoint = dockerPrimaryEndpoint
@@ -87,7 +95,8 @@ func main() {
 			PGVersion: cfg.PageserverPGVersion,
 		})
 		if err != nil {
-			log.Fatalf("init pageserver branch attachment resolver: %v", err)
+			logger.Error("init pageserver branch attachment resolver", "error", err)
+			os.Exit(1)
 		}
 
 		branchAttachmentResolver = pageserverResolver
@@ -104,9 +113,11 @@ func main() {
 			User:           cfg.PrimaryEndpointUser,
 			ComputeDataDir: cfg.ComputeDataDir,
 			PGVersion:      cfg.PageserverPGVersion,
+			Logger:         logger.With("component", "branch_endpoints"),
 		})
 		if err != nil {
-			log.Fatalf("init docker branch endpoint controller: %v", err)
+			logger.Error("init docker branch endpoint controller", "error", err)
+			os.Exit(1)
 		}
 
 		branchEndpoints = dockerBranchEndpoints
@@ -120,6 +131,7 @@ func main() {
 		BranchEndpoints:          branchEndpoints,
 		BasicAuthUser:            cfg.BasicAuthUser,
 		BasicAuthPassword:        cfg.BasicAuthPassword,
+		Logger:                   logger.With("component", "http_api"),
 	})
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),
@@ -129,12 +141,13 @@ func main() {
 
 	listener, err := net.Listen("tcp", cfg.Addr())
 	if err != nil {
-		log.Fatalf("listen on %s: %v", cfg.Addr(), err)
+		logger.Error("listen", "addr", cfg.Addr(), "error", err)
+		os.Exit(1)
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("controller listening on %s (version=%s)", listener.Addr().String(), version)
+		logger.Info("controller listening", "addr", listener.Addr().String(), "version", version)
 		if serveErr := httpServer.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			errCh <- serveErr
 		}
@@ -145,17 +158,19 @@ func main() {
 
 	select {
 	case serveErr := <-errCh:
-		log.Fatalf("serve http: %v", serveErr)
+		logger.Error("serve http", "error", serveErr)
+		os.Exit(1)
 	case sig := <-sigCh:
-		log.Printf("received signal %s, shutting down", sig.String())
+		logger.Info("received signal, shutting down", "signal", sig.String())
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
-		log.Fatalf("shutdown http server: %v", err)
+		logger.Error("shutdown http server", "error", err)
+		os.Exit(1)
 	}
 
-	log.Print("controller shutdown complete")
+	logger.Info("controller shutdown complete")
 }

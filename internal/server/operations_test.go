@@ -78,7 +78,7 @@ func TestOperationsEndpointIncludesMutationResults(t *testing.T) {
 }
 
 func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
-	manager := newOperationManager(nil, 50)
+	manager := newOperationManager(nil, 50, nil)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -126,7 +126,7 @@ func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 }
 
 func TestOperationManagerRecordsFailure(t *testing.T) {
-	manager := newOperationManager(nil, 50)
+	manager := newOperationManager(nil, 50, nil)
 
 	expected := errors.New("boom")
 	err := manager.Run("create_branch", func() error {
