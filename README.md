@@ -6,6 +6,16 @@ The goal is to make Neon branching and point-in-time restore practical for small
 
 Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, branch-scoped endpoint lifecycle APIs, and a branch-scoped SQL editor. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, with branch attachment resolution through pageserver APIs.
 
+## Console Preview
+
+### Dashboard
+
+![Neon Selfhost dashboard](docs/img/dashboard.png)
+
+### SQL Editor
+
+![Neon Selfhost SQL editor](docs/img/sql_editor.png)
+
 ## What This Project Is
 
 - A thin control plane and web console for self-hosted Neon.

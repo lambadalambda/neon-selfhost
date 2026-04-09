@@ -76,3 +76,4 @@
 - Branch reset now refreshes published branch endpoint attachment selection, and branch delete now unpublishes branch endpoint state before soft-delete.
 - Compose controller now exposes a localhost branch endpoint port range (`56000-56049` by default) for published branch connections.
 - Branch endpoint unpublish now maps branch persistence failures to `storage_error` responses consistently with other branch mutation handlers.
+- README now includes embedded console screenshots (dashboard and SQL editor) for quick visual context on GitHub.
