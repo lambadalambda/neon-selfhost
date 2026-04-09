@@ -11,6 +11,9 @@
 - Controller web console at `GET /` with endpoint status, copyable connection helpers (`psql`, DSN, `DATABASE_URL` snippet), branch create/switch/delete actions, restore form, and operation log view.
 - Smoke test automation script at `scripts/smoke.sh` for status/health, branch lifecycle, restore, and operation-log verification.
 - Mise task shortcuts for stack lifecycle (`stack:up`, `stack:down`, `stack:ps`, `stack:logs`) and smoke runs (`smoke`, `smoke:fresh`).
+- Database reset/seed script at `scripts/reset_seed_data.sh` for repeatable branch-testing fixtures on `main` (`branch_lab`).
+- Branch-isolation verification mode in `scripts/reset_seed_data.sh` that mutates data on a temporary branch and confirms `main` remains unchanged.
+- Mise task shortcuts for dataset reset/verification (`db:reset-seed`, `db:verify`, `db:verify:fresh`).
 - New tests for config loading, auth enforcement, operation logging, restore behavior, primary endpoint controls, and branch persistence.
 - Persistence error classification for branch state updates, including explicit insufficient-disk-space handling.
 - Concrete Neon image/command wiring in `docker-compose.yml` for storage broker, pageserver, and 3 safekeepers under the `neon` profile.
@@ -32,6 +35,8 @@
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.
 - Compose controller now runs as root in Docker mode so it can access the mounted Docker socket for endpoint start/stop/switch orchestration.
 - Compose primary endpoint defaults now use host port `55433` (instead of `5432`) to avoid conflicts with local PostgreSQL instances.
+- Endpoint selection file writes now use cross-container-readable permissions so compute can consume updated branch attachment metadata.
+- Compute wrapper startup now clears stale local Postgres socket lock files before launching compute to avoid restart-time lock collisions after branch switches.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.

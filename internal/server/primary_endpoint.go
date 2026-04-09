@@ -401,12 +401,21 @@ func writeEndpointSelection(path string, selection endpointSelectionState) error
 		return fmt.Errorf("%w: write endpoint selection: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("%w: set endpoint selection permissions: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("%w: close endpoint selection file: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("%w: persist endpoint selection: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		return fmt.Errorf("%w: apply endpoint selection permissions: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
 	succeeded = true

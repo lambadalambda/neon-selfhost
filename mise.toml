@@ -28,3 +28,15 @@ run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.s
 [tasks."smoke:fresh"]
 description = "Run smoke test with managed stack lifecycle"
 run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.sh --manage-stack'
+
+[tasks."db:reset-seed"]
+description = "Reset and seed branch test dataset on main"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_seed_data.sh --seed-only'
+
+[tasks."db:verify"]
+description = "Reset, seed, and verify branch isolation"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_seed_data.sh'
+
+[tasks."db:verify:fresh"]
+description = "Reset/seed/verify with managed stack lifecycle"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_seed_data.sh --manage-stack'

@@ -131,6 +131,29 @@ mise run smoke:fresh
 
 The smoke test script lives at `scripts/smoke.sh` and validates status/health, branch create/switch/delete, restore, and operation-log behavior.
 
+## Branch Data Reset + Isolation Verification
+
+Reset a known test dataset on `main` (database `branch_lab`) for manual UI/API branching checks:
+
+```bash
+mise run db:reset-seed
+```
+
+Run reset/seed plus automated branch-isolation verification (mutate on a temporary branch, confirm `main` is unchanged):
+
+```bash
+mise run db:verify
+```
+
+Run the same verification with automatic stack start/stop:
+
+```bash
+mise run db:verify:fresh
+```
+
+The backing script is `scripts/reset_seed_data.sh`.
+If your SQL password differs from the default, set `DB_PASSWORD` when running these tasks.
+
 To stop everything:
 
 ```bash

@@ -71,6 +71,9 @@ sed -i "s|${shared_libraries}|${shared_libraries},${ulid_extension}|" "${CONFIG_
 sed -i "s|TENANT_ID|${tenant_id}|" "${CONFIG_FILE}"
 sed -i "s|TIMELINE_ID|${timeline_id}|" "${CONFIG_FILE}"
 
+# Clear stale Unix socket files that can survive container restarts.
+rm -f /tmp/.s.PGSQL.55433 /tmp/.s.PGSQL.55433.lock
+
 echo "Starting compute node"
 exec /usr/local/bin/compute_ctl \
   --pgdata /var/db/postgres/compute \
