@@ -37,6 +37,7 @@
 - Compose primary endpoint defaults now use host port `55433` (instead of `5432`) to avoid conflicts with local PostgreSQL instances.
 - Endpoint selection file writes now use cross-container-readable permissions so compute can consume updated branch attachment metadata.
 - Compute wrapper startup now clears stale local Postgres socket lock files before launching compute to avoid restart-time lock collisions after branch switches.
+- Reset/seed tooling now pins compose operations to this repository, adds HTTP timeout + transport-failure handling, and adds a non-local target safety gate for destructive resets.
 
 ### Changed
 - Controller startup now uses the persistent branch store when a controller data directory is configured.

@@ -414,10 +414,6 @@ func writeEndpointSelection(path string, selection endpointSelectionState) error
 		return fmt.Errorf("%w: persist endpoint selection: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
-	if err := os.Chmod(path, 0o644); err != nil {
-		return fmt.Errorf("%w: apply endpoint selection permissions: %v", ErrPrimaryEndpointUnavailable, err)
-	}
-
 	succeeded = true
 	return nil
 }

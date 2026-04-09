@@ -153,6 +153,7 @@ mise run db:verify:fresh
 
 The backing script is `scripts/reset_seed_data.sh`.
 If your SQL password differs from the default, set `DB_PASSWORD` when running these tasks.
+This workflow drops and recreates the target database; it refuses non-local `BASE_URL` by default unless you explicitly set `ALLOW_REMOTE_RESET=1` (or pass `--force` to the script).
 
 To stop everything:
 

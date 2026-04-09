@@ -6,32 +6,43 @@ AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 DB_PASSWORD="${DB_PASSWORD:-cloud_admin}"
 SEED_DATABASE="${SEED_DATABASE:-branch_lab}"
+ALLOW_REMOTE_RESET="${ALLOW_REMOTE_RESET:-0}"
+CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-30}"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 MANAGE_STACK=false
 KEEP_STACK=false
 VERIFY_BRANCHING=true
 KEEP_VERIFY_BRANCH=false
+FORCE_REMOTE=false
 
 VERIFY_BRANCH_NAME=""
 CURRENT_BRANCH="main"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/reset_seed_data.sh [--seed-only] [--manage-stack] [--keep-stack] [--keep-verify-branch]
+Usage: ./scripts/reset_seed_data.sh [--seed-only] [--manage-stack] [--keep-stack] [--keep-verify-branch] [--force]
 
 Options:
   --seed-only           Reset and seed only (skip branch isolation verification).
   --manage-stack        Start and stop `docker compose --profile neon` for this run.
   --keep-stack          Keep compose stack running at end (requires --manage-stack).
   --keep-verify-branch  Keep verification branch (requires verify mode).
+  --force               Allow destructive reset against non-local BASE_URL.
   --help                Show this help.
 
 Environment:
   BASIC_AUTH_USER       Controller basic auth username (default: admin)
   BASIC_AUTH_PASSWORD   Controller basic auth password (default: change-me)
   BASE_URL              Controller base URL (default: http://127.0.0.1:8080)
+  ALLOW_REMOTE_RESET    Set to 1 to allow destructive reset on non-local BASE_URL.
   DB_PASSWORD           SQL password for endpoint user (default: cloud_admin)
   SEED_DATABASE         Database to drop/create/seed (default: branch_lab)
+  CURL_CONNECT_TIMEOUT  Curl connect timeout in seconds (default: 5)
+  CURL_MAX_TIME         Curl request timeout in seconds (default: 30)
 EOF
 }
 
@@ -47,7 +58,46 @@ require_command() {
 }
 
 compose() {
-  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" docker compose --profile neon "$@"
+  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" docker compose --project-directory "${REPO_ROOT}" --profile neon "$@"
+}
+
+extract_base_host() {
+  local raw_url="$1"
+  local no_scheme authority
+
+  no_scheme="${raw_url#*://}"
+  authority="${no_scheme%%/*}"
+  authority="${authority%%\?*}"
+  authority="${authority%%\#*}"
+  authority="${authority##*@}"
+
+  if [[ -z "${authority}" ]]; then
+    return 1
+  fi
+
+  if [[ "${authority}" == \[* ]]; then
+    authority="${authority#\[}"
+    printf '%s\n' "${authority%%]*}"
+    return 0
+  fi
+
+  printf '%s\n' "${authority%%:*}"
+}
+
+is_local_base_url() {
+  local host
+  if ! host="$(extract_base_host "${BASE_URL}")"; then
+    return 1
+  fi
+
+  case "${host}" in
+    localhost|127.0.0.1|::1)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 api_json() {
@@ -58,21 +108,37 @@ api_json() {
   local body_file
   body_file="$(mktemp)"
 
-  local status
+  local status curl_rc
   if [[ -n "${payload}" ]]; then
+    set +e
     status="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+      --max-time "${CURL_MAX_TIME}" \
       -u "${AUTH_USER}:${AUTH_PASSWORD}" \
       -H 'Accept: application/json' \
       -H 'Content-Type: application/json' \
       -X "${method}" \
       "${BASE_URL}${path}" \
       -d "${payload}")"
+    curl_rc=$?
+    set -e
   else
+    set +e
     status="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+      --max-time "${CURL_MAX_TIME}" \
       -u "${AUTH_USER}:${AUTH_PASSWORD}" \
       -H 'Accept: application/json' \
       -X "${method}" \
       "${BASE_URL}${path}")"
+    curl_rc=$?
+    set -e
+  fi
+
+  if [[ ${curl_rc} -ne 0 ]]; then
+    log "request transport failed: ${method} ${path} (curl exit ${curl_rc})" >&2
+    rm -f "${body_file}"
+    return 1
   fi
 
   if [[ "${status}" != 2* ]]; then
@@ -89,7 +155,11 @@ api_json() {
 wait_for_controller() {
   local attempt
   for attempt in $(seq 1 90); do
-    if curl -fsS -u "${AUTH_USER}:${AUTH_PASSWORD}" "${BASE_URL}/api/v1/status" >/dev/null 2>&1; then
+    if curl -fsS \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT}" \
+      --max-time "${CURL_MAX_TIME}" \
+      -u "${AUTH_USER}:${AUTH_PASSWORD}" \
+      "${BASE_URL}/api/v1/status" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -104,7 +174,11 @@ wait_for_ready_branch() {
   local attempt
   for attempt in $(seq 1 150); do
     local connection_json
-    connection_json="$(api_json GET /api/v1/endpoints/primary/connection)"
+    if ! connection_json="$(api_json GET /api/v1/endpoints/primary/connection)"; then
+      sleep 1
+      continue
+    fi
+
     if jq -e --arg branch "${expected_branch}" '.connection.branch == $branch and .connection.ready == true' >/dev/null <<<"${connection_json}"; then
       CURRENT_BRANCH="${expected_branch}"
       return 0
@@ -237,6 +311,9 @@ while [[ $# -gt 0 ]]; do
     --keep-verify-branch)
       KEEP_VERIFY_BRANCH=true
       ;;
+    --force)
+      FORCE_REMOTE=true
+      ;;
     --help|-h)
       usage
       exit 0
@@ -265,6 +342,21 @@ if [[ ! "${SEED_DATABASE}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
   exit 1
 fi
 
+if [[ ! "${CURL_CONNECT_TIMEOUT}" =~ ^[0-9]+$ || ! "${CURL_MAX_TIME}" =~ ^[0-9]+$ || "${CURL_CONNECT_TIMEOUT}" -lt 1 || "${CURL_MAX_TIME}" -lt 1 ]]; then
+  log "CURL_CONNECT_TIMEOUT and CURL_MAX_TIME must be positive integers"
+  exit 1
+fi
+
+if ! is_local_base_url; then
+  if [[ "${ALLOW_REMOTE_RESET}" != "1" && "${FORCE_REMOTE}" != "true" ]]; then
+    log "refusing destructive reset on non-local BASE_URL: ${BASE_URL}"
+    log "set ALLOW_REMOTE_RESET=1 or pass --force to override"
+    exit 1
+  fi
+
+  log "WARNING: running destructive reset against non-local BASE_URL: ${BASE_URL}"
+fi
+
 require_command curl
 require_command jq
 require_command psql
@@ -286,6 +378,14 @@ wait_for_controller
 log "ensuring primary endpoint is running on main"
 switch_branch "main"
 wait_for_sql_ready postgres
+
+target_connection_json="$(api_json GET /api/v1/endpoints/primary/connection)"
+target_branch="$(jq -r '.connection.branch // "unknown"' <<<"${target_connection_json}")"
+target_host="$(jq -r '.connection.host // "127.0.0.1"' <<<"${target_connection_json}")"
+target_port="$(jq -r '.connection.port // 55433' <<<"${target_connection_json}")"
+target_user="$(jq -r '.connection.user // "cloud_admin"' <<<"${target_connection_json}")"
+
+log "reset target: base_url=${BASE_URL} branch=${target_branch} endpoint=${target_host}:${target_port} user=${target_user} database=${SEED_DATABASE}"
 
 log "resetting database ${SEED_DATABASE} on main"
 psql_exec postgres "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${SEED_DATABASE}' AND pid <> pg_backend_pid();"
