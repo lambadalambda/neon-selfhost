@@ -752,6 +752,63 @@ const consoleHTML = `<!doctype html>
       min-height: 54px;
     }
 
+    .sql-results-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+
+    .sql-result-table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 220px;
+      background: #fff;
+    }
+
+    .sql-result-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    .sql-result-table th,
+    .sql-result-table td {
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .sql-result-table th:last-child,
+    .sql-result-table td:last-child {
+      border-right: 0;
+    }
+
+    .sql-result-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .sql-result-table th {
+      position: sticky;
+      top: 0;
+      background: #f5f8fc;
+      color: #314154;
+      font-weight: 700;
+      z-index: 1;
+    }
+
+    .sql-result-error {
+      color: var(--danger);
+      font-weight: 700;
+    }
+
     .monitoring-placeholder {
       border: 1px dashed rgba(98, 107, 121, 0.42);
       border-radius: 10px;
@@ -1666,9 +1723,10 @@ const consoleHTML = `<!doctype html>
       refs.sqlHistoryList.innerHTML = entries
         .slice(0, 24)
         .map((entry) => {
+			const statusSuffix = entry.status ? (' · ' + entry.status) : '';
           return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '">'
             + '<strong>' + escapeHTML(entry.title) + '</strong>'
-            + '<small>' + escapeHTML((entry.branch || selectedBranch) + ' · ' + formatSQLHistoryTime(entry.timestamp)) + '</small>'
+            + '<small>' + escapeHTML((entry.branch || selectedBranch) + ' · ' + formatSQLHistoryTime(entry.timestamp) + statusSuffix) + '</small>'
             + '</li>';
         })
         .join('');
@@ -1707,6 +1765,81 @@ const consoleHTML = `<!doctype html>
 
       refs.sqlEditorStatus.textContent = 'Ready to connect · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
       refs.sqlRunButton.disabled = false;
+    }
+
+    function appendSQLHistoryEntry(title, query, branchName, saved, status) {
+      state.sqlHistory.unshift({
+        id: (saved ? 'saved-' : 'run-') + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        title,
+        query,
+        saved,
+        branch: branchName,
+        status,
+        timestamp: new Date().toISOString(),
+      });
+      renderSQLHistory();
+    }
+
+    function formatSQLResultCell(value) {
+      if (value === null || value === undefined) {
+        return '<span class="mono">NULL</span>';
+      }
+
+      if (typeof value === 'object') {
+        return escapeHTML(JSON.stringify(value));
+      }
+
+      return escapeHTML(String(value));
+    }
+
+    function renderSQLResultSuccess(result) {
+      const columns = Array.isArray(result.columns) ? result.columns : [];
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      const commandTag = result.command_tag || 'QUERY';
+      const durationMS = Number(result.duration_ms || 0);
+      const rowCount = Number(result.row_count || rows.length);
+      const truncated = Boolean(result.truncated);
+
+      const meta = '<div class="sql-results-meta">'
+        + '<span><strong>' + escapeHTML(commandTag) + '</strong></span>'
+        + '<span>' + escapeHTML(String(rowCount)) + ' rows</span>'
+        + '<span>' + escapeHTML(String(durationMS)) + ' ms</span>'
+        + (truncated ? '<span class="badge warn">Truncated</span>' : '')
+        + '</div>';
+
+      if (!columns.length) {
+        refs.sqlEditorResult.innerHTML = meta + '<div>No row data returned.</div>';
+        return;
+      }
+
+      const header = columns
+        .map((column) => '<th>' + escapeHTML(column.name) + '<br><small>' + escapeHTML(column.type || '') + '</small></th>')
+        .join('');
+
+      const bodyRows = rows
+        .map((row) => {
+          const cells = columns
+            .map((_, index) => {
+              const value = index < row.length ? row[index] : null;
+              return '<td>' + formatSQLResultCell(value) + '</td>';
+            })
+            .join('');
+
+          return '<tr>' + cells + '</tr>';
+        })
+        .join('');
+
+      refs.sqlEditorResult.innerHTML = meta
+        + '<div class="sql-result-table-wrap">'
+        + '<table class="sql-result-table">'
+        + '<thead><tr>' + header + '</tr></thead>'
+        + '<tbody>' + bodyRows + '</tbody>'
+        + '</table>'
+        + '</div>';
+    }
+
+    function renderSQLResultError(message) {
+      refs.sqlEditorResult.innerHTML = '<div class="sql-result-error">' + escapeHTML(message) + '</div>';
     }
 
     function formatCreatedAt(value) {
@@ -1938,14 +2071,7 @@ const consoleHTML = `<!doctype html>
           const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
           const query = refs.sqlEditorInput.value;
           const branchName = state.selectedBranch || 'main';
-          state.sqlHistory.unshift({
-            id: 'saved-' + Date.now(),
-            title,
-            query,
-            saved: true,
-            branch: branchName,
-            timestamp: new Date().toISOString(),
-          });
+          appendSQLHistoryEntry(title, query, branchName, true, 'saved');
           setSQLTab('saved');
           showMessage('Query saved locally for ' + branchName + '.', 'ok');
           return;
@@ -1964,18 +2090,26 @@ const consoleHTML = `<!doctype html>
           }
 
           const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
-          state.sqlHistory.unshift({
-            id: 'run-' + Date.now(),
-            title,
-            query,
-            saved: false,
-            branch: branchName,
-            timestamp: new Date().toISOString(),
-          });
-          renderSQLHistory();
+			refs.sqlRunButton.disabled = true;
+			refs.sqlEditorStatus.textContent = 'Running query on ' + branchName + '...';
+			refs.sqlEditorResult.textContent = 'Running query...';
 
-          refs.sqlEditorResult.textContent = 'Execution preview: SQL runner endpoint is not implemented yet. Use Copy DSN and run this query via psql or your client.';
-          showMessage('Query recorded in history for ' + branchName + '.', 'ok');
+			try {
+				const response = await api('POST', '/api/v1/branches/' + encodeURIComponent(branchName) + '/sql/execute', { sql: query });
+				const result = response.result || {};
+				renderSQLResultSuccess(result);
+				appendSQLHistoryEntry(title, query, branchName, false, 'ok');
+				refs.sqlEditorStatus.textContent = 'Last run: ' + (result.command_tag || 'QUERY') + ' · ' + String(result.duration_ms || 0) + ' ms';
+				showMessage('Query executed on ' + branchName + '.', 'ok');
+			} catch (runErr) {
+				renderSQLResultError(runErr.message || 'sql execution failed');
+				appendSQLHistoryEntry(title, query, branchName, false, 'error');
+				refs.sqlEditorStatus.textContent = 'Execution failed';
+				showMessage('SQL execution failed: ' + runErr.message, 'err');
+			} finally {
+				renderSQLHistory();
+				renderSQLEditorContext();
+			}
           return;
         }
 

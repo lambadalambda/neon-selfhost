@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ type Config struct {
 	BranchAttachmentResolver BranchAttachmentResolver
 	PrimaryEndpoint          PrimaryEndpointController
 	BranchEndpoints          BranchEndpointController
+	SQLExecutor              SQLQueryExecutor
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -61,6 +63,10 @@ type restoreRequest struct {
 
 type switchPrimaryEndpointRequest struct {
 	Branch string `json:"branch"`
+}
+
+type sqlExecuteRequest struct {
+	SQL string `json:"sql"`
 }
 
 type apiErrorResponse struct {
@@ -113,6 +119,33 @@ type branchEndpointConnectionEnvelope struct {
 
 type branchEndpointsEnvelope struct {
 	Endpoints []branchEndpointPayload `json:"endpoints"`
+}
+
+type sqlExecuteEnvelope struct {
+	Result sqlExecutePayload `json:"result"`
+}
+
+type sqlExecutePayload struct {
+	Branch     string                    `json:"branch"`
+	ReadOnly   bool                      `json:"read_only"`
+	CommandTag string                    `json:"command_tag"`
+	DurationMS int64                     `json:"duration_ms"`
+	Truncated  bool                      `json:"truncated"`
+	Limits     sqlExecuteLimitsPayload   `json:"limits"`
+	Columns    []sqlExecuteColumnPayload `json:"columns,omitempty"`
+	Rows       [][]any                   `json:"rows,omitempty"`
+	RowCount   int                       `json:"row_count"`
+}
+
+type sqlExecuteLimitsPayload struct {
+	MaxRows  int `json:"max_rows"`
+	MaxBytes int `json:"max_bytes"`
+}
+
+type sqlExecuteColumnPayload struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	TypeOID uint32 `json:"type_oid"`
 }
 
 type primaryEndpointPayload struct {
@@ -173,6 +206,11 @@ func New(cfg Config) http.Handler {
 	branchEndpoints := cfg.BranchEndpoints
 	if branchEndpoints == nil {
 		branchEndpoints = NewNoopBranchEndpointController(defaultPrimaryEndpointHost, defaultPrimaryEndpointDatabase, defaultPrimaryEndpointUser)
+	}
+
+	sqlExecutor := cfg.SQLExecutor
+	if sqlExecutor == nil {
+		sqlExecutor = NewBranchEndpointSQLQueryExecutor(branchEndpoints)
 	}
 
 	autoPublishBranches := shouldAutoPublishBranches(branchEndpoints, attachmentResolver)
@@ -398,6 +436,60 @@ func New(cfg Config) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, branchEndpointConnectionEnvelope{Connection: makeBranchEndpointPayload(state)})
+	})
+
+	mux.HandleFunc("POST /api/v1/branches/{name}/sql/execute", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+
+		if _, err := store.GetActive(branchName); err != nil {
+			if errors.Is(err, branch.ErrNotFound) {
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+				return
+			}
+
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		var req sqlExecuteRequest
+		if err := decodeJSONRequest(r, &req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+			return
+		}
+
+		if err := validateSingleStatementQuery(req.SQL); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+
+		result, err := sqlExecutor.Execute(r.Context(), branchName, req.SQL)
+		if err != nil {
+			switch {
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, context.DeadlineExceeded):
+				writeJSONError(w, http.StatusRequestTimeout, "timeout", "query timed out")
+			case errors.Is(err, context.Canceled):
+				writeJSONError(w, http.StatusRequestTimeout, "canceled", "query canceled")
+			default:
+				var sqlErr *sqlExecutionError
+				if errors.As(err, &sqlErr) {
+					writeJSONError(w, http.StatusUnprocessableEntity, "sql_error", sqlErr.Error())
+					return
+				}
+
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, sqlExecuteEnvelope{Result: makeSQLExecutePayload(result)})
 	})
 
 	mux.HandleFunc("POST /api/v1/endpoints/primary/start", func(w http.ResponseWriter, _ *http.Request) {
@@ -915,6 +1007,35 @@ func makeBranchEndpointPayload(state branchEndpointState) branchEndpointPayload 
 	}
 
 	return payload
+}
+
+func makeSQLExecutePayload(result sqlExecutionResult) sqlExecutePayload {
+	columns := make([]sqlExecuteColumnPayload, 0, len(result.Columns))
+	for _, column := range result.Columns {
+		columns = append(columns, sqlExecuteColumnPayload{
+			Name:    column.Name,
+			Type:    column.Type,
+			TypeOID: column.TypeOID,
+		})
+	}
+
+	rows := make([][]any, len(result.Rows))
+	copy(rows, result.Rows)
+
+	return sqlExecutePayload{
+		Branch:     result.Branch,
+		ReadOnly:   result.ReadOnly,
+		CommandTag: result.CommandTag,
+		DurationMS: result.DurationMS,
+		Truncated:  result.Truncated,
+		Limits: sqlExecuteLimitsPayload{
+			MaxRows:  result.MaxRows,
+			MaxBytes: result.MaxBytes,
+		},
+		Columns:  columns,
+		Rows:     rows,
+		RowCount: result.RowCount,
+	}
 }
 
 func shouldAutoPublishBranches(branchEndpoints BranchEndpointController, attachmentResolver BranchAttachmentResolver) bool {

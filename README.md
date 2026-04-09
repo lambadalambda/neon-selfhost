@@ -4,7 +4,7 @@
 
 The goal is to make Neon branching and point-in-time restore practical for small deployments (for example, safe app upgrades and fast rollback).
 
-Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, and endpoint lifecycle APIs. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, with primary endpoint switch/start and branch endpoint publish flows resolving tenant/timeline attachments through pageserver APIs.
+Status: pre-alpha. A runnable controller web console is now included at `/`, backed by status, branch-management, restore, branch-scoped endpoint lifecycle APIs, and a branch-scoped SQL editor. Docker compose wires concrete storage broker/pageserver/safekeeper/compute services, with branch attachment resolution through pageserver APIs.
 
 ## What This Project Is
 
@@ -31,7 +31,7 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 - `cmd/controller` contains the Go controller entrypoint.
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
-- `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, primary and branch endpoint lifecycle endpoints, and operation log endpoint for MVP slice 1.
+- `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, endpoint lifecycle endpoints, SQL execution endpoint, and operation log endpoint for MVP slice 1.
 - `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers/compute under the `neon` profile.
 - `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
 - `configs/neon/compute_wrapper` contains the compute wrapper image/build files used by compose for local compute startup.
@@ -47,6 +47,7 @@ Status: pre-alpha. A runnable controller web console is now included at `/`, bac
 - `POST /api/v1/branches/{name}/publish`
 - `POST /api/v1/branches/{name}/unpublish`
 - `GET /api/v1/branches/{name}/connection`
+- `POST /api/v1/branches/{name}/sql/execute`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
@@ -72,11 +73,11 @@ Endpoint switch still branches from the selected parent timeline head, while res
 
 Connection `dsn` is returned only when `ready=true`.
 
-The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, password value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
+The web console now uses branch-first flows: branch selection in the left sidebar drives the Branch overview and SQL Editor pages, and connection helpers are branch-scoped.
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
-Published branch endpoints are Docker-mode only: `POST /api/v1/branches/{name}/publish` allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Once started, branch compute currently stays running until explicitly unpublished, branch delete, or external container stop/restart (there is no idle auto-stop timeout yet). `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
+Published branch endpoints are Docker-mode only: active branches are auto-published on startup, and newly created/restored branches are auto-published by default. `POST /api/v1/branches/{name}/publish` still supports explicit publish and allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Once started, branch compute currently stays running until explicitly unpublished, branch delete, or external container stop/restart (there is no idle auto-stop timeout yet). `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
 
 Branch reset (`POST /api/v1/branches/{name}/reset`) refreshes published branch endpoint attachment metadata in addition to primary-endpoint metadata. Branch delete now unpublishes branch endpoint state before soft-delete.
 
