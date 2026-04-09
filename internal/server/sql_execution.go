@@ -19,6 +19,7 @@ const (
 	defaultSQLExecutionConnectTimeout   = 15 * time.Second
 	defaultSQLExecutionStatementTimeout = 10 * time.Second
 	defaultSQLExecutionLockTimeout      = 1 * time.Second
+	defaultSQLExecutionCleanupTimeout   = 3 * time.Second
 	defaultSQLExecutionMaxRows          = 200
 	defaultSQLExecutionMaxBytes         = 1 << 20
 	defaultSQLExecutionMaxQueryBytes    = 64 * 1024
@@ -334,24 +335,18 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	if err != nil {
 		return sqlExecutionResult{}, fmt.Errorf("%w: connect to branch endpoint: %v", ErrPrimaryEndpointUnavailable, err)
 	}
-	defer conn.Close(ctx)
+	defer closeSQLConnection(conn)
+
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return sqlExecutionResult{}, mapSQLExecutionError(err)
+	}
+	defer rollbackSQLTx(tx)
 
 	started := time.Now()
-	rows, err := conn.Query(ctx, query)
+	rows, err := tx.Query(ctx, query)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			return sqlExecutionResult{}, &sqlExecutionError{
-				Message:  strings.TrimSpace(pgErr.Message),
-				SQLState: strings.TrimSpace(pgErr.Code),
-				Position: int(pgErr.Position),
-			}
-		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return sqlExecutionResult{}, err
-		}
-
-		return sqlExecutionResult{}, &sqlExecutionError{Message: strings.TrimSpace(err.Error())}
+		return sqlExecutionResult{}, mapSQLExecutionError(err)
 	}
 	defer rows.Close()
 
@@ -393,19 +388,7 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	}
 
 	if err := rows.Err(); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			return sqlExecutionResult{}, &sqlExecutionError{
-				Message:  strings.TrimSpace(pgErr.Message),
-				SQLState: strings.TrimSpace(pgErr.Code),
-				Position: int(pgErr.Position),
-			}
-		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return sqlExecutionResult{}, err
-		}
-
-		return sqlExecutionResult{}, &sqlExecutionError{Message: strings.TrimSpace(err.Error())}
+		return sqlExecutionResult{}, mapSQLExecutionError(err)
 	}
 
 	result := sqlExecutionResult{
@@ -449,4 +432,45 @@ func normalizeSQLResultValue(value any, maxCellBytes int) any {
 	default:
 		return typed
 	}
+}
+
+func mapSQLExecutionError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return &sqlExecutionError{
+			Message:  strings.TrimSpace(pgErr.Message),
+			SQLState: strings.TrimSpace(pgErr.Code),
+			Position: int(pgErr.Position),
+		}
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return err
+	}
+
+	return &sqlExecutionError{Message: strings.TrimSpace(err.Error())}
+}
+
+func closeSQLConnection(conn *pgx.Conn) {
+	if conn == nil {
+		return
+	}
+
+	cleanupCtx, cancel := newSQLExecutionCleanupContext()
+	defer cancel()
+	_ = conn.Close(cleanupCtx)
+}
+
+func rollbackSQLTx(tx pgx.Tx) {
+	if tx == nil {
+		return
+	}
+
+	cleanupCtx, cancel := newSQLExecutionCleanupContext()
+	defer cancel()
+	_ = tx.Rollback(cleanupCtx)
+}
+
+func newSQLExecutionCleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), defaultSQLExecutionCleanupTimeout)
 }

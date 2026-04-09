@@ -287,3 +287,40 @@ func TestLoadRejectsInvalidBranchEndpointPortRange(t *testing.T) {
 		t.Fatal("expected error for invalid branch endpoint port range")
 	}
 }
+
+func TestLoadRejectsUnauthenticatedNonLoopbackBind(t *testing.T) {
+	t.Setenv("HTTP_HOST", "0.0.0.0")
+	t.Setenv("BASIC_AUTH_USER", "")
+	t.Setenv("BASIC_AUTH_PASSWORD", "")
+	t.Setenv("ALLOW_INSECURE_HTTP_BIND", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for non-loopback bind without basic auth")
+	}
+}
+
+func TestLoadAllowsUnauthenticatedNonLoopbackBindWithOverride(t *testing.T) {
+	t.Setenv("HTTP_HOST", "0.0.0.0")
+	t.Setenv("BASIC_AUTH_USER", "")
+	t.Setenv("BASIC_AUTH_PASSWORD", "")
+	t.Setenv("ALLOW_INSECURE_HTTP_BIND", "1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.HTTPHost != "0.0.0.0" {
+		t.Fatalf("expected host %q, got %q", "0.0.0.0", cfg.HTTPHost)
+	}
+}
+
+func TestLoadRejectsInvalidAllowInsecureHTTPBindValue(t *testing.T) {
+	t.Setenv("ALLOW_INSECURE_HTTP_BIND", "maybe")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid ALLOW_INSECURE_HTTP_BIND")
+	}
+}

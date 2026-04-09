@@ -70,6 +70,8 @@ Status: pre-alpha. The core branch-first flow works in Docker mode (branch manag
 
 When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console and API routes require HTTP basic auth.
 
+For safety, binding the controller to a non-loopback `HTTP_HOST` now requires basic auth by default. You can bypass this only by explicitly setting `ALLOW_INSECURE_HTTP_BIND=1` (intended for local testing only).
+
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
@@ -85,6 +87,8 @@ Endpoint switch still branches from the selected parent timeline head, while res
 Connection `dsn` is returned only when `ready=true`.
 
 The web console now uses branch-first flows: branch selection in the left sidebar drives the Branch overview and SQL Editor pages, and connection helpers are branch-scoped.
+
+SQL execution is run in an explicit read-only transaction with conservative timeout and response-size limits.
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
@@ -106,6 +110,8 @@ Validation and JSON parsing failures return stable JSON error envelopes:
   }
 }
 ```
+
+Oversized JSON request bodies return `request_too_large` (`413`): most write/control routes cap request bodies at 1 MiB, and `POST /api/v1/branches/{name}/sql/execute` uses a tighter 128 KiB cap.
 
 ## Quickstart (Controller Dev)
 

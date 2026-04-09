@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -13,6 +14,11 @@ import (
 	"time"
 
 	"neon-selfhost/internal/branch"
+)
+
+const (
+	defaultJSONRequestBodyMaxBytes int64 = 1 << 20
+	sqlJSONRequestBodyMaxBytes     int64 = 128 * 1024
 )
 
 type Config struct {
@@ -181,6 +187,8 @@ type branchEndpointPayload struct {
 }
 
 var ErrRestoreHistoryUnavailable = errors.New("timestamp is outside source branch history")
+
+var ErrRequestBodyTooLarge = errors.New("request body exceeds limit")
 
 func New(cfg Config) http.Handler {
 	version := cfg.Version
@@ -456,8 +464,8 @@ func New(cfg Config) http.Handler {
 		}
 
 		var req sqlExecuteRequest
-		if err := decodeJSONRequest(r, &req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		if err := decodeJSONRequest(r, &req, sqlJSONRequestBodyMaxBytes); err != nil {
+			writeJSONDecodeError(w, err, sqlJSONRequestBodyMaxBytes)
 			return
 		}
 
@@ -567,8 +575,8 @@ func New(cfg Config) http.Handler {
 
 	mux.HandleFunc("POST /api/v1/endpoints/primary/switch", func(w http.ResponseWriter, r *http.Request) {
 		var req switchPrimaryEndpointRequest
-		if err := decodeJSONRequest(r, &req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		if err := decodeJSONRequest(r, &req, defaultJSONRequestBodyMaxBytes); err != nil {
+			writeJSONDecodeError(w, err, defaultJSONRequestBodyMaxBytes)
 			return
 		}
 
@@ -631,8 +639,8 @@ func New(cfg Config) http.Handler {
 
 	mux.HandleFunc("POST /api/v1/restore", func(w http.ResponseWriter, r *http.Request) {
 		var req restoreRequest
-		if err := decodeJSONRequest(r, &req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		if err := decodeJSONRequest(r, &req, defaultJSONRequestBodyMaxBytes); err != nil {
+			writeJSONDecodeError(w, err, defaultJSONRequestBodyMaxBytes)
 			return
 		}
 
@@ -718,8 +726,8 @@ func New(cfg Config) http.Handler {
 
 	mux.HandleFunc("POST /api/v1/branches", func(w http.ResponseWriter, r *http.Request) {
 		var req createBranchRequest
-		if err := decodeJSONRequest(r, &req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+		if err := decodeJSONRequest(r, &req, defaultJSONRequestBodyMaxBytes); err != nil {
+			writeJSONDecodeError(w, err, defaultJSONRequestBodyMaxBytes)
 			return
 		}
 
@@ -925,8 +933,21 @@ func secureEqual(left string, right string) bool {
 	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
-func decodeJSONRequest(r *http.Request, out any) error {
-	dec := json.NewDecoder(r.Body)
+func decodeJSONRequest(r *http.Request, out any, maxBytes int64) error {
+	if maxBytes <= 0 {
+		maxBytes = defaultJSONRequestBodyMaxBytes
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
+	if err != nil {
+		return err
+	}
+
+	if int64(len(body)) > maxBytes {
+		return ErrRequestBodyTooLarge
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(out); err != nil {
 		return err
@@ -937,6 +958,15 @@ func decodeJSONRequest(r *http.Request, out any) error {
 	}
 
 	return nil
+}
+
+func writeJSONDecodeError(w http.ResponseWriter, err error, maxBytes int64) {
+	if errors.Is(err, ErrRequestBodyTooLarge) {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "request_too_large", fmt.Sprintf("request body exceeds %d bytes", maxBytes))
+		return
+	}
+
+	writeJSONError(w, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 }
 
 func makeBranchPayload(b branch.Branch) branchPayload {

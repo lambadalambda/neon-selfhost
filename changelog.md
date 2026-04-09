@@ -78,3 +78,4 @@
 - Branch endpoint unpublish now maps branch persistence failures to `storage_error` responses consistently with other branch mutation handlers.
 - README now includes embedded console screenshots (dashboard and SQL editor) for quick visual context on GitHub.
 - README top-level framing now includes newcomer-friendly Neon context, a clear "What This Is" and "Features" section, and updated current-state language aligned with branch-first console workflows.
+- Controller startup now fails closed for non-loopback `HTTP_HOST` when basic auth is unset (unless `ALLOW_INSECURE_HTTP_BIND=1` is explicitly provided), JSON request bodies are now size-limited with `request_too_large` responses (`413`), and SQL execution now runs inside explicit read-only transactions with cancellation-safe cleanup paths.

@@ -91,6 +91,17 @@ func TestExecuteSQLRejectsMultiStatement(t *testing.T) {
 	assertAPIErrorCode(t, res, "validation_error")
 }
 
+func TestExecuteSQLRejectsOversizedRequestBody(t *testing.T) {
+	handler := New(Config{Version: "test-version", SQLExecutor: &fakeSQLQueryExecutor{}})
+	body := `{"sql":"` + strings.Repeat("x", 130*1024) + `"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", body)
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "request_too_large")
+}
+
 func TestExecuteSQLReturnsSQLValidationErrorPayload(t *testing.T) {
 	handler := New(Config{Version: "test-version", SQLExecutor: &fakeSQLQueryExecutor{err: &sqlExecutionError{Message: "syntax error", SQLState: "42601", Position: 8}}})
 	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"SELECT FROM"}`)

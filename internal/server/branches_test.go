@@ -229,6 +229,18 @@ func TestCreateBranchInvalidJSON(t *testing.T) {
 	assertAPIErrorCode(t, res, "invalid_json")
 }
 
+func TestCreateBranchRejectsOversizedRequestBody(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	body := `{"name":"` + strings.Repeat("a", (1<<20)+256) + `","parent":"main"}`
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", body)
+
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "request_too_large")
+}
+
 func TestCreateBranchConflict(t *testing.T) {
 	handler := New(Config{Version: "test-version"})
 

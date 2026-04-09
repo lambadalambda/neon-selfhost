@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 const defaultHTTPPort = 8080
 const defaultHTTPHost = "127.0.0.1"
+const allowInsecureHTTPBindEnv = "ALLOW_INSECURE_HTTP_BIND"
 
 const (
 	defaultPrimaryEndpointMode     = "memory"
@@ -74,6 +76,10 @@ func Load() (Config, error) {
 
 	basicAuthUser := strings.TrimSpace(os.Getenv("BASIC_AUTH_USER"))
 	basicAuthPassword := os.Getenv("BASIC_AUTH_PASSWORD")
+	allowInsecureHTTPBind, err := parseOptionalBoolEnv(allowInsecureHTTPBindEnv)
+	if err != nil {
+		return Config{}, err
+	}
 	controllerDataDir := strings.TrimSpace(os.Getenv("CONTROLLER_DATA_DIR"))
 	computeDataDir := strings.TrimSpace(os.Getenv("COMPUTE_DATA_DIR"))
 
@@ -183,6 +189,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("BASIC_AUTH_USER is required when BASIC_AUTH_PASSWORD is set")
 	}
 
+	if !allowInsecureHTTPBind && !isLoopbackHTTPHost(host) && basicAuthUser == "" {
+		return Config{}, fmt.Errorf("BASIC_AUTH_USER and BASIC_AUTH_PASSWORD are required when HTTP_HOST %q is non-loopback (set %s=1 to override for local testing)", host, allowInsecureHTTPBindEnv)
+	}
+
 	return Config{
 		HTTPHost:          host,
 		HTTPPort:          port,
@@ -213,4 +223,41 @@ func Load() (Config, error) {
 
 func (c Config) Addr() string {
 	return fmt.Sprintf("%s:%d", c.HTTPHost, c.HTTPPort)
+}
+
+func parseOptionalBoolEnv(name string) (bool, error) {
+	raw, exists := os.LookupEnv(name)
+	if !exists {
+		return false, nil
+	}
+
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false, nil
+	}
+
+	parsed, err := strconv.ParseBool(trimmed)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q", name, raw)
+	}
+
+	return parsed, nil
+}
+
+func isLoopbackHTTPHost(host string) bool {
+	trimmed := strings.TrimSpace(host)
+	if trimmed == "" {
+		return true
+	}
+
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") && len(trimmed) > 2 {
+		trimmed = trimmed[1 : len(trimmed)-1]
+	}
+
+	if strings.EqualFold(trimmed, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(trimmed)
+	return ip != nil && ip.IsLoopback()
 }
