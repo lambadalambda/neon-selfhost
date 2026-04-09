@@ -115,6 +115,7 @@ type primaryEndpointPayload struct {
 	Port           int    `json:"port"`
 	Database       string `json:"database"`
 	User           string `json:"user"`
+	Password       string `json:"password,omitempty"`
 	TenantID       string `json:"tenant_id,omitempty"`
 	TimelineID     string `json:"timeline_id,omitempty"`
 	DSN            string `json:"dsn,omitempty"`

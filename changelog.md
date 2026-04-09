@@ -30,6 +30,7 @@
 - Primary endpoint connection readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, including `status=starting` during health-check warmup.
 - Restore safety hardening: timestamp-to-LSN requests now send correct query parameters, unknown pageserver timestamp kinds are rejected, and restore branches are created atomically with attachment metadata.
 - Primary endpoint status hardening: connection payload now clamps `ready=false` when runtime is stopped and returns `status=unhealthy` for running-but-unhealthy runtime state.
+- Primary endpoint connection payload now includes endpoint password metadata, and the web console exposes password-aware connection helpers.
 
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.

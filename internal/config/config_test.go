@@ -105,6 +105,7 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	t.Setenv("PRIMARY_ENDPOINT_PORT", "")
 	t.Setenv("PRIMARY_ENDPOINT_DATABASE", "")
 	t.Setenv("PRIMARY_ENDPOINT_USER", "")
+	t.Setenv("PRIMARY_ENDPOINT_PASSWORD", "")
 	t.Setenv("DOCKER_SOCKET_PATH", "")
 	t.Setenv("DOCKER_COMPOSE_PROJECT", "")
 	t.Setenv("PAGESERVER_API", "")
@@ -139,6 +140,10 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 		t.Fatalf("expected primary endpoint user %q, got %q", defaultPrimaryEndpointUser, cfg.PrimaryEndpointUser)
 	}
 
+	if cfg.PrimaryEndpointPassword != defaultPrimaryEndpointUser {
+		t.Fatalf("expected primary endpoint password %q, got %q", defaultPrimaryEndpointUser, cfg.PrimaryEndpointPassword)
+	}
+
 	if cfg.DockerSocketPath != defaultDockerSocketPath {
 		t.Fatalf("expected docker socket path %q, got %q", defaultDockerSocketPath, cfg.DockerSocketPath)
 	}
@@ -163,6 +168,7 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("PRIMARY_ENDPOINT_PORT", "15432")
 	t.Setenv("PRIMARY_ENDPOINT_DATABASE", "app")
 	t.Setenv("PRIMARY_ENDPOINT_USER", "app_user")
+	t.Setenv("PRIMARY_ENDPOINT_PASSWORD", "app_secret")
 	t.Setenv("DOCKER_SOCKET_PATH", "/custom/docker.sock")
 	t.Setenv("DOCKER_COMPOSE_PROJECT", "custom-project")
 	t.Setenv("PAGESERVER_API", "http://pageserver.internal:9898")
@@ -195,6 +201,10 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 
 	if cfg.PrimaryEndpointUser != "app_user" {
 		t.Fatalf("expected primary endpoint user %q, got %q", "app_user", cfg.PrimaryEndpointUser)
+	}
+
+	if cfg.PrimaryEndpointPassword != "app_secret" {
+		t.Fatalf("expected primary endpoint password %q, got %q", "app_secret", cfg.PrimaryEndpointPassword)
 	}
 
 	if cfg.DockerSocketPath != "/custom/docker.sock" {

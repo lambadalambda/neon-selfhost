@@ -35,6 +35,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected env snippet placeholder in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"connection-password\"") {
+		t.Fatal("expected password placeholder in UI response")
+	}
+
 	if !strings.Contains(body, "data-action=\"copy-psql-command\"") {
 		t.Fatal("expected psql copy action in UI response")
 	}
@@ -45,6 +49,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 
 	if !strings.Contains(body, "data-action=\"copy-env-snippet\"") {
 		t.Fatal("expected env snippet copy action in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-password\"") {
+		t.Fatal("expected password copy action in UI response")
 	}
 
 	if !strings.Contains(body, "DATABASE_URL=") {

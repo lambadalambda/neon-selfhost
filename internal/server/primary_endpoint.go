@@ -39,6 +39,7 @@ type DockerPrimaryEndpointOptions struct {
 	Port     int
 	Database string
 	User     string
+	Password string
 
 	SelectionPath string
 }
@@ -48,6 +49,7 @@ type primaryEndpointConnectionInfo struct {
 	Port     int
 	Database string
 	User     string
+	Password string
 }
 
 type primaryEndpointRuntime interface {
@@ -73,6 +75,7 @@ type primaryEndpointState struct {
 	Port           int
 	Database       string
 	User           string
+	Password       string
 
 	TenantID   string
 	TimelineID string
@@ -114,6 +117,7 @@ func defaultPrimaryEndpointConnectionInfo() primaryEndpointConnectionInfo {
 		Port:     defaultPrimaryEndpointPort,
 		Database: defaultPrimaryEndpointDatabase,
 		User:     defaultPrimaryEndpointUser,
+		Password: defaultPrimaryEndpointUser,
 	}
 }
 
@@ -133,6 +137,9 @@ func newPrimaryEndpointManagerWithRuntime(runtime primaryEndpointRuntime, connIn
 	}
 	if strings.TrimSpace(connInfo.User) == "" {
 		connInfo.User = defaultPrimaryEndpointUser
+	}
+	if connInfo.Password == "" {
+		connInfo.Password = connInfo.User
 	}
 
 	manager := &primaryEndpointManager{
@@ -170,17 +177,19 @@ func NewDockerPrimaryEndpointController(opts DockerPrimaryEndpointOptions) (Prim
 		Port:     opts.Port,
 		Database: opts.Database,
 		User:     opts.User,
+		Password: opts.Password,
 	}
 
 	return newPrimaryEndpointManagerWithRuntime(runtime, connInfo, opts.SelectionPath), nil
 }
 
-func NewInMemoryPrimaryEndpointController(host string, port int, database string, user string, selectionPath string) PrimaryEndpointController {
+func NewInMemoryPrimaryEndpointController(host string, port int, database string, user string, password string, selectionPath string) PrimaryEndpointController {
 	return newPrimaryEndpointManagerWithRuntime(nil, primaryEndpointConnectionInfo{
 		Host:     host,
 		Port:     port,
 		Database: database,
 		User:     user,
+		Password: password,
 	}, selectionPath)
 }
 
@@ -207,6 +216,7 @@ func (m *primaryEndpointManager) Connection() (primaryEndpointState, error) {
 		Port:           connInfo.Port,
 		Database:       connInfo.Database,
 		User:           connInfo.User,
+		Password:       connInfo.Password,
 
 		TenantID:   attachment.TenantID,
 		TimelineID: attachment.TimelineID,
@@ -431,6 +441,7 @@ func makePrimaryConnectionPayload(state primaryEndpointState) primaryEndpointPay
 		Port:           state.Port,
 		Database:       state.Database,
 		User:           state.User,
+		Password:       state.Password,
 		TenantID:       state.TenantID,
 		TimelineID:     state.TimelineID,
 	}

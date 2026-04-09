@@ -20,6 +20,7 @@ services:
       PRIMARY_ENDPOINT_PORT: "55433"
       PRIMARY_ENDPOINT_DATABASE: postgres
       PRIMARY_ENDPOINT_USER: cloud_admin
+      PRIMARY_ENDPOINT_PASSWORD: cloud_admin
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DOCKER_COMPOSE_PROJECT: neon-selfhost
       PAGESERVER_API: http://pageserver:9898

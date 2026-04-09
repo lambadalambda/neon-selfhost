@@ -446,6 +446,12 @@ const consoleHTML = `<!doctype html>
             </div>
 
             <div class="cmd-row">
+              <span class="cmd-label mono">Password</span>
+              <input class="cmd" data-role="connection-password" readonly value="Loading password...">
+              <button class="quiet" data-action="copy-password">Copy password</button>
+            </div>
+
+            <div class="cmd-row">
               <span class="cmd-label mono">.env</span>
               <input class="cmd" data-role="connection-env" readonly value="DATABASE_URL=Loading...">
               <button class="quiet" data-action="copy-env-snippet">Copy .env</button>
@@ -523,6 +529,7 @@ const consoleHTML = `<!doctype html>
       endpointAddress: document.querySelector('[data-role="endpoint-address"]'),
       connectionCommand: document.querySelector('[data-role="connection-command"]'),
       connectionDSN: document.querySelector('[data-role="connection-dsn"]'),
+      connectionPassword: document.querySelector('[data-role="connection-password"]'),
       connectionEnv: document.querySelector('[data-role="connection-env"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       restoreSource: document.querySelector('[data-role="restore-source"]'),
@@ -579,25 +586,52 @@ const consoleHTML = `<!doctype html>
       return data;
     }
 
-    function makeConnectionURL(connection, includePasswordPlaceholder) {
+    function getConnectionPassword(connection) {
+      if (typeof connection.password === 'string' && connection.password.length > 0) {
+        return connection.password;
+      }
+
+      if (typeof connection.user === 'string' && connection.user.length > 0) {
+        return connection.user;
+      }
+
+      return 'cloud_admin';
+    }
+
+    function encodeSegment(value) {
+      return encodeURIComponent(String(value));
+    }
+
+    function makeConnectionURL(connection, includePassword) {
       const host = connection.host || '127.0.0.1';
       const port = connection.port || 55433;
       const user = connection.user || 'cloud_admin';
+      const password = getConnectionPassword(connection);
       const database = connection.database || 'postgres';
-      const userInfo = includePasswordPlaceholder ? (user + ':<password>') : user;
-      return 'postgresql://' + userInfo + '@' + host + ':' + port + '/' + database + '?sslmode=disable';
+
+      let userInfo = encodeSegment(user);
+      if (includePassword) {
+        userInfo = userInfo + ':' + encodeSegment(password);
+      }
+
+      return 'postgresql://' + userInfo + '@' + host + ':' + port + '/' + encodeSegment(database) + '?sslmode=disable';
     }
 
     function makeDSN(connection) {
-      return connection.dsn || makeConnectionURL(connection, false);
+      return makeConnectionURL(connection, true);
+    }
+
+    function quoteShellSingle(value) {
+      return "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
     }
 
     function makePSQLCommand(connection) {
-      return 'PGPASSWORD=<password> psql "' + makeDSN(connection) + '"';
+      const password = getConnectionPassword(connection);
+      return 'PGPASSWORD=' + quoteShellSingle(password) + ' psql "' + makeConnectionURL(connection, false) + '"';
     }
 
     function makeEnvSnippet(connection) {
-      return 'DATABASE_URL="' + makeConnectionURL(connection, true) + '"';
+      return 'DATABASE_URL="' + makeDSN(connection) + '"';
     }
 
     function renderConnection(connection) {
@@ -608,6 +642,7 @@ const consoleHTML = `<!doctype html>
       refs.endpointAddress.textContent = (connection.host || '127.0.0.1') + ':' + String(connection.port || 55433);
       refs.connectionCommand.value = makePSQLCommand(connection);
       refs.connectionDSN.value = makeDSN(connection);
+      refs.connectionPassword.value = getConnectionPassword(connection);
       refs.connectionEnv.value = makeEnvSnippet(connection);
 
       const readiness = connection.ready ? 'ready' : 'not ready';
@@ -831,6 +866,12 @@ const consoleHTML = `<!doctype html>
         if (action === 'copy-dsn') {
           await copyTextToClipboard(refs.connectionDSN.value);
           showMessage('DSN copied to clipboard.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-password') {
+          await copyTextToClipboard(refs.connectionPassword.value);
+          showMessage('Password copied to clipboard.', 'ok');
           return;
         }
 

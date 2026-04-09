@@ -66,7 +66,7 @@ Endpoint switch still branches from the selected parent timeline head, while res
 
 Connection `dsn` is returned only when `ready=true`.
 
-The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
+The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, password value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
 
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
@@ -114,6 +114,7 @@ mise run stack:ps
 
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
 The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate the `compute` service lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
+Use `PRIMARY_ENDPOINT_PASSWORD` if endpoint credentials differ from the default `cloud_admin` value.
 
 ## Smoke Testing
 

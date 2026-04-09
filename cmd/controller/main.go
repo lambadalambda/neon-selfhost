@@ -52,6 +52,7 @@ func main() {
 		cfg.PrimaryEndpointPort,
 		cfg.PrimaryEndpointDatabase,
 		cfg.PrimaryEndpointUser,
+		cfg.PrimaryEndpointPassword,
 		endpointSelectionPath,
 	))
 
@@ -66,6 +67,7 @@ func main() {
 			Port:           cfg.PrimaryEndpointPort,
 			Database:       cfg.PrimaryEndpointDatabase,
 			User:           cfg.PrimaryEndpointUser,
+			Password:       cfg.PrimaryEndpointPassword,
 			SelectionPath:  endpointSelectionPath,
 		})
 		if err != nil {

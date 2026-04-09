@@ -16,6 +16,7 @@ type primaryConnectionResponse struct {
 		Port           int    `json:"port"`
 		Database       string `json:"database"`
 		User           string `json:"user"`
+		Password       string `json:"password,omitempty"`
 		DSN            string `json:"dsn,omitempty"`
 	} `json:"connection"`
 }
@@ -41,6 +42,10 @@ func TestPrimaryConnectionDefaultsToStoppedMain(t *testing.T) {
 
 	if payload.Connection.Branch != "main" {
 		t.Fatalf("expected branch %q, got %q", "main", payload.Connection.Branch)
+	}
+
+	if payload.Connection.Password != "postgres" {
+		t.Fatalf("expected password %q, got %q", "postgres", payload.Connection.Password)
 	}
 }
 
@@ -250,5 +255,32 @@ func TestPrimaryConnectionClampsReadyToFalseWhenRuntimeIsStopped(t *testing.T) {
 
 	if payload.Connection.Ready {
 		t.Fatal("expected ready=false while endpoint is stopped")
+	}
+}
+
+func TestPrimaryConnectionIncludesConfiguredPassword(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{running: true}
+
+	handler := New(Config{
+		Version: "test-version",
+		PrimaryEndpoint: newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+			Host:     "127.0.0.1",
+			Port:     55433,
+			Database: "postgres",
+			User:     "cloud_admin",
+			Password: "super-secret",
+		}, ""),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/endpoints/primary/connection", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload primaryConnectionResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Connection.Password != "super-secret" {
+		t.Fatalf("expected configured password %q, got %q", "super-secret", payload.Connection.Password)
 	}
 }

@@ -39,6 +39,7 @@ type Config struct {
 	PrimaryEndpointPort     int
 	PrimaryEndpointDatabase string
 	PrimaryEndpointUser     string
+	PrimaryEndpointPassword string
 
 	DockerSocketPath     string
 	DockerComposeProject string
@@ -110,6 +111,11 @@ func Load() (Config, error) {
 		primaryEndpointUser = defaultPrimaryEndpointUser
 	}
 
+	primaryEndpointPassword, exists := os.LookupEnv("PRIMARY_ENDPOINT_PASSWORD")
+	if !exists || primaryEndpointPassword == "" {
+		primaryEndpointPassword = primaryEndpointUser
+	}
+
 	dockerSocketPath := strings.TrimSpace(os.Getenv("DOCKER_SOCKET_PATH"))
 	if dockerSocketPath == "" {
 		dockerSocketPath = defaultDockerSocketPath
@@ -157,6 +163,7 @@ func Load() (Config, error) {
 		PrimaryEndpointPort:     primaryEndpointPort,
 		PrimaryEndpointDatabase: primaryEndpointDatabase,
 		PrimaryEndpointUser:     primaryEndpointUser,
+		PrimaryEndpointPassword: primaryEndpointPassword,
 
 		DockerSocketPath:     dockerSocketPath,
 		DockerComposeProject: dockerComposeProject,
