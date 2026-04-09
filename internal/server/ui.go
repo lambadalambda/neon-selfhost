@@ -127,6 +127,16 @@ const consoleHTML = `<!doctype html>
       align-items: center;
     }
 
+    .sidebar-select {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #243042;
+      font-weight: 600;
+      padding: 9px 10px;
+    }
+
     .workspace {
       padding: 24px;
       display: grid;
@@ -475,6 +485,54 @@ const consoleHTML = `<!doctype html>
       font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
     }
 
+    .overview-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .overview-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .overview-card h3 {
+      margin: 0;
+      font-size: 0.96rem;
+    }
+
+    .overview-fields {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .overview-field {
+      display: grid;
+      gap: 2px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .overview-field label {
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+    }
+
+    .overview-field strong {
+      font-size: 0.92rem;
+      word-break: break-word;
+    }
+
     .endpoint-list {
       list-style: none;
       margin: 0;
@@ -646,6 +704,11 @@ const consoleHTML = `<!doctype html>
         grid-template-columns: 1fr;
       }
 
+      .overview-grid,
+      .overview-fields {
+        grid-template-columns: 1fr;
+      }
+
       .cmd-row {
         grid-template-columns: 1fr;
       }
@@ -673,7 +736,11 @@ const consoleHTML = `<!doctype html>
       </section>
 
       <section class="nav-section">
-        <h2>Endpoint Mode</h2>
+        <h2>Branch</h2>
+        <select class="sidebar-select" data-role="sidebar-branch-select"></select>
+        <ul class="nav-list">
+          <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview">Overview</li>
+        </ul>
         <div class="branch-chip">
           <span>Per-branch endpoints</span>
           <span class="mono" data-role="published-count-chip">0 live</span>
@@ -764,6 +831,61 @@ const consoleHTML = `<!doctype html>
         </section>
       </section>
 
+      <section class="page-section is-hidden" data-role="page-branch-overview">
+        <article class="panel" data-role="branch-overview-panel">
+          <header class="panel-header">
+            <h2>Branch overview</h2>
+            <p data-role="branch-overview-subtitle">basic branch metadata and connection details</p>
+          </header>
+          <div class="panel-body">
+            <div class="overview-grid">
+              <section class="overview-card" data-role="branch-overview-basic">
+                <h3>Basic information</h3>
+                <div class="overview-fields">
+                  <div class="overview-field">
+                    <label>Branch</label>
+                    <strong data-role="branch-overview-name">main</strong>
+                  </div>
+                  <div class="overview-field">
+                    <label>Parent</label>
+                    <strong data-role="branch-overview-parent">-</strong>
+                  </div>
+                  <div class="overview-field">
+                    <label>Created</label>
+                    <strong data-role="branch-overview-created">-</strong>
+                  </div>
+                  <div class="overview-field">
+                    <label>Endpoint</label>
+                    <strong class="mono" data-role="branch-overview-endpoint">-</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="overview-card" data-role="branch-overview-connect">
+                <h3>Connect</h3>
+                <div class="connect-stack">
+                  <div class="cmd-row">
+                    <span class="cmd-label mono">DSN</span>
+                    <input class="cmd" data-role="branch-overview-dsn" readonly value="Loading branch DSN...">
+                    <button class="btn-ghost" data-action="copy-overview-dsn">Copy DSN</button>
+                  </div>
+                  <div class="cmd-row">
+                    <span class="cmd-label mono">psql</span>
+                    <input class="cmd" data-role="branch-overview-psql" readonly value="Loading psql command...">
+                    <button class="btn-ghost" data-action="copy-overview-psql">Copy psql</button>
+                  </div>
+                  <div class="cmd-row">
+                    <span class="cmd-label mono">Password</span>
+                    <input class="cmd" data-role="branch-overview-password" readonly value="Loading password...">
+                    <button class="btn-ghost" data-action="copy-overview-password">Copy password</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section class="page-section is-hidden" data-role="page-branches">
         <article class="panel">
           <header class="panel-header">
@@ -809,6 +931,8 @@ const consoleHTML = `<!doctype html>
     const state = {
       branches: [],
       endpoints: [],
+      selectedBranch: 'main',
+      selectedBranchConnection: null,
       branchFilter: '',
       currentPage: 'dashboard',
     };
@@ -817,13 +941,24 @@ const consoleHTML = `<!doctype html>
       pageTitle: document.querySelector('[data-role="page-title"]'),
       pageSubtitle: document.querySelector('[data-role="page-subtitle"]'),
       pageDashboard: document.querySelector('[data-role="page-dashboard"]'),
+      pageBranchOverview: document.querySelector('[data-role="page-branch-overview"]'),
       pageBranches: document.querySelector('[data-role="page-branches"]'),
       navDashboard: document.querySelector('[data-role="nav-dashboard"]'),
       navBranches: document.querySelector('[data-role="nav-branches"]'),
+      navBranchOverview: document.querySelector('[data-role="nav-branch-overview"]'),
       newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
       newBranchName: document.querySelector('[data-role="new-branch-name"]'),
       healthPill: document.querySelector('[data-role="health-pill"]'),
+      sidebarBranchSelect: document.querySelector('[data-role="sidebar-branch-select"]'),
       publishedCountChip: document.querySelector('[data-role="published-count-chip"]'),
+      branchOverviewSubtitle: document.querySelector('[data-role="branch-overview-subtitle"]'),
+      branchOverviewName: document.querySelector('[data-role="branch-overview-name"]'),
+      branchOverviewParent: document.querySelector('[data-role="branch-overview-parent"]'),
+      branchOverviewCreated: document.querySelector('[data-role="branch-overview-created"]'),
+      branchOverviewEndpoint: document.querySelector('[data-role="branch-overview-endpoint"]'),
+      branchOverviewDSN: document.querySelector('[data-role="branch-overview-dsn"]'),
+      branchOverviewPSQL: document.querySelector('[data-role="branch-overview-psql"]'),
+      branchOverviewPassword: document.querySelector('[data-role="branch-overview-password"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
@@ -858,15 +993,20 @@ const consoleHTML = `<!doctype html>
     }
 
     function setPage(pageName) {
-      const nextPage = pageName === 'branches' ? 'branches' : 'dashboard';
+      const nextPage = pageName === 'branches' || pageName === 'branch-overview' ? pageName : 'dashboard';
       state.currentPage = nextPage;
 
       const dashboardActive = nextPage === 'dashboard';
+      const branchOverviewActive = nextPage === 'branch-overview';
+      const branchesActive = nextPage === 'branches';
+
       refs.pageDashboard.classList.toggle('is-hidden', !dashboardActive);
-      refs.pageBranches.classList.toggle('is-hidden', dashboardActive);
+      refs.pageBranchOverview.classList.toggle('is-hidden', !branchOverviewActive);
+      refs.pageBranches.classList.toggle('is-hidden', !branchesActive);
       refs.navDashboard.classList.toggle('active', dashboardActive);
-      refs.navBranches.classList.toggle('active', !dashboardActive);
-      refs.newBranchCTA.classList.toggle('is-hidden', dashboardActive);
+      refs.navBranches.classList.toggle('active', branchesActive);
+      refs.navBranchOverview.classList.toggle('active', branchOverviewActive);
+      refs.newBranchCTA.classList.toggle('is-hidden', !branchesActive);
 
       if (dashboardActive) {
         refs.pageTitle.textContent = 'Project dashboard';
@@ -874,8 +1014,20 @@ const consoleHTML = `<!doctype html>
         return;
       }
 
-      refs.pageTitle.textContent = String(state.branches.length) + ' Branches';
-      refs.pageSubtitle.textContent = 'Instantly branch your data to deliver faster, safer experimentation and more reliable CI/CD flows.';
+      if (branchesActive) {
+        refs.pageTitle.textContent = String(state.branches.length) + ' Branches';
+        refs.pageSubtitle.textContent = 'Instantly branch your data to deliver faster, safer experimentation and more reliable CI/CD flows.';
+        return;
+      }
+
+      const selectedBranch = branchByName(state.selectedBranch);
+      refs.pageTitle.textContent = 'Branch overview';
+      if (!selectedBranch) {
+        refs.pageSubtitle.textContent = 'Select a branch from the left sidebar to inspect its details.';
+        return;
+      }
+
+      refs.pageSubtitle.textContent = selectedBranch.name + (selectedBranch.name === 'main' ? ' (default)' : '') + ' · parent: ' + (selectedBranch.parent || '-');
     }
 
     function endpointStatusClass(status) {
@@ -954,6 +1106,24 @@ const consoleHTML = `<!doctype html>
       return makeConnectionURL(connection, true);
     }
 
+    function quoteShellSingle(value) {
+      return "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
+    }
+
+    function makePSQLCommand(connection) {
+      const password = getConnectionPassword(connection);
+      return 'PGPASSWORD=' + quoteShellSingle(password) + ' psql "' + makeConnectionURL(connection, false) + '"';
+    }
+
+    function branchByName(branchName) {
+      for (let i = 0; i < state.branches.length; i += 1) {
+        if (state.branches[i].name === branchName) {
+          return state.branches[i];
+        }
+      }
+      return null;
+    }
+
     function endpointByBranch(branchName) {
       for (let i = 0; i < state.endpoints.length; i += 1) {
         if (state.endpoints[i].branch === branchName) {
@@ -961,6 +1131,24 @@ const consoleHTML = `<!doctype html>
         }
       }
       return null;
+    }
+
+    function normalizeSelectedBranch() {
+      if (!state.branches.length) {
+        state.selectedBranch = '';
+        return;
+      }
+
+      if (branchByName(state.selectedBranch)) {
+        return;
+      }
+
+      if (branchByName('main')) {
+        state.selectedBranch = 'main';
+        return;
+      }
+
+      state.selectedBranch = state.branches[0].name;
     }
 
     function formatBytes(bytes) {
@@ -1075,21 +1263,85 @@ const consoleHTML = `<!doctype html>
     }
 
     function renderBranchSelectors() {
+      normalizeSelectedBranch();
+
       const options = state.branches
         .map((item) => '<option value="' + escapeHTML(item.name) + '">' + escapeHTML(item.name) + '</option>')
         .join('');
 
       refs.parentSelect.innerHTML = options || '<option value="main">main</option>';
 
-	  const hasMain = state.branches.some((item) => item.name === 'main');
-	  if (hasMain) {
-	    refs.parentSelect.value = 'main';
-	    return;
-	  }
+      refs.sidebarBranchSelect.innerHTML = options || '<option value="">no branches</option>';
+      refs.sidebarBranchSelect.disabled = state.branches.length === 0;
 
-	  if (state.branches.length > 0) {
-	    refs.parentSelect.value = state.branches[0].name;
-	  }
+      if (state.selectedBranch !== '') {
+        refs.sidebarBranchSelect.value = state.selectedBranch;
+      }
+
+      if (state.branches.some((item) => item.name === 'main')) {
+        refs.parentSelect.value = 'main';
+      } else if (state.branches.length > 0) {
+        refs.parentSelect.value = state.branches[0].name;
+      }
+    }
+
+    function renderBranchOverview() {
+      const selectedBranch = branchByName(state.selectedBranch);
+      if (!selectedBranch) {
+        refs.branchOverviewSubtitle.textContent = 'select a branch from the left to see details';
+        refs.branchOverviewName.textContent = '-';
+        refs.branchOverviewParent.textContent = '-';
+        refs.branchOverviewCreated.textContent = '-';
+        refs.branchOverviewEndpoint.textContent = '-';
+        refs.branchOverviewDSN.value = 'No selected branch';
+        refs.branchOverviewPSQL.value = 'No selected branch';
+        refs.branchOverviewPassword.value = 'No selected branch';
+        return;
+      }
+
+      refs.branchOverviewSubtitle.textContent = selectedBranch.name + (selectedBranch.name === 'main' ? ' (default)' : '');
+      refs.branchOverviewName.textContent = selectedBranch.name;
+      refs.branchOverviewParent.textContent = selectedBranch.parent || '-';
+      refs.branchOverviewCreated.textContent = formatCreatedAt(selectedBranch.created_at);
+
+      const endpoint = endpointByBranch(selectedBranch.name);
+      if (endpoint && endpoint.published && endpoint.port > 0) {
+        refs.branchOverviewEndpoint.textContent = (endpoint.host || '127.0.0.1') + ':' + String(endpoint.port) + ' (' + (endpoint.status || 'unknown') + ')';
+      } else {
+        refs.branchOverviewEndpoint.textContent = 'not published';
+      }
+
+      const connection = state.selectedBranchConnection;
+      if (!connection || !connection.published || !connection.port) {
+        refs.branchOverviewDSN.value = 'Endpoint is not published';
+        refs.branchOverviewPSQL.value = 'Endpoint is not published';
+        refs.branchOverviewPassword.value = 'Endpoint is not published';
+        return;
+      }
+
+      refs.branchOverviewDSN.value = connection.dsn || makeDSN(connection);
+      refs.branchOverviewPSQL.value = makePSQLCommand(connection);
+      refs.branchOverviewPassword.value = getConnectionPassword(connection);
+    }
+
+    async function refreshSelectedBranchConnection(silent) {
+      if (!state.selectedBranch) {
+        state.selectedBranchConnection = null;
+        renderBranchOverview();
+        return;
+      }
+
+      try {
+        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(state.selectedBranch) + '/connection');
+        state.selectedBranchConnection = response.connection || null;
+      } catch (err) {
+        state.selectedBranchConnection = null;
+        if (!silent) {
+          showMessage('Failed loading branch overview connection: ' + err.message, 'err');
+        }
+      }
+
+      renderBranchOverview();
     }
 
     function formatCreatedAt(value) {
@@ -1153,6 +1405,7 @@ const consoleHTML = `<!doctype html>
           const endpoint = endpointByBranch(branchName);
           const isProtected = branchName === 'main';
           const isRootBranch = branchName === 'main';
+          const isSelected = branchName === state.selectedBranch;
 
           const computeStatus = endpoint && endpoint.published
             ? (endpoint.status || 'published')
@@ -1167,12 +1420,13 @@ const consoleHTML = `<!doctype html>
           const resetDisabled = isProtected ? 'disabled' : '';
           const deleteDisabled = isProtected ? 'disabled' : '';
           const defaultBadge = branchName === 'main' ? ' <span class="badge muted">Default</span>' : '';
+          const selectedBadge = isSelected ? ' <span class="badge ok">Selected</span>' : '';
           const createdAt = formatCreatedAt(item.created_at);
           const branchPrefix = isRootBranch ? '' : '<span class="branch-prefix mono">|-</span>';
           const parentLabel = isRootBranch ? '-' : (item.parent || '-');
 
           return '<div class="table-row branches-row">'
-            + '<div class="cell-strong">' + branchPrefix + escapeHTML(branchName) + defaultBadge + '</div>'
+            + '<div class="cell-strong">' + branchPrefix + escapeHTML(branchName) + defaultBadge + selectedBadge + '</div>'
             + '<div>' + escapeHTML(parentLabel) + '</div>'
             + '<div><span class="' + endpointStatusClass(computeStatus) + '">' + escapeHTML(computeStatus) + '</span></div>'
             + '<div class="mono">' + escapeHTML(endpointText) + '</div>'
@@ -1236,10 +1490,12 @@ const consoleHTML = `<!doctype html>
         state.branches = (branches.branches || []).slice();
         state.endpoints = (endpoints.endpoints || []).slice();
 
+        renderBranchSelectors();
+        await refreshSelectedBranchConnection(true);
+
         setPage(state.currentPage);
         renderStats();
         renderDashboardBranches();
-        renderBranchSelectors();
         renderBranches();
         renderEndpoints();
         showMessage('Console is up to date.', 'ok');
@@ -1292,6 +1548,13 @@ const consoleHTML = `<!doctype html>
         }
 
         if (action === 'copy-branch-dsn') {
+          if (branch && branch !== state.selectedBranch) {
+            state.selectedBranch = branch;
+            renderBranchSelectors();
+            await refreshSelectedBranchConnection(true);
+            renderBranches();
+          }
+
           const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branch) + '/connection');
           const branchConnection = response.connection || {};
           if (!branchConnection.published || !branchConnection.port) {
@@ -1300,6 +1563,24 @@ const consoleHTML = `<!doctype html>
           const dsn = branchConnection.dsn || makeDSN(branchConnection);
           await copyTextToClipboard(dsn);
           showMessage('Branch DSN copied for ' + branch + '.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-overview-dsn') {
+          await copyTextToClipboard(refs.branchOverviewDSN.value);
+          showMessage('Branch overview DSN copied.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-overview-psql') {
+          await copyTextToClipboard(refs.branchOverviewPSQL.value);
+          showMessage('Branch overview psql command copied.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-overview-password') {
+          await copyTextToClipboard(refs.branchOverviewPassword.value);
+          showMessage('Branch overview password copied.', 'ok');
           return;
         }
 
@@ -1336,9 +1617,17 @@ const consoleHTML = `<!doctype html>
       renderBranches();
     }
 
+    async function onSidebarBranchSelectChange(event) {
+      state.selectedBranch = event.target.value.trim();
+      setPage('branch-overview');
+      renderBranches();
+      await refreshSelectedBranchConnection(false);
+    }
+
     document.addEventListener('click', onPanelClick);
     document.querySelector('[data-action="create-branch"]').addEventListener('submit', onCreateBranchSubmit);
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
+    refs.sidebarBranchSelect.addEventListener('change', onSidebarBranchSelectChange);
 
     setPage('dashboard');
     loadAll();

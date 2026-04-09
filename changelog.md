@@ -42,6 +42,7 @@
 - Console navigation now exposes only implemented pages (`Dashboard`, `Branches`), with a dedicated branches page showing parent-aware branch lineage and endpoint actions.
 - Branch auto-publish behavior for docker/pageserver mode: active branches are auto-published on startup, newly created/restored branches are auto-published by default, and branch delete continues to unpublish before soft-delete.
 - Console connection UX now removes primary-endpoint controls in favor of branch-first workflows (copy branch DSN from branch lists/endpoints and rely on auto-published branch endpoints).
+- Console now includes a dedicated branch-overview page (basic metadata + connection details), driven by a left-sidebar branch selector that automatically opens overview when branch selection changes.
 
 ### Fixed
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.

@@ -79,6 +79,30 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected published endpoint count chip in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"sidebar-branch-select\"") {
+		t.Fatal("expected sidebar branch selector in UI response")
+	}
+
+	if !strings.Contains(body, "Branch overview") {
+		t.Fatal("expected branch overview heading in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"branch-overview-basic\"") {
+		t.Fatal("expected branch basic info panel in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"branch-overview-connect\"") {
+		t.Fatal("expected branch connect info panel in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"branch-overview-dsn\"") {
+		t.Fatal("expected branch overview DSN field in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-overview-dsn\"") {
+		t.Fatal("expected branch overview DSN copy action in UI response")
+	}
+
 	if strings.Contains(body, "Restore To Timestamp") {
 		t.Fatal("did not expect restore panel in UI response")
 	}
