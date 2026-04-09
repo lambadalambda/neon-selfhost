@@ -107,6 +107,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected branch overview nav item in UI response")
 	}
 
+	if !strings.Contains(body, "role=\"button\" tabindex=\"0\"") {
+		t.Fatal("expected keyboard-accessible interactive nav and list actions in UI response")
+	}
+
 	if !strings.Contains(body, "data-role=\"nav-sql-editor\"") {
 		t.Fatal("expected sql editor nav item in UI response")
 	}
@@ -125,6 +129,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 
 	if !strings.Contains(body, "data-role=\"sql-allow-writes\"") {
 		t.Fatal("expected sql allow writes toggle in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"sql-mode-indicator\"") {
+		t.Fatal("expected sql mode indicator in UI response")
 	}
 
 	if !strings.Contains(body, "data-role=\"sql-history-list\"") {
@@ -153,6 +161,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 
 	if !strings.Contains(body, "/connection") {
 		t.Fatal("expected UI script to call per-branch connection API")
+	}
+
+	if !strings.Contains(body, "document.addEventListener('keydown', onActionKeydown)") {
+		t.Fatal("expected keyboard action handler wiring in UI response")
 	}
 }
 

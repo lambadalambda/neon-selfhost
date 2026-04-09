@@ -12,9 +12,10 @@ const consoleHTML = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Neon Selfhost Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
     :root {
       --bg: #f4f5f7;
       --sidebar: #eff1f4;
@@ -29,6 +30,12 @@ const consoleHTML = `<!doctype html>
       --radius: 12px;
       --radius-sm: 9px;
       --shadow: 0 14px 28px rgba(18, 26, 36, 0.08);
+      --focus-ring: rgba(59, 130, 246, 0.45);
+      --surface-muted: #f7f8fa;
+      --surface-hover: #f2f4f7;
+      --duration-fast: 120ms;
+      --duration-base: 180ms;
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     * {
@@ -107,6 +114,12 @@ const consoleHTML = `<!doctype html>
 
     .nav-list li[data-action] {
       cursor: pointer;
+      transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+    }
+
+    .nav-list li[data-action]:hover {
+      background: #ffffff;
+      border-color: var(--line);
     }
 
     .nav-list li.active {
@@ -228,7 +241,8 @@ const consoleHTML = `<!doctype html>
     }
 
     .stat-card strong {
-      font-size: 1.02rem;
+      font-size: 1.14rem;
+      letter-spacing: -0.01em;
     }
 
     .grid {
@@ -264,7 +278,7 @@ const consoleHTML = `<!doctype html>
       align-items: baseline;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff, #f9fafb);
+      background: var(--surface-muted);
     }
 
     .panel-header h2 {
@@ -312,7 +326,7 @@ const consoleHTML = `<!doctype html>
     button {
       cursor: pointer;
       font-weight: 700;
-      transition: box-shadow 120ms ease, transform 120ms ease;
+      transition: box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
     }
 
     button:hover {
@@ -322,9 +336,35 @@ const consoleHTML = `<!doctype html>
 
     button:disabled {
       cursor: not-allowed;
-      opacity: 0.55;
+      opacity: 0.5;
       transform: none;
       box-shadow: none;
+      background: #eff1f4;
+      color: #8a93a2;
+      border-color: #d8dce3;
+    }
+
+    .btn-primary:disabled {
+      background: #9aa3b1;
+      border-color: #9aa3b1;
+      color: #f7f9fc;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    .nav-list li[data-action]:focus-visible,
+    .sql-history-item:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    button:focus:not(:focus-visible),
+    input:focus:not(:focus-visible),
+    select:focus:not(:focus-visible),
+    textarea:focus:not(:focus-visible) {
+      outline: none;
     }
 
     .btn-primary {
@@ -334,7 +374,7 @@ const consoleHTML = `<!doctype html>
     }
 
     .btn-ghost {
-      background: #f7f8fa;
+      background: var(--surface-muted);
       color: #2f3744;
     }
 
@@ -358,7 +398,7 @@ const consoleHTML = `<!doctype html>
 
     .table-head,
     .table-row {
-      min-width: 840px;
+      min-width: 0;
       display: grid;
       grid-template-columns: 1.2fr .8fr .9fr 1.2fr 1.5fr;
       gap: 8px;
@@ -380,6 +420,11 @@ const consoleHTML = `<!doctype html>
       border-bottom: 1px solid var(--line);
       font-size: 0.88rem;
       background: #fff;
+      transition: background var(--duration-fast) var(--ease-out);
+    }
+
+    .table-row:hover {
+      background: var(--surface-soft);
     }
 
     .table-row:last-child {
@@ -388,8 +433,17 @@ const consoleHTML = `<!doctype html>
 
     .branches-head,
     .branches-row {
-      min-width: 1020px;
-      grid-template-columns: 1.6fr 1fr .95fr 1.25fr .9fr 1.9fr;
+      min-width: 0;
+      grid-template-columns: 1.45fr .9fr .85fr 1.15fr .8fr 1.6fr;
+    }
+
+    .table-head > div,
+    .table-row > div {
+      min-width: 0;
+    }
+
+    .branches-row > div:nth-child(4) {
+      overflow-wrap: anywhere;
     }
 
     .cell-strong {
@@ -650,6 +704,12 @@ const consoleHTML = `<!doctype html>
       display: grid;
       gap: 4px;
       cursor: pointer;
+      transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+    }
+
+    .sql-history-item:hover {
+      border-color: #c7ccd5;
+      background: var(--surface-soft);
     }
 
     .sql-history-item strong {
@@ -741,6 +801,7 @@ const consoleHTML = `<!doctype html>
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
+      transition: background var(--duration-base) var(--ease-out);
     }
 
     .sql-write-toggle {
@@ -751,14 +812,51 @@ const consoleHTML = `<!doctype html>
       font-size: 0.85rem;
       font-weight: 600;
       user-select: none;
+      padding: 6px 8px;
+      border-radius: 8px;
+      transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+    }
+
+    .sql-write-toggle:hover {
+      background: var(--surface-soft);
     }
 
     .sql-write-toggle input {
-      width: 16px;
-      height: 16px;
+      width: 18px;
+      height: 18px;
       margin: 0;
       flex: 0 0 auto;
       accent-color: #1b1f27;
+    }
+
+    .sql-mode-indicator {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      background: #f7f8fa;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .sql-mode-indicator.write-enabled {
+      border-color: rgba(186, 58, 53, 0.3);
+      background: rgba(186, 58, 53, 0.08);
+      color: #962d2a;
+    }
+
+    .sql-editor-wrap.write-enabled {
+      box-shadow: inset 0 0 0 1px rgba(186, 58, 53, 0.22);
+      background: #fff8f7;
+    }
+
+    .sql-runbar.write-enabled {
+      background: rgba(186, 58, 53, 0.06);
     }
 
     .sql-results {
@@ -868,6 +966,18 @@ const consoleHTML = `<!doctype html>
       100% { transform: translateY(0); }
     }
 
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .monitoring-chart::after {
+        animation: none;
+      }
+    }
+
     .placeholder-note {
       color: var(--muted);
       font-size: 0.83rem;
@@ -894,6 +1004,12 @@ const consoleHTML = `<!doctype html>
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+      transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+    }
+
+    .dashboard-branch-item:hover {
+      border-color: #c7ccd5;
+      background: #ffffff;
     }
 
     .dashboard-branch-meta {
@@ -995,8 +1111,8 @@ const consoleHTML = `<!doctype html>
       <section class="nav-section">
         <h2>Project</h2>
         <ul class="nav-list">
-          <li class="active" data-role="nav-dashboard" data-action="navigate" data-page="dashboard">Dashboard</li>
-          <li data-role="nav-branches" data-action="navigate" data-page="branches">Branches</li>
+          <li class="active" data-role="nav-dashboard" data-action="navigate" data-page="dashboard" role="button" tabindex="0" aria-label="Open dashboard">Dashboard</li>
+          <li data-role="nav-branches" data-action="navigate" data-page="branches" role="button" tabindex="0" aria-label="Open branches">Branches</li>
         </ul>
       </section>
 
@@ -1004,8 +1120,8 @@ const consoleHTML = `<!doctype html>
         <h2>Branch</h2>
         <select class="sidebar-select" data-role="sidebar-branch-select"></select>
         <ul class="nav-list">
-          <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview">Overview</li>
-          <li data-role="nav-sql-editor" data-action="navigate" data-page="sql-editor">SQL Editor</li>
+          <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview" role="button" tabindex="0" aria-label="Open branch overview">Overview</li>
+          <li data-role="nav-sql-editor" data-action="navigate" data-page="sql-editor" role="button" tabindex="0" aria-label="Open SQL editor">SQL Editor</li>
         </ul>
         <div class="branch-chip">
           <span>Per-branch endpoints</span>
@@ -1178,6 +1294,7 @@ const consoleHTML = `<!doctype html>
 
             <div class="sql-status">
               <span data-role="sql-editor-status">Ready to connect</span>
+              <span class="sql-mode-indicator" data-role="sql-mode-indicator">Read-only</span>
               <button class="btn-ghost" data-action="copy-overview-dsn">Copy branch DSN</button>
             </div>
 
@@ -1287,6 +1404,7 @@ const consoleHTML = `<!doctype html>
       sqlEditorInput: document.querySelector('[data-role="sql-editor-input"]'),
       sqlEditorLines: document.querySelector('[data-role="sql-editor-lines"]'),
       sqlEditorStatus: document.querySelector('[data-role="sql-editor-status"]'),
+      sqlModeIndicator: document.querySelector('[data-role="sql-mode-indicator"]'),
       sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
       sqlAllowWrites: document.querySelector('[data-role="sql-allow-writes"]'),
       sqlRunButton: document.querySelector('[data-action="run-sql"]'),
@@ -1746,13 +1864,37 @@ const consoleHTML = `<!doctype html>
       refs.sqlHistoryList.innerHTML = entries
         .slice(0, 24)
         .map((entry) => {
-			const statusSuffix = entry.status ? (' · ' + entry.status) : '';
-          return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '">'
+          const statusSuffix = entry.status ? (' · ' + entry.status) : '';
+          return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '" role="button" tabindex="0">'
             + '<strong>' + escapeHTML(entry.title) + '</strong>'
             + '<small>' + escapeHTML((entry.branch || selectedBranch) + ' · ' + formatSQLHistoryTime(entry.timestamp) + statusSuffix) + '</small>'
             + '</li>';
         })
         .join('');
+    }
+
+    function applySQLModeVisualState() {
+      const writeEnabled = Boolean(refs.sqlAllowWrites.checked && !refs.sqlAllowWrites.disabled);
+      const editorWrap = document.querySelector('.sql-editor-wrap');
+      const runbar = document.querySelector('.sql-runbar');
+      if (editorWrap) {
+        editorWrap.classList.toggle('write-enabled', writeEnabled);
+      }
+      if (runbar) {
+        runbar.classList.toggle('write-enabled', writeEnabled);
+      }
+
+      if (refs.sqlRunButton) {
+        refs.sqlRunButton.classList.toggle('btn-danger', writeEnabled);
+        refs.sqlRunButton.classList.toggle('btn-primary', !writeEnabled);
+      }
+
+      if (!refs.sqlModeIndicator) {
+        return;
+      }
+
+      refs.sqlModeIndicator.classList.toggle('write-enabled', writeEnabled);
+      refs.sqlModeIndicator.textContent = writeEnabled ? 'Write mode' : 'Read-only';
     }
 
     function setSQLTab(tabName) {
@@ -1772,6 +1914,7 @@ const consoleHTML = `<!doctype html>
         refs.sqlRunButton.disabled = true;
         refs.sqlAllowWrites.disabled = true;
         refs.sqlAllowWrites.checked = false;
+        applySQLModeVisualState();
         return;
       }
 
@@ -1786,12 +1929,15 @@ const consoleHTML = `<!doctype html>
         refs.sqlEditorStatus.textContent = 'Endpoint is not published for this branch yet';
         refs.sqlRunButton.disabled = true;
         refs.sqlAllowWrites.disabled = true;
+        refs.sqlAllowWrites.checked = false;
+        applySQLModeVisualState();
         return;
       }
 
       refs.sqlEditorStatus.textContent = 'Ready to connect · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
       refs.sqlRunButton.disabled = false;
       refs.sqlAllowWrites.disabled = false;
+      applySQLModeVisualState();
     }
 
     function appendSQLHistoryEntry(title, query, branchName, saved, status) {
@@ -2225,10 +2371,26 @@ const consoleHTML = `<!doctype html>
       await refreshSelectedBranchConnection(false);
     }
 
+    function onActionKeydown(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      const actionTarget = event.target.closest('[data-action]');
+      if (!actionTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      actionTarget.click();
+    }
+
     document.addEventListener('click', onPanelClick);
+    document.addEventListener('keydown', onActionKeydown);
     document.querySelector('[data-action="create-branch"]').addEventListener('submit', onCreateBranchSubmit);
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
     refs.sidebarBranchSelect.addEventListener('change', onSidebarBranchSelectChange);
+    refs.sqlAllowWrites.addEventListener('change', renderSQLEditorContext);
     refs.sqlEditorInput.addEventListener('input', renderSQLEditorLineNumbers);
     refs.sqlEditorInput.addEventListener('scroll', function onSQLEditorScroll() {
       refs.sqlEditorLines.scrollTop = refs.sqlEditorInput.scrollTop;
