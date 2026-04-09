@@ -32,7 +32,6 @@ func TestExecuteSQLReturnsResultPayload(t *testing.T) {
 	executor := &fakeSQLQueryExecutor{
 		result: sqlExecutionResult{
 			Branch:     "main",
-			ReadOnly:   true,
 			CommandTag: "SELECT 1",
 			DurationMS: 5,
 			Truncated:  false,
@@ -65,6 +64,10 @@ func TestExecuteSQLReturnsResultPayload(t *testing.T) {
 		t.Fatalf("expected query %q, got %q", "SELECT 1", executor.calls[0].query)
 	}
 
+	if !executor.calls[0].readOnly {
+		t.Fatal("expected SQL execution to be read-only by default")
+	}
+
 	var payload sqlExecuteResponse
 	decodeJSON(t, res, &payload)
 
@@ -78,6 +81,41 @@ func TestExecuteSQLReturnsResultPayload(t *testing.T) {
 
 	if payload.Result.CommandTag != "SELECT 1" {
 		t.Fatalf("expected command tag %q, got %q", "SELECT 1", payload.Result.CommandTag)
+	}
+
+	if !payload.Result.ReadOnly {
+		t.Fatal("expected read_only=true in default SQL execution payload")
+	}
+}
+
+func TestExecuteSQLAllowsWritesWhenRequested(t *testing.T) {
+	executor := &fakeSQLQueryExecutor{
+		result: sqlExecutionResult{
+			Branch:     "main",
+			CommandTag: "UPDATE 1",
+			DurationMS: 7,
+			RowCount:   0,
+		},
+	}
+
+	handler := New(Config{Version: "test-version", SQLExecutor: executor})
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"UPDATE app.documents SET title='x' WHERE id=1","allow_writes":true}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	if len(executor.calls) != 1 {
+		t.Fatalf("expected one sql execution call, got %d", len(executor.calls))
+	}
+
+	if executor.calls[0].readOnly {
+		t.Fatal("expected SQL execution to run with writes enabled when allow_writes=true")
+	}
+
+	var payload sqlExecuteResponse
+	decodeJSON(t, res, &payload)
+	if payload.Result.ReadOnly {
+		t.Fatal("expected read_only=false in SQL execution payload when writes are enabled")
 	}
 }
 
@@ -141,10 +179,11 @@ type fakeSQLQueryExecutor struct {
 type sqlExecutionCall struct {
 	branchName string
 	query      string
+	readOnly   bool
 }
 
-func (f *fakeSQLQueryExecutor) Execute(_ context.Context, branchName string, query string) (sqlExecutionResult, error) {
-	f.calls = append(f.calls, sqlExecutionCall{branchName: branchName, query: query})
+func (f *fakeSQLQueryExecutor) Execute(_ context.Context, branchName string, query string, readOnly bool) (sqlExecutionResult, error) {
+	f.calls = append(f.calls, sqlExecutionCall{branchName: branchName, query: query, readOnly: readOnly})
 	if f.err != nil {
 		return sqlExecutionResult{}, f.err
 	}
@@ -152,6 +191,7 @@ func (f *fakeSQLQueryExecutor) Execute(_ context.Context, branchName string, que
 	if strings.TrimSpace(f.result.Branch) == "" {
 		f.result.Branch = branchName
 	}
+	f.result.ReadOnly = readOnly
 
 	return f.result, nil
 }

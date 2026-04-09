@@ -743,6 +743,24 @@ const consoleHTML = `<!doctype html>
       flex-wrap: wrap;
     }
 
+    .sql-write-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      user-select: none;
+    }
+
+    .sql-write-toggle input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: #1b1f27;
+    }
+
     .sql-results {
       padding: 10px 12px;
       border-top: 1px solid var(--line);
@@ -1164,6 +1182,10 @@ const consoleHTML = `<!doctype html>
             </div>
 
             <div class="sql-runbar">
+              <label class="sql-write-toggle" title="Keep unchecked for safe read-only queries. Enable only when you want to run writes.">
+                <input type="checkbox" data-role="sql-allow-writes">
+                <span>Enable write queries</span>
+              </label>
               <button class="btn-primary" data-action="run-sql">Run</button>
             </div>
 
@@ -1266,6 +1288,7 @@ const consoleHTML = `<!doctype html>
       sqlEditorLines: document.querySelector('[data-role="sql-editor-lines"]'),
       sqlEditorStatus: document.querySelector('[data-role="sql-editor-status"]'),
       sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
+      sqlAllowWrites: document.querySelector('[data-role="sql-allow-writes"]'),
       sqlRunButton: document.querySelector('[data-action="run-sql"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
@@ -1747,6 +1770,8 @@ const consoleHTML = `<!doctype html>
         refs.sqlEditorBranchPill.textContent = 'no branch selected';
         refs.sqlEditorStatus.textContent = 'Select a branch to prepare SQL connection context';
         refs.sqlRunButton.disabled = true;
+        refs.sqlAllowWrites.disabled = true;
+        refs.sqlAllowWrites.checked = false;
         return;
       }
 
@@ -1760,11 +1785,13 @@ const consoleHTML = `<!doctype html>
       if (!connection || !connection.published || !connection.port) {
         refs.sqlEditorStatus.textContent = 'Endpoint is not published for this branch yet';
         refs.sqlRunButton.disabled = true;
+        refs.sqlAllowWrites.disabled = true;
         return;
       }
 
       refs.sqlEditorStatus.textContent = 'Ready to connect · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
       refs.sqlRunButton.disabled = false;
+      refs.sqlAllowWrites.disabled = false;
     }
 
     function appendSQLHistoryEntry(title, query, branchName, saved, status) {
@@ -2090,26 +2117,32 @@ const consoleHTML = `<!doctype html>
           }
 
           const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
-			refs.sqlRunButton.disabled = true;
-			refs.sqlEditorStatus.textContent = 'Running query on ' + branchName + '...';
-			refs.sqlEditorResult.textContent = 'Running query...';
+          const allowWrites = Boolean(refs.sqlAllowWrites.checked);
+          refs.sqlRunButton.disabled = true;
+          refs.sqlAllowWrites.disabled = true;
+          refs.sqlEditorStatus.textContent = 'Running query on ' + branchName + '...';
+          refs.sqlEditorResult.textContent = 'Running query...';
 
-			try {
-				const response = await api('POST', '/api/v1/branches/' + encodeURIComponent(branchName) + '/sql/execute', { sql: query });
-				const result = response.result || {};
-				renderSQLResultSuccess(result);
-				appendSQLHistoryEntry(title, query, branchName, false, 'ok');
-				refs.sqlEditorStatus.textContent = 'Last run: ' + (result.command_tag || 'QUERY') + ' · ' + String(result.duration_ms || 0) + ' ms';
-				showMessage('Query executed on ' + branchName + '.', 'ok');
-			} catch (runErr) {
-				renderSQLResultError(runErr.message || 'sql execution failed');
-				appendSQLHistoryEntry(title, query, branchName, false, 'error');
-				refs.sqlEditorStatus.textContent = 'Execution failed';
-				showMessage('SQL execution failed: ' + runErr.message, 'err');
-			} finally {
-				renderSQLHistory();
-				renderSQLEditorContext();
-			}
+          try {
+            const response = await api('POST', '/api/v1/branches/' + encodeURIComponent(branchName) + '/sql/execute', {
+              sql: query,
+              allow_writes: allowWrites,
+            });
+            const result = response.result || {};
+            renderSQLResultSuccess(result);
+            appendSQLHistoryEntry(title, query, branchName, false, 'ok');
+            const modeLabel = result.read_only ? 'read-only' : 'write-enabled';
+            refs.sqlEditorStatus.textContent = 'Last run: ' + (result.command_tag || 'QUERY') + ' · ' + String(result.duration_ms || 0) + ' ms · ' + modeLabel;
+            showMessage('Query executed on ' + branchName + '.', 'ok');
+          } catch (runErr) {
+            renderSQLResultError(runErr.message || 'sql execution failed');
+            appendSQLHistoryEntry(title, query, branchName, false, 'error');
+            refs.sqlEditorStatus.textContent = 'Execution failed';
+            showMessage('SQL execution failed: ' + runErr.message, 'err');
+          } finally {
+            renderSQLHistory();
+            renderSQLEditorContext();
+          }
           return;
         }
 

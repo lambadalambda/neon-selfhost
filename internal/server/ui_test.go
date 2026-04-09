@@ -123,6 +123,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected run sql action in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"sql-allow-writes\"") {
+		t.Fatal("expected sql allow writes toggle in UI response")
+	}
+
 	if !strings.Contains(body, "data-role=\"sql-history-list\"") {
 		t.Fatal("expected sql history list in UI response")
 	}

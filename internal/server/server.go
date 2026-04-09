@@ -72,7 +72,8 @@ type switchPrimaryEndpointRequest struct {
 }
 
 type sqlExecuteRequest struct {
-	SQL string `json:"sql"`
+	SQL         string `json:"sql"`
+	AllowWrites bool   `json:"allow_writes"`
 }
 
 type apiErrorResponse struct {
@@ -474,7 +475,7 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
-		result, err := sqlExecutor.Execute(r.Context(), branchName, req.SQL)
+		result, err := sqlExecutor.Execute(r.Context(), branchName, req.SQL, !req.AllowWrites)
 		if err != nil {
 			switch {
 			case errors.Is(err, branch.ErrNotFound):

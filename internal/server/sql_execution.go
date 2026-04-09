@@ -27,7 +27,7 @@ const (
 )
 
 type SQLQueryExecutor interface {
-	Execute(ctx context.Context, branchName string, query string) (sqlExecutionResult, error)
+	Execute(ctx context.Context, branchName string, query string, readOnly bool) (sqlExecutionResult, error)
 }
 
 type sqlExecutionResult struct {
@@ -82,7 +82,7 @@ func NewNoopSQLQueryExecutor() SQLQueryExecutor {
 	return noopSQLQueryExecutor{}
 }
 
-func (noopSQLQueryExecutor) Execute(_ context.Context, _ string, _ string) (sqlExecutionResult, error) {
+func (noopSQLQueryExecutor) Execute(_ context.Context, _ string, _ string, _ bool) (sqlExecutionResult, error) {
 	return sqlExecutionResult{}, fmt.Errorf("%w: sql execution requires docker mode", ErrPrimaryEndpointUnavailable)
 }
 
@@ -283,7 +283,7 @@ func parseDollarDelimiter(value string) string {
 	return ""
 }
 
-func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName string, query string) (sqlExecutionResult, error) {
+func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName string, query string, readOnly bool) (sqlExecutionResult, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
 		return sqlExecutionResult{}, branch.ErrNotFound
@@ -337,7 +337,12 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	}
 	defer closeSQLConnection(conn)
 
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	accessMode := pgx.ReadOnly
+	if !readOnly {
+		accessMode = pgx.ReadWrite
+	}
+
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: accessMode})
 	if err != nil {
 		return sqlExecutionResult{}, mapSQLExecutionError(err)
 	}
@@ -393,7 +398,7 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 
 	result := sqlExecutionResult{
 		Branch:     branchName,
-		ReadOnly:   true,
+		ReadOnly:   readOnly,
 		CommandTag: rows.CommandTag().String(),
 		DurationMS: time.Since(started).Milliseconds(),
 		Truncated:  truncated,

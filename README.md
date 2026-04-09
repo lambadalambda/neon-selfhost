@@ -88,7 +88,7 @@ Connection `dsn` is returned only when `ready=true`.
 
 The web console now uses branch-first flows: branch selection in the left sidebar drives the Branch overview and SQL Editor pages, and connection helpers are branch-scoped.
 
-SQL execution is run in an explicit read-only transaction with conservative timeout and response-size limits.
+SQL execution is read-only by default, with optional write mode when `allow_writes=true` is passed to `POST /api/v1/branches/{name}/sql/execute` (the SQL Editor exposes this as an explicit "Enable write queries" toggle).
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
