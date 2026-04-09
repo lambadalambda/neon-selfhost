@@ -76,7 +76,7 @@ The web console primary-endpoint panel provides one-click copy actions for a `ps
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
-Published branch endpoints are Docker-mode only: `POST /api/v1/branches/{name}/publish` allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
+Published branch endpoints are Docker-mode only: `POST /api/v1/branches/{name}/publish` allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Once started, branch compute currently stays running until explicitly unpublished, branch delete, or external container stop/restart (there is no idle auto-stop timeout yet). `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
 
 Branch reset (`POST /api/v1/branches/{name}/reset`) refreshes published branch endpoint attachment metadata in addition to primary-endpoint metadata. Branch delete now unpublishes branch endpoint state before soft-delete.
 
