@@ -5,7 +5,7 @@
 Goal: `docker compose up` and complete snapshot/restore/switch workflows from UI.
 
 - Compose stack for controller + Neon services; controller/storage/compute wiring is implemented for local compose runtime.
-- Controller web console route (`GET /`) is implemented with branch list/create/delete/switch, restore, endpoint controls, and connection-command display.
+- Controller web console route (`GET /`) is implemented with branch list/create/delete/switch, restore, endpoint controls, and one-click connection helpers (`psql`, DSN, `.env` snippet).
 - Basic auth for one admin user.
 - Branch list/create/delete (soft delete).
 - Restore to timestamp (timestamp -> LSN -> branch); implemented via pageserver timestamp-to-LSN lookup and restore timeline creation with persisted branch attachment.

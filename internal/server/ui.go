@@ -182,11 +182,29 @@ const consoleHTML = `<!doctype html>
       word-break: break-word;
     }
 
+    .connect-stack {
+      display: grid;
+      gap: 8px;
+    }
+
     .cmd-row {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: auto 1fr auto;
       gap: 8px;
       align-items: center;
+    }
+
+    .cmd-label {
+      border: 1px solid var(--line);
+      background: #ecf2ef;
+      color: #324449;
+      border-radius: var(--radius-sm);
+      padding: 10px 11px;
+      font-size: 0.79rem;
+      min-width: 68px;
+      text-align: center;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
     .cmd {
@@ -364,6 +382,14 @@ const consoleHTML = `<!doctype html>
       .kv-grid {
         grid-template-columns: 1fr;
       }
+
+      .cmd-row {
+        grid-template-columns: 1fr;
+      }
+
+      .cmd-label {
+        width: fit-content;
+      }
     }
   </style>
 </head>
@@ -406,9 +432,24 @@ const consoleHTML = `<!doctype html>
             </div>
           </div>
 
-          <div class="cmd-row">
-            <input class="cmd" data-role="connection-command" readonly value="Loading connection command...">
-            <button class="quiet" data-action="copy-command">Copy</button>
+          <div class="connect-stack">
+            <div class="cmd-row">
+              <span class="cmd-label mono">psql</span>
+              <input class="cmd" data-role="connection-command" readonly value="Loading psql command...">
+              <button class="quiet" data-action="copy-psql-command">Copy psql</button>
+            </div>
+
+            <div class="cmd-row">
+              <span class="cmd-label mono">DSN</span>
+              <input class="cmd" data-role="connection-dsn" readonly value="Loading DSN...">
+              <button class="quiet" data-action="copy-dsn">Copy DSN</button>
+            </div>
+
+            <div class="cmd-row">
+              <span class="cmd-label mono">.env</span>
+              <input class="cmd" data-role="connection-env" readonly value="DATABASE_URL=Loading...">
+              <button class="quiet" data-action="copy-env-snippet">Copy .env</button>
+            </div>
           </div>
 
           <div class="toolbar">
@@ -481,6 +522,8 @@ const consoleHTML = `<!doctype html>
       runtimeState: document.querySelector('[data-role="runtime-state"]'),
       endpointAddress: document.querySelector('[data-role="endpoint-address"]'),
       connectionCommand: document.querySelector('[data-role="connection-command"]'),
+      connectionDSN: document.querySelector('[data-role="connection-dsn"]'),
+      connectionEnv: document.querySelector('[data-role="connection-env"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       restoreSource: document.querySelector('[data-role="restore-source"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
@@ -536,12 +579,25 @@ const consoleHTML = `<!doctype html>
       return data;
     }
 
-    function makePSQLCommand(connection) {
+    function makeConnectionURL(connection, includePasswordPlaceholder) {
       const host = connection.host || '127.0.0.1';
       const port = connection.port || 55433;
       const user = connection.user || 'cloud_admin';
       const database = connection.database || 'postgres';
-      return 'PGPASSWORD=<password> psql "postgresql://' + user + '@' + host + ':' + port + '/' + database + '?sslmode=disable"';
+      const userInfo = includePasswordPlaceholder ? (user + ':<password>') : user;
+      return 'postgresql://' + userInfo + '@' + host + ':' + port + '/' + database + '?sslmode=disable';
+    }
+
+    function makeDSN(connection) {
+      return connection.dsn || makeConnectionURL(connection, false);
+    }
+
+    function makePSQLCommand(connection) {
+      return 'PGPASSWORD=<password> psql "' + makeDSN(connection) + '"';
+    }
+
+    function makeEnvSnippet(connection) {
+      return 'DATABASE_URL="' + makeConnectionURL(connection, true) + '"';
     }
 
     function renderConnection(connection) {
@@ -551,9 +607,31 @@ const consoleHTML = `<!doctype html>
       refs.runtimeState.textContent = connection.runtime_state || 'unknown';
       refs.endpointAddress.textContent = (connection.host || '127.0.0.1') + ':' + String(connection.port || 55433);
       refs.connectionCommand.value = makePSQLCommand(connection);
+      refs.connectionDSN.value = makeDSN(connection);
+      refs.connectionEnv.value = makeEnvSnippet(connection);
 
       const readiness = connection.ready ? 'ready' : 'not ready';
-      refs.endpointNote.textContent = 'Branch ' + (connection.branch || 'main') + ' is ' + readiness + '.';
+      refs.endpointNote.textContent = 'Branch ' + (connection.branch || 'main') + ' is ' + readiness + '. Connect commands always target the current primary branch.';
+    }
+
+    async function copyTextToClipboard(value) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+
+      const probe = document.createElement('textarea');
+      probe.value = value;
+      probe.setAttribute('readonly', '');
+      probe.style.position = 'absolute';
+      probe.style.left = '-9999px';
+      document.body.appendChild(probe);
+      probe.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(probe);
+      if (!copied) {
+        throw new Error('clipboard copy is unavailable in this browser');
+      }
     }
 
     function renderHealth(health) {
@@ -744,9 +822,21 @@ const consoleHTML = `<!doctype html>
           return;
         }
 
-        if (action === 'copy-command') {
-          await navigator.clipboard.writeText(refs.connectionCommand.value);
-          showMessage('Connection command copied to clipboard.', 'ok');
+        if (action === 'copy-psql-command') {
+          await copyTextToClipboard(refs.connectionCommand.value);
+          showMessage('psql command copied to clipboard.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-dsn') {
+          await copyTextToClipboard(refs.connectionDSN.value);
+          showMessage('DSN copied to clipboard.', 'ok');
+          return;
+        }
+
+        if (action === 'copy-env-snippet') {
+          await copyTextToClipboard(refs.connectionEnv.value);
+          showMessage('DATABASE_URL snippet copied to clipboard.', 'ok');
           return;
         }
 

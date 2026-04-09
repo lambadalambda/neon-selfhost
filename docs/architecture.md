@@ -104,6 +104,7 @@ Current API behavior notes:
 - Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
 - Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
 - Endpoint connection DSN is emitted only when `ready=true`.
+- The web console exposes one-click connection helpers (`psql` command copy, DSN copy, and `DATABASE_URL` snippet copy) for the current primary branch endpoint.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.

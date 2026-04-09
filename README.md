@@ -66,6 +66,8 @@ Endpoint switch still branches from the selected parent timeline head, while res
 
 Connection `dsn` is returned only when `ready=true`.
 
+The web console primary-endpoint panel provides one-click copy actions for a `psql` command, DSN value, and `DATABASE_URL` env snippet, all tied to the currently selected primary branch.
+
 Branch mutation and restore APIs return `storage_error` responses when controller state persistence fails (including disk-full conditions).
 
 Controller startup runs a preflight check for `CONTROLLER_DATA_DIR` writability and exits early on invalid paths.

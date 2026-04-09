@@ -8,7 +8,7 @@
 - Serialized branch mutation execution and in-memory operation logging exposed by `GET /api/v1/operations`.
 - Restore endpoint scaffold at `POST /api/v1/restore` with RFC3339 validation, source-history checks, and restore-branch creation.
 - Primary endpoint control API scaffold at `POST /api/v1/endpoints/primary/start|stop|switch` and `GET /api/v1/endpoints/primary/connection`.
-- Controller web console at `GET /` with endpoint status, copyable connection command, branch create/switch/delete actions, restore form, and operation log view.
+- Controller web console at `GET /` with endpoint status, copyable connection helpers (`psql`, DSN, `DATABASE_URL` snippet), branch create/switch/delete actions, restore form, and operation log view.
 - New tests for config loading, auth enforcement, operation logging, restore behavior, primary endpoint controls, and branch persistence.
 - Persistence error classification for branch state updates, including explicit insufficient-disk-space handling.
 - Concrete Neon image/command wiring in `docker-compose.yml` for storage broker, pageserver, and 3 safekeepers under the `neon` profile.

@@ -27,6 +27,30 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected connection command placeholder in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"connection-dsn\"") {
+		t.Fatal("expected DSN placeholder in UI response")
+	}
+
+	if !strings.Contains(body, "data-role=\"connection-env\"") {
+		t.Fatal("expected env snippet placeholder in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-psql-command\"") {
+		t.Fatal("expected psql copy action in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-dsn\"") {
+		t.Fatal("expected dsn copy action in UI response")
+	}
+
+	if !strings.Contains(body, "data-action=\"copy-env-snippet\"") {
+		t.Fatal("expected env snippet copy action in UI response")
+	}
+
+	if !strings.Contains(body, "DATABASE_URL=") {
+		t.Fatal("expected env snippet label in UI response")
+	}
+
 	if !strings.Contains(body, "/api/v1/endpoints/primary/connection") {
 		t.Fatal("expected UI script to call primary connection API")
 	}
