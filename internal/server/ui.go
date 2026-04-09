@@ -673,10 +673,10 @@ const consoleHTML = `<!doctype html>
       </section>
 
       <section class="nav-section">
-        <h2>Current Branch</h2>
+        <h2>Endpoint Mode</h2>
         <div class="branch-chip">
-          <span data-role="active-branch">main</span>
-          <span class="mono" data-role="runtime-state">unknown</span>
+          <span>Per-branch endpoints</span>
+          <span class="mono" data-role="published-count-chip">0 live</span>
         </div>
       </section>
     </aside>
@@ -742,55 +742,23 @@ const consoleHTML = `<!doctype html>
         <section class="grid two">
           <article class="panel">
             <header class="panel-header">
-              <h2>Primary Endpoint</h2>
-              <p data-role="endpoint-note">Loading primary connection...</p>
+              <h2>Published Endpoints</h2>
+              <p>branch-scoped database endpoints with direct DSN copy</p>
             </header>
             <div class="panel-body">
-              <div class="toolbar">
-                <span class="badge muted" data-role="endpoint-status">unknown</span>
-                <span class="mono" data-role="endpoint-address">127.0.0.1:55433</span>
-              </div>
-
-              <div class="connect-stack">
-                <div class="cmd-row">
-                  <span class="cmd-label mono">psql</span>
-                  <input class="cmd" data-role="connection-command" readonly value="Loading psql command...">
-                  <button class="btn-ghost" data-action="copy-psql-command">Copy psql</button>
-                </div>
-
-                <div class="cmd-row">
-                  <span class="cmd-label mono">DSN</span>
-                  <input class="cmd" data-role="connection-dsn" readonly value="Loading DSN...">
-                  <button class="btn-ghost" data-action="copy-dsn">Copy DSN</button>
-                </div>
-
-                <div class="cmd-row">
-                  <span class="cmd-label mono">Password</span>
-                  <input class="cmd" data-role="connection-password" readonly value="Loading password...">
-                  <button class="btn-ghost" data-action="copy-password">Copy password</button>
-                </div>
-
-                <div class="cmd-row">
-                  <span class="cmd-label mono">.env</span>
-                  <input class="cmd" data-role="connection-env" readonly value="DATABASE_URL=Loading...">
-                  <button class="btn-ghost" data-action="copy-env-snippet">Copy .env</button>
-                </div>
-              </div>
-
-              <div class="toolbar">
-                <button class="btn-primary" data-action="endpoint-start">Start</button>
-                <button class="btn-warn" data-action="endpoint-stop">Stop</button>
-              </div>
+              <ul class="endpoint-list" data-role="endpoint-list"></ul>
             </div>
           </article>
 
           <article class="panel">
             <header class="panel-header">
-              <h2>Published Endpoints</h2>
-              <p>direct branch connections without primary switching</p>
+              <h2>Connection Workflow</h2>
+              <p>copy a branch DSN from Branches or Published Endpoints</p>
             </header>
             <div class="panel-body">
-              <ul class="endpoint-list" data-role="endpoint-list"></ul>
+              <div class="monitoring-placeholder">
+                <p class="placeholder-note">Each branch gets its own endpoint. Use <strong>Copy DSN</strong> from the branches list to connect your app or psql directly.</p>
+              </div>
             </div>
           </article>
         </section>
@@ -817,7 +785,7 @@ const consoleHTML = `<!doctype html>
               <div class="table-head branches-head">
                 <div>Branch</div>
                 <div>Parent</div>
-                <div>Primary compute</div>
+                <div>Compute</div>
                 <div>Endpoint</div>
                 <div>Created</div>
                 <div style="text-align:right;">Actions</div>
@@ -840,7 +808,6 @@ const consoleHTML = `<!doctype html>
   <script>
     const state = {
       branches: [],
-      connection: null,
       endpoints: [],
       branchFilter: '',
       currentPage: 'dashboard',
@@ -856,15 +823,7 @@ const consoleHTML = `<!doctype html>
       newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
       newBranchName: document.querySelector('[data-role="new-branch-name"]'),
       healthPill: document.querySelector('[data-role="health-pill"]'),
-      endpointNote: document.querySelector('[data-role="endpoint-note"]'),
-      endpointStatus: document.querySelector('[data-role="endpoint-status"]'),
-      activeBranch: document.querySelector('[data-role="active-branch"]'),
-      runtimeState: document.querySelector('[data-role="runtime-state"]'),
-      endpointAddress: document.querySelector('[data-role="endpoint-address"]'),
-      connectionCommand: document.querySelector('[data-role="connection-command"]'),
-      connectionDSN: document.querySelector('[data-role="connection-dsn"]'),
-      connectionPassword: document.querySelector('[data-role="connection-password"]'),
-      connectionEnv: document.querySelector('[data-role="connection-env"]'),
+      publishedCountChip: document.querySelector('[data-role="published-count-chip"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
@@ -995,19 +954,6 @@ const consoleHTML = `<!doctype html>
       return makeConnectionURL(connection, true);
     }
 
-    function quoteShellSingle(value) {
-      return "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
-    }
-
-    function makePSQLCommand(connection) {
-      const password = getConnectionPassword(connection);
-      return 'PGPASSWORD=' + quoteShellSingle(password) + ' psql "' + makeConnectionURL(connection, false) + '"';
-    }
-
-    function makeEnvSnippet(connection) {
-      return 'DATABASE_URL="' + makeDSN(connection) + '"';
-    }
-
     function endpointByBranch(branchName) {
       for (let i = 0; i < state.endpoints.length; i += 1) {
         if (state.endpoints[i].branch === branchName) {
@@ -1049,11 +995,16 @@ const consoleHTML = `<!doctype html>
     }
 
     function renderStats() {
-      const primaryStatus = state.connection && state.connection.status ? state.connection.status : 'unknown';
-      refs.dashboardCompute.textContent = primaryStatus;
+      const runningEndpoints = state.endpoints.filter((item) => {
+        const status = String(item.status || '').toLowerCase();
+        return status === 'running' || status === 'active';
+      }).length;
+
+      refs.dashboardCompute.textContent = String(runningEndpoints) + ' active';
       refs.dashboardStorage.textContent = formatBytes(estimateMetadataBytes()) + ' metadata';
       refs.dashboardBranches.textContent = String(state.branches.length);
       refs.dashboardEndpoints.textContent = String(state.endpoints.length);
+      refs.publishedCountChip.textContent = String(state.endpoints.length) + ' live';
     }
 
     function renderDashboardBranches() {
@@ -1062,17 +1013,13 @@ const consoleHTML = `<!doctype html>
         return;
       }
 
-      const activeBranch = state.connection && state.connection.branch ? state.connection.branch : '';
       refs.dashboardBranchList.innerHTML = state.branches
         .slice(0, 8)
         .map((item) => {
           const endpoint = endpointByBranch(item.name);
-          const isActive = item.name === activeBranch;
 
           let status = 'idle';
-          if (isActive) {
-            status = state.connection && state.connection.status ? state.connection.status : 'unknown';
-          } else if (endpoint && endpoint.published) {
+          if (endpoint && endpoint.published) {
             status = endpoint.status || 'published';
           }
 
@@ -1082,7 +1029,7 @@ const consoleHTML = `<!doctype html>
           }
 
           const parent = item.parent || '-';
-          const activeSuffix = isActive ? ' (active)' : '';
+          const activeSuffix = item.name === 'main' ? ' (default)' : '';
           return '<li class="dashboard-branch-item">'
             + '<div class="dashboard-branch-meta">'
             + '<strong>' + escapeHTML(item.name + activeSuffix) + '</strong>'
@@ -1092,24 +1039,6 @@ const consoleHTML = `<!doctype html>
             + '</li>';
         })
         .join('');
-    }
-
-    function renderConnection(connection) {
-      state.connection = connection;
-
-      const status = connection.status || 'unknown';
-      refs.endpointStatus.className = endpointStatusClass(status);
-      refs.endpointStatus.textContent = status;
-      refs.activeBranch.textContent = connection.branch || 'main';
-      refs.runtimeState.textContent = connection.runtime_state || 'unknown';
-      refs.endpointAddress.textContent = (connection.host || '127.0.0.1') + ':' + String(connection.port || 55433);
-      refs.connectionCommand.value = makePSQLCommand(connection);
-      refs.connectionDSN.value = makeDSN(connection);
-      refs.connectionPassword.value = getConnectionPassword(connection);
-      refs.connectionEnv.value = makeEnvSnippet(connection);
-
-      const readiness = connection.ready ? 'ready' : 'not ready';
-      refs.endpointNote.textContent = 'Primary branch ' + (connection.branch || 'main') + ' is ' + readiness + '.';
     }
 
     async function copyTextToClipboard(value) {
@@ -1152,11 +1081,15 @@ const consoleHTML = `<!doctype html>
 
       refs.parentSelect.innerHTML = options || '<option value="main">main</option>';
 
-      if (state.connection && state.connection.branch) {
-        refs.parentSelect.value = state.connection.branch;
-      } else {
-        refs.parentSelect.value = 'main';
-      }
+	  const hasMain = state.branches.some((item) => item.name === 'main');
+	  if (hasMain) {
+	    refs.parentSelect.value = 'main';
+	    return;
+	  }
+
+	  if (state.branches.length > 0) {
+	    refs.parentSelect.value = state.branches[0].name;
+	  }
     }
 
     function formatCreatedAt(value) {
@@ -1218,12 +1151,11 @@ const consoleHTML = `<!doctype html>
         .map((item) => {
           const branchName = item.name;
           const endpoint = endpointByBranch(branchName);
-          const isActiveBranch = state.connection && state.connection.branch === branchName;
           const isProtected = branchName === 'main';
           const isRootBranch = branchName === 'main';
 
-          const primaryStatus = isActiveBranch
-            ? (state.connection && state.connection.status ? state.connection.status : 'unknown')
+          const computeStatus = endpoint && endpoint.published
+            ? (endpoint.status || 'published')
             : 'idle';
 
           let endpointText = 'not published';
@@ -1231,27 +1163,21 @@ const consoleHTML = `<!doctype html>
             endpointText = (endpoint.host || '127.0.0.1') + ':' + String(endpoint.port || 0) + ' (' + (endpoint.status || 'unknown') + ')';
           }
 
-          const publishButton = endpoint && endpoint.published
-            ? '<button class="btn-warn" data-action="unpublish-branch-endpoint" data-branch="' + escapeHTML(branchName) + '">Unpublish</button>'
-            : '<button class="btn-ghost" data-action="publish-branch-endpoint" data-branch="' + escapeHTML(branchName) + '">Publish</button>';
           const connectDisabled = endpoint && endpoint.published && endpoint.port > 0 ? '' : 'disabled';
           const resetDisabled = isProtected ? 'disabled' : '';
           const deleteDisabled = isProtected ? 'disabled' : '';
-          const activeSuffix = isActiveBranch ? ' (active)' : '';
           const defaultBadge = branchName === 'main' ? ' <span class="badge muted">Default</span>' : '';
           const createdAt = formatCreatedAt(item.created_at);
           const branchPrefix = isRootBranch ? '' : '<span class="branch-prefix mono">|-</span>';
           const parentLabel = isRootBranch ? '-' : (item.parent || '-');
 
           return '<div class="table-row branches-row">'
-            + '<div class="cell-strong">' + branchPrefix + escapeHTML(branchName + activeSuffix) + defaultBadge + '</div>'
+            + '<div class="cell-strong">' + branchPrefix + escapeHTML(branchName) + defaultBadge + '</div>'
             + '<div>' + escapeHTML(parentLabel) + '</div>'
-            + '<div><span class="' + endpointStatusClass(primaryStatus) + '">' + escapeHTML(primaryStatus) + '</span></div>'
+            + '<div><span class="' + endpointStatusClass(computeStatus) + '">' + escapeHTML(computeStatus) + '</span></div>'
             + '<div class="mono">' + escapeHTML(endpointText) + '</div>'
             + '<div>' + escapeHTML(createdAt) + '</div>'
             + '<div class="row-actions">'
-            + '<button class="btn-ghost" data-action="switch-branch" data-branch="' + escapeHTML(branchName) + '">Switch</button>'
-            + publishButton
             + '<button class="btn-ghost" data-action="copy-branch-dsn" data-branch="' + escapeHTML(branchName) + '" ' + connectDisabled + '>Copy DSN</button>'
             + '<button class="btn-warn" data-action="reset-branch" data-branch="' + escapeHTML(branchName) + '" ' + resetDisabled + '>Reset</button>'
             + '<button class="btn-danger" data-action="delete-branch" data-branch="' + escapeHTML(branchName) + '" ' + deleteDisabled + '>Delete</button>'
@@ -1263,7 +1189,7 @@ const consoleHTML = `<!doctype html>
 
     function renderEndpoints() {
       if (!state.endpoints.length) {
-        refs.endpointList.innerHTML = '<li class="endpoint-item"><div class="endpoint-meta">No published endpoints. Publish a branch to get a direct connection.</div></li>';
+        refs.endpointList.innerHTML = '<li class="endpoint-item"><div class="endpoint-meta">No branch endpoints are live yet. Create a branch to provision one automatically.</div></li>';
         return;
       }
 
@@ -1283,7 +1209,6 @@ const consoleHTML = `<!doctype html>
             + '<div class="endpoint-meta mono">' + escapeHTML(address) + ' | ' + escapeHTML(connectionInfo) + '</div>'
             + '<div class="endpoint-actions">'
             + '<button class="btn-ghost" data-action="copy-branch-dsn" data-branch="' + escapeHTML(item.branch) + '">Copy DSN</button>'
-            + '<button class="btn-warn" data-action="unpublish-branch-endpoint" data-branch="' + escapeHTML(item.branch) + '">Unpublish</button>'
             + '</div>'
             + '</li>';
         })
@@ -1296,20 +1221,17 @@ const consoleHTML = `<!doctype html>
         const responses = await Promise.all([
           api('GET', '/api/v1/status'),
           api('GET', '/api/v1/health'),
-          api('GET', '/api/v1/endpoints/primary/connection'),
           api('GET', '/api/v1/branches'),
           api('GET', '/api/v1/endpoints'),
         ]);
 
         const status = responses[0];
         const health = responses[1];
-        const connection = responses[2];
-        const branches = responses[3];
-        const endpoints = responses[4];
+        const branches = responses[2];
+        const endpoints = responses[3];
 
         refs.controllerVersion.textContent = status.version || refs.controllerVersion.textContent;
         renderHealth(health);
-        renderConnection(connection.connection || {});
 
         state.branches = (branches.branches || []).slice();
         state.endpoints = (endpoints.endpoints || []).slice();
@@ -1369,27 +1291,6 @@ const consoleHTML = `<!doctype html>
           return;
         }
 
-        if (action === 'switch-branch') {
-          await api('POST', '/api/v1/endpoints/primary/switch', { branch });
-          showMessage('Switched primary endpoint to ' + branch + '.', 'ok');
-          await loadAll();
-          return;
-        }
-
-        if (action === 'publish-branch-endpoint') {
-          await api('POST', '/api/v1/branches/' + encodeURIComponent(branch) + '/publish');
-          showMessage('Published endpoint for ' + branch + '.', 'ok');
-          await loadAll();
-          return;
-        }
-
-        if (action === 'unpublish-branch-endpoint') {
-          await api('POST', '/api/v1/branches/' + encodeURIComponent(branch) + '/unpublish');
-          showMessage('Unpublished endpoint for ' + branch + '.', 'ok');
-          await loadAll();
-          return;
-        }
-
         if (action === 'copy-branch-dsn') {
           const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branch) + '/connection');
           const branchConnection = response.connection || {};
@@ -1419,44 +1320,6 @@ const consoleHTML = `<!doctype html>
           await api('POST', '/api/v1/branches/' + encodeURIComponent(branch) + '/reset');
           showMessage('Reset branch ' + branch + ' from parent.', 'ok');
           await loadAll();
-          return;
-        }
-
-        if (action === 'endpoint-start') {
-          await api('POST', '/api/v1/endpoints/primary/start');
-          showMessage('Primary endpoint started.', 'ok');
-          await loadAll();
-          return;
-        }
-
-        if (action === 'endpoint-stop') {
-          await api('POST', '/api/v1/endpoints/primary/stop');
-          showMessage('Primary endpoint stopped.', 'ok');
-          await loadAll();
-          return;
-        }
-
-        if (action === 'copy-psql-command') {
-          await copyTextToClipboard(refs.connectionCommand.value);
-          showMessage('psql command copied to clipboard.', 'ok');
-          return;
-        }
-
-        if (action === 'copy-dsn') {
-          await copyTextToClipboard(refs.connectionDSN.value);
-          showMessage('DSN copied to clipboard.', 'ok');
-          return;
-        }
-
-        if (action === 'copy-password') {
-          await copyTextToClipboard(refs.connectionPassword.value);
-          showMessage('Password copied to clipboard.', 'ok');
-          return;
-        }
-
-        if (action === 'copy-env-snippet') {
-          await copyTextToClipboard(refs.connectionEnv.value);
-          showMessage('DATABASE_URL snippet copied to clipboard.', 'ok');
           return;
         }
 

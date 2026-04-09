@@ -23,38 +23,6 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected console title in UI response")
 	}
 
-	if !strings.Contains(body, "data-role=\"connection-command\"") {
-		t.Fatal("expected connection command placeholder in UI response")
-	}
-
-	if !strings.Contains(body, "data-role=\"connection-dsn\"") {
-		t.Fatal("expected DSN placeholder in UI response")
-	}
-
-	if !strings.Contains(body, "data-role=\"connection-env\"") {
-		t.Fatal("expected env snippet placeholder in UI response")
-	}
-
-	if !strings.Contains(body, "data-role=\"connection-password\"") {
-		t.Fatal("expected password placeholder in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"copy-psql-command\"") {
-		t.Fatal("expected psql copy action in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"copy-dsn\"") {
-		t.Fatal("expected dsn copy action in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"copy-env-snippet\"") {
-		t.Fatal("expected env snippet copy action in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"copy-password\"") {
-		t.Fatal("expected password copy action in UI response")
-	}
-
 	if !strings.Contains(body, "data-action=\"reset-branch\"") {
 		t.Fatal("expected branch reset action in UI response")
 	}
@@ -65,14 +33,6 @@ func TestRootServesConsoleUI(t *testing.T) {
 
 	if !strings.Contains(body, "data-role=\"endpoint-list\"") {
 		t.Fatal("expected published endpoint list in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"publish-branch-endpoint\"") {
-		t.Fatal("expected publish endpoint action in UI response")
-	}
-
-	if !strings.Contains(body, "data-action=\"unpublish-branch-endpoint\"") {
-		t.Fatal("expected unpublish endpoint action in UI response")
 	}
 
 	if !strings.Contains(body, "data-action=\"copy-branch-dsn\"") {
@@ -115,6 +75,10 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected monitoring placeholder in UI response")
 	}
 
+	if !strings.Contains(body, "data-role=\"published-count-chip\"") {
+		t.Fatal("expected published endpoint count chip in UI response")
+	}
+
 	if strings.Contains(body, "Restore To Timestamp") {
 		t.Fatal("did not expect restore panel in UI response")
 	}
@@ -123,12 +87,12 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("did not expect operations panel in UI response")
 	}
 
-	if !strings.Contains(body, "DATABASE_URL=") {
-		t.Fatal("expected env snippet label in UI response")
+	if strings.Contains(body, "Primary Endpoint") {
+		t.Fatal("did not expect primary endpoint panel in UI response")
 	}
 
-	if !strings.Contains(body, "/api/v1/endpoints/primary/connection") {
-		t.Fatal("expected UI script to call primary connection API")
+	if strings.Contains(body, "copy-psql-command") {
+		t.Fatal("did not expect primary psql copy action in UI response")
 	}
 
 	if !strings.Contains(body, "/api/v1/endpoints") {
