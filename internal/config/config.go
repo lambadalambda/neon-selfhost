@@ -31,15 +31,19 @@ const (
 	defaultBranchEndpointPortEnd   = 56049
 	defaultBranchEndpointIdleStop  = 10 * time.Minute
 	defaultBranchEndpointMaxConns  = 32
+	defaultBranchStoreBackend      = "json"
+	branchStoreBackendJSON         = "json"
+	branchStoreBackendSQLite       = "sqlite"
 )
 
 type Config struct {
-	HTTPHost          string
-	HTTPPort          int
-	BasicAuthUser     string
-	BasicAuthPassword string
-	ControllerDataDir string
-	ComputeDataDir    string
+	HTTPHost           string
+	HTTPPort           int
+	BasicAuthUser      string
+	BasicAuthPassword  string
+	ControllerDataDir  string
+	ComputeDataDir     string
+	BranchStoreBackend string
 
 	PrimaryEndpointMode     string
 	PrimaryEndpointService  string
@@ -87,6 +91,16 @@ func Load() (Config, error) {
 	}
 	controllerDataDir := strings.TrimSpace(os.Getenv("CONTROLLER_DATA_DIR"))
 	computeDataDir := strings.TrimSpace(os.Getenv("COMPUTE_DATA_DIR"))
+	branchStoreBackend := strings.ToLower(strings.TrimSpace(os.Getenv("BRANCH_STORE_BACKEND")))
+	if branchStoreBackend == "" {
+		branchStoreBackend = defaultBranchStoreBackend
+	}
+
+	switch branchStoreBackend {
+	case branchStoreBackendJSON, branchStoreBackendSQLite:
+	default:
+		return Config{}, fmt.Errorf("invalid BRANCH_STORE_BACKEND %q", branchStoreBackend)
+	}
 
 	primaryEndpointMode := strings.ToLower(strings.TrimSpace(os.Getenv("PRIMARY_ENDPOINT_MODE")))
 	if primaryEndpointMode == "" {
@@ -219,12 +233,13 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		HTTPHost:          host,
-		HTTPPort:          port,
-		BasicAuthUser:     basicAuthUser,
-		BasicAuthPassword: basicAuthPassword,
-		ControllerDataDir: controllerDataDir,
-		ComputeDataDir:    computeDataDir,
+		HTTPHost:           host,
+		HTTPPort:           port,
+		BasicAuthUser:      basicAuthUser,
+		BasicAuthPassword:  basicAuthPassword,
+		ControllerDataDir:  controllerDataDir,
+		ComputeDataDir:     computeDataDir,
+		BranchStoreBackend: branchStoreBackend,
 
 		PrimaryEndpointMode:     primaryEndpointMode,
 		PrimaryEndpointService:  primaryEndpointService,
