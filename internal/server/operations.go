@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 var ErrOperationInProgress = errors.New("another operation is in progress")
@@ -34,6 +37,32 @@ type operationEntry struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
+type operationStore interface {
+	Load(now func() time.Time, maxEntries int) ([]operationEntry, uint64, error)
+	Upsert(operationEntry) error
+	Close() error
+}
+
+type noopOperationStore struct{}
+
+func (noopOperationStore) Load(_ func() time.Time, _ int) ([]operationEntry, uint64, error) {
+	return nil, 0, nil
+}
+
+func (noopOperationStore) Upsert(_ operationEntry) error {
+	return nil
+}
+
+func (noopOperationStore) Close() error {
+	return nil
+}
+
+type sqliteOperationStore struct {
+	db            *sql.DB
+	legacyLogPath string
+	logger        *slog.Logger
+}
+
 type operationManager struct {
 	mu         sync.Mutex
 	now        func() time.Time
@@ -42,10 +71,10 @@ type operationManager struct {
 	nextID     uint64
 	running    bool
 	logger     *slog.Logger
-	logPath    string
+	store      operationStore
 }
 
-func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logger, logPath string) *operationManager {
+func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logger, store operationStore) *operationManager {
 	if now == nil {
 		now = func() time.Time {
 			return time.Now().UTC()
@@ -60,7 +89,19 @@ func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logg
 		maxEntries = defaultOperationLogLimit
 	}
 
-	loadedEntries, nextID := loadOperationEntries(logPath, now, logger)
+	if store == nil {
+		store = noopOperationStore{}
+	}
+
+	loadedEntries, nextID, err := store.Load(now, maxEntries)
+	if err != nil {
+		logger.Warn("load operation entries failed", "error", err)
+		_ = store.Close()
+		store = noopOperationStore{}
+		loadedEntries = nil
+		nextID = 0
+	}
+
 	if len(loadedEntries) > maxEntries {
 		loadedEntries = loadedEntries[len(loadedEntries)-maxEntries:]
 	}
@@ -71,7 +112,7 @@ func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logg
 		maxEntries: maxEntries,
 		nextID:     nextID,
 		logger:     logger,
-		logPath:    strings.TrimSpace(logPath),
+		store:      store,
 	}
 }
 
@@ -190,17 +231,210 @@ func (m *operationManager) trimEntriesLocked() {
 }
 
 func (m *operationManager) persistEntryLocked(entry operationEntry) {
-	if strings.TrimSpace(m.logPath) == "" {
-		return
-	}
-
-	if err := appendOperationEntry(m.logPath, entry); err != nil {
-		m.logger.Warn("persist operation entry failed", "path", m.logPath, "error", err)
+	if err := m.store.Upsert(entry); err != nil {
+		m.logger.Warn("persist operation entry failed", "error", err)
 	}
 }
 
-func loadOperationEntries(logPath string, now func() time.Time, logger *slog.Logger) ([]operationEntry, uint64) {
-	trimmedPath := strings.TrimSpace(logPath)
+func newSQLiteOperationStore(path string, legacyLogPath string, logger *slog.Logger) (operationStore, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return noopOperationStore{}, nil
+	}
+
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
+	if err := os.MkdirAll(filepath.Dir(trimmedPath), 0o755); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("sqlite", trimmedPath)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	store := &sqliteOperationStore{db: db, legacyLogPath: strings.TrimSpace(legacyLogPath), logger: logger}
+	if err := store.init(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return store, nil
+}
+
+func (s *sqliteOperationStore) init() error {
+	if _, err := s.db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`PRAGMA synchronous=NORMAL`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS operations (
+			id INTEGER PRIMARY KEY,
+			type TEXT NOT NULL,
+			status TEXT NOT NULL,
+			message TEXT NOT NULL DEFAULT '',
+			started_at TEXT NOT NULL,
+			finished_at TEXT
+		)
+	`); err != nil {
+		return err
+	}
+
+	if s.legacyLogPath != "" {
+		if err := s.importLegacyIfEmpty(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *sqliteOperationStore) Load(now func() time.Time, maxEntries int) ([]operationEntry, uint64, error) {
+	finishedAt := now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.db.Exec(`UPDATE operations SET status = ?, message = ?, finished_at = ? WHERE status = ?`, operationStatusFailed, operationInterruptedMsg, finishedAt, operationStatusRunning); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.db.Query(`SELECT id, type, status, message, started_at, finished_at FROM operations ORDER BY id ASC`)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	entries := make([]operationEntry, 0)
+	maxID := uint64(0)
+
+	for rows.Next() {
+		var entry operationEntry
+		var startedAtRaw string
+		var finishedAtRaw sql.NullString
+		if err := rows.Scan(&entry.ID, &entry.Type, &entry.Status, &entry.Message, &startedAtRaw, &finishedAtRaw); err != nil {
+			return nil, 0, err
+		}
+		if entry.ID > maxID {
+			maxID = entry.ID
+		}
+
+		startedAt, err := time.Parse(time.RFC3339Nano, startedAtRaw)
+		if err != nil {
+			s.logger.Warn("skip operation with invalid started_at", "id", entry.ID, "error", err)
+			continue
+		}
+		entry.StartedAt = startedAt.UTC()
+
+		if finishedAtRaw.Valid {
+			finishedAt, err := time.Parse(time.RFC3339Nano, finishedAtRaw.String)
+			if err == nil {
+				finished := finishedAt.UTC()
+				entry.FinishedAt = &finished
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	if maxEntries > 0 && len(entries) > maxEntries {
+		entries = entries[len(entries)-maxEntries:]
+	}
+
+	return entries, maxID, nil
+}
+
+func (s *sqliteOperationStore) Upsert(entry operationEntry) error {
+	return upsertOperation(s.db, entry)
+}
+
+type operationExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func upsertOperation(execer operationExecer, entry operationEntry) error {
+	startedAt := entry.StartedAt.UTC().Format(time.RFC3339Nano)
+	var finishedAt any
+	if entry.FinishedAt != nil {
+		finishedAt = entry.FinishedAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	_, err := execer.Exec(`
+		INSERT INTO operations (id, type, status, message, started_at, finished_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			type = excluded.type,
+			status = excluded.status,
+			message = excluded.message,
+			started_at = excluded.started_at,
+			finished_at = excluded.finished_at
+	`, entry.ID, entry.Type, entry.Status, entry.Message, startedAt, finishedAt)
+
+	return err
+}
+
+func (s *sqliteOperationStore) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+
+	return s.db.Close()
+}
+
+func (s *sqliteOperationStore) importLegacyIfEmpty() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM operations`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	legacyEntries, maxID := loadOperationEntriesFromJSONL(s.legacyLogPath, s.logger)
+	if len(legacyEntries) == 0 {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for _, entry := range legacyEntries {
+		if err := upsertOperation(tx, entry); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s.logger.Info("imported legacy operation log", "path", s.legacyLogPath, "entries", len(legacyEntries), "max_id", maxID)
+	return nil
+}
+
+func loadOperationEntriesFromJSONL(path string, logger *slog.Logger) ([]operationEntry, uint64) {
+	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
 		return nil, 0
 	}
@@ -264,42 +498,8 @@ func loadOperationEntries(logPath string, now func() time.Time, logger *slog.Log
 
 	loaded := make([]operationEntry, 0, len(ids))
 	for _, id := range ids {
-		entry := byID[id]
-		if entry.Status == operationStatusRunning {
-			finished := now().UTC()
-			entry.Status = operationStatusFailed
-			entry.Message = operationInterruptedMsg
-			entry.FinishedAt = &finished
-			if err := appendOperationEntry(trimmedPath, entry); err != nil {
-				logger.Warn("persist interrupted operation marker failed", "path", trimmedPath, "operation_id", id, "error", err)
-			}
-		}
-
-		loaded = append(loaded, entry)
+		loaded = append(loaded, byID[id])
 	}
 
 	return loaded, maxID
-}
-
-func appendOperationEntry(path string, entry operationEntry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoded, err := json.Marshal(entry)
-	if err != nil {
-		return err
-	}
-
-	if _, err := file.Write(append(encoded, '\n')); err != nil {
-		return err
-	}
-
-	return file.Sync()
 }

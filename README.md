@@ -74,7 +74,7 @@ For safety, binding the controller to a non-loopback `HTTP_HOST` now requires ba
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` under that directory.
 
-Operation history (`GET /api/v1/operations`) is also persisted to `operations.jsonl` under `CONTROLLER_DATA_DIR` and reloaded on startup (with interrupted in-flight operations marked failed after restart).
+Operation history (`GET /api/v1/operations`) is persisted in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
 
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 

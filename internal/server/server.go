@@ -17,6 +17,19 @@ import (
 	"neon-selfhost/internal/branch"
 )
 
+type closeableHandler struct {
+	http.Handler
+	closer io.Closer
+}
+
+func (h closeableHandler) Close() error {
+	if h.closer == nil {
+		return nil
+	}
+
+	return h.closer.Close()
+}
+
 const (
 	defaultJSONRequestBodyMaxBytes int64 = 1 << 20
 	sqlJSONRequestBodyMaxBytes     int64 = 128 * 1024
@@ -29,7 +42,8 @@ type Config struct {
 	PrimaryEndpoint          PrimaryEndpointController
 	BranchEndpoints          BranchEndpointController
 	SQLExecutor              SQLQueryExecutor
-	OperationLogPath         string
+	OperationDBPath          string
+	LegacyOperationLogPath   string
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -233,7 +247,17 @@ func New(cfg Config) http.Handler {
 		autoPublishExistingBranches(store, attachmentResolver, branchEndpoints, logger)
 	}
 
-	operations := newOperationManager(nil, defaultOperationLogLimit, logger, cfg.OperationLogPath)
+	opStore := operationStore(noopOperationStore{})
+	if strings.TrimSpace(cfg.OperationDBPath) != "" {
+		sqliteStore, err := newSQLiteOperationStore(cfg.OperationDBPath, cfg.LegacyOperationLogPath, logger)
+		if err != nil {
+			logger.Warn("initialize sqlite operation store failed; using in-memory operation log", "path", cfg.OperationDBPath, "error", err)
+		} else {
+			opStore = sqliteStore
+		}
+	}
+
+	operations := newOperationManager(nil, defaultOperationLogLimit, logger, opStore)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
@@ -917,6 +941,10 @@ func New(cfg Config) http.Handler {
 	var handler http.Handler = mux
 	if cfg.BasicAuthUser != "" && cfg.BasicAuthPassword != "" {
 		handler = withBasicAuth(handler, cfg.BasicAuthUser, cfg.BasicAuthPassword)
+	}
+
+	if closer, ok := opStore.(io.Closer); ok {
+		return closeableHandler{Handler: handler, closer: closer}
 	}
 
 	return handler

@@ -50,12 +50,14 @@ func main() {
 	}
 
 	endpointSelectionPath := ""
-	operationLogPath := ""
+	operationDBPath := ""
+	legacyOperationLogPath := ""
 	if cfg.ComputeDataDir != "" {
 		endpointSelectionPath = filepath.Join(cfg.ComputeDataDir, "endpoint-selection.json")
 	}
 	if cfg.ControllerDataDir != "" {
-		operationLogPath = filepath.Join(cfg.ControllerDataDir, "operations.jsonl")
+		operationDBPath = filepath.Join(cfg.ControllerDataDir, "controller.db")
+		legacyOperationLogPath = filepath.Join(cfg.ControllerDataDir, "operations.jsonl")
 	}
 
 	primaryEndpoint := server.PrimaryEndpointController(server.NewInMemoryPrimaryEndpointController(
@@ -136,9 +138,15 @@ func main() {
 		BranchEndpoints:          branchEndpoints,
 		BasicAuthUser:            cfg.BasicAuthUser,
 		BasicAuthPassword:        cfg.BasicAuthPassword,
-		OperationLogPath:         operationLogPath,
+		OperationDBPath:          operationDBPath,
+		LegacyOperationLogPath:   legacyOperationLogPath,
 		Logger:                   logger.With("component", "http_api"),
 	})
+	var handlerCloser interface{ Close() error }
+	if closer, ok := handler.(interface{ Close() error }); ok {
+		handlerCloser = closer
+	}
+
 	httpServer := &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           handler,
@@ -178,6 +186,12 @@ func main() {
 
 	if err := branchEndpoints.Close(); err != nil {
 		logger.Error("shutdown branch endpoints", "error", err)
+	}
+
+	if handlerCloser != nil {
+		if err := handlerCloser.Close(); err != nil {
+			logger.Error("shutdown handler resources", "error", err)
+		}
 	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {

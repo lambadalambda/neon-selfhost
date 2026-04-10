@@ -80,7 +80,7 @@ func TestOperationsEndpointIncludesMutationResults(t *testing.T) {
 }
 
 func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
-	manager := newOperationManager(nil, 50, nil, "")
+	manager := newOperationManager(nil, 50, nil, nil)
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -128,7 +128,7 @@ func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 }
 
 func TestOperationManagerRecordsFailure(t *testing.T) {
-	manager := newOperationManager(nil, 50, nil, "")
+	manager := newOperationManager(nil, 50, nil, nil)
 
 	expected := errors.New("boom")
 	err := manager.Run("create_branch", func() error {
@@ -157,20 +157,32 @@ func TestOperationManagerRecordsFailure(t *testing.T) {
 }
 
 func TestOperationManagerPersistsAndReloadsEntries(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
-	manager := newOperationManager(nil, 50, nil, logPath)
+	dbPath := filepath.Join(t.TempDir(), "controller.db")
+	store, err := newSQLiteOperationStore(dbPath, "", nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store: %v", err)
+	}
+	defer store.Close()
+
+	manager := newOperationManager(nil, 50, nil, store)
 
 	if err := manager.Run("create_branch", func() error { return nil }); err != nil {
 		t.Fatalf("run succeeded operation: %v", err)
 	}
 
 	failure := errors.New("boom")
-	err := manager.Run("delete_branch", func() error { return failure })
+	err = manager.Run("delete_branch", func() error { return failure })
 	if !errors.Is(err, failure) {
 		t.Fatalf("expected failure %v, got %v", failure, err)
 	}
 
-	reloaded := newOperationManager(nil, 50, nil, logPath)
+	reloadedStore, err := newSQLiteOperationStore(dbPath, "", nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store reload: %v", err)
+	}
+	defer reloadedStore.Close()
+
+	reloaded := newOperationManager(nil, 50, nil, reloadedStore)
 	operations := reloaded.List(10)
 	if len(operations) != 2 {
 		t.Fatalf("expected 2 operations after reload, got %d", len(operations))
@@ -186,14 +198,26 @@ func TestOperationManagerPersistsAndReloadsEntries(t *testing.T) {
 }
 
 func TestOperationManagerMarksRunningOperationAsFailedAfterReload(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
-	manager := newOperationManager(nil, 50, nil, logPath)
+	dbPath := filepath.Join(t.TempDir(), "controller.db")
+	store, err := newSQLiteOperationStore(dbPath, "", nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store: %v", err)
+	}
+	defer store.Close()
+
+	manager := newOperationManager(nil, 50, nil, store)
 
 	if _, err := manager.start("create_branch"); err != nil {
 		t.Fatalf("start operation: %v", err)
 	}
 
-	reloaded := newOperationManager(nil, 50, nil, logPath)
+	reloadedStore, err := newSQLiteOperationStore(dbPath, "", nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store reload: %v", err)
+	}
+	defer reloadedStore.Close()
+
+	reloaded := newOperationManager(nil, 50, nil, reloadedStore)
 	operations := reloaded.List(10)
 	if len(operations) != 1 {
 		t.Fatalf("expected 1 operation after reload, got %d", len(operations))
@@ -209,13 +233,21 @@ func TestOperationManagerMarksRunningOperationAsFailedAfterReload(t *testing.T) 
 }
 
 func TestOperationManagerSkipsCorruptLogLines(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
+	baseDir := t.TempDir()
+	logPath := filepath.Join(baseDir, "operations.jsonl")
+	dbPath := filepath.Join(baseDir, "controller.db")
 	content := "{\"id\":1,\"type\":\"create_branch\",\"status\":\"succeeded\",\"started_at\":\"2026-01-01T00:00:00Z\",\"finished_at\":\"2026-01-01T00:00:01Z\"}\nnot-json\n"
 	if err := os.WriteFile(logPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("write operation log fixture: %v", err)
 	}
 
-	manager := newOperationManager(nil, 50, nil, logPath)
+	store, err := newSQLiteOperationStore(dbPath, logPath, nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store with legacy import: %v", err)
+	}
+	defer store.Close()
+
+	manager := newOperationManager(nil, 50, nil, store)
 	operations := manager.List(10)
 	if len(operations) != 1 {
 		t.Fatalf("expected 1 valid operation entry, got %d", len(operations))
