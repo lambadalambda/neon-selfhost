@@ -248,10 +248,12 @@ func New(cfg Config) http.Handler {
 	}
 
 	opStore := operationStore(noopOperationStore{})
+	opStoreStatus := "ok"
 	if strings.TrimSpace(cfg.OperationDBPath) != "" {
 		sqliteStore, err := newSQLiteOperationStore(cfg.OperationDBPath, cfg.LegacyOperationLogPath, logger)
 		if err != nil {
 			logger.Warn("initialize sqlite operation store failed; using in-memory operation log", "path", cfg.OperationDBPath, "error", err)
+			opStoreStatus = "degraded"
 		} else {
 			opStore = sqliteStore
 		}
@@ -283,7 +285,7 @@ func New(cfg Config) http.Handler {
 		}
 
 		overallStatus := "ok"
-		if primaryStatus != "ok" {
+		if primaryStatus != "ok" || opStoreStatus != "ok" {
 			overallStatus = "degraded"
 		}
 
@@ -292,6 +294,7 @@ func New(cfg Config) http.Handler {
 			Checks: []healthCheckPayload{
 				{Name: "branch_store", Status: "ok"},
 				{Name: "operation_manager", Status: "ok"},
+				{Name: "operation_store", Status: opStoreStatus},
 				{Name: "primary_endpoint", Status: primaryStatus},
 			},
 		}

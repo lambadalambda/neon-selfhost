@@ -76,6 +76,12 @@ When `CONTROLLER_DATA_DIR` is set, branch state persists to `branches.json` unde
 
 Operation history (`GET /api/v1/operations`) is persisted in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
 
+Quick backup/export example for the controller database:
+
+```bash
+sqlite3 "${CONTROLLER_DATA_DIR}/controller.db" ".backup '${CONTROLLER_DATA_DIR}/controller-$(date +%Y%m%d-%H%M%S).db'"
+```
+
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 
 Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is not configured.
@@ -94,7 +100,7 @@ SQL execution is read-only by default, with optional write mode when `allow_writ
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
-Published branch endpoints are Docker-mode only: active branches are auto-published on startup, and newly created/restored branches are auto-published by default. `POST /api/v1/branches/{name}/publish` still supports explicit publish and allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Once started, branch compute currently stays running until explicitly unpublished, branch delete, or external container stop/restart (there is no idle auto-stop timeout yet). `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
+Published branch endpoints are Docker-mode only: active branches are auto-published on startup, and newly created/restored branches are auto-published by default. `POST /api/v1/branches/{name}/publish` still supports explicit publish and allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Published branch compute containers now support idle auto-stop (`BRANCH_ENDPOINT_IDLE_TIMEOUT`, default `10m`) while keeping listeners published for lazy restart on the next connection. `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
 
 Branch reset (`POST /api/v1/branches/{name}/reset`) refreshes published branch endpoint attachment metadata in addition to primary-endpoint metadata. Branch delete now unpublishes branch endpoint state before soft-delete.
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"os"
@@ -255,5 +256,28 @@ func TestOperationManagerSkipsCorruptLogLines(t *testing.T) {
 
 	if operations[0].ID != 1 {
 		t.Fatalf("expected operation id 1, got %d", operations[0].ID)
+	}
+}
+
+func TestSQLiteOperationStoreInitializesSchemaMeta(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "controller.db")
+	store, err := newSQLiteOperationStore(dbPath, "", nil)
+	if err != nil {
+		t.Fatalf("new sqlite operation store: %v", err)
+	}
+	defer store.Close()
+
+	sqlStore, ok := store.(*sqliteOperationStore)
+	if !ok {
+		t.Fatalf("expected sqlite operation store type, got %T", store)
+	}
+
+	var version sql.NullString
+	if err := sqlStore.db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&version); err != nil {
+		t.Fatalf("query schema meta version: %v", err)
+	}
+
+	if !version.Valid || version.String != "1" {
+		t.Fatalf("expected schema version %q, got %+v", "1", version)
 	}
 }

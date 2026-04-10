@@ -292,6 +292,19 @@ func (s *sqliteOperationStore) init() error {
 		return err
 	}
 
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1')`); err != nil {
+		return err
+	}
+
 	if s.legacyLogPath != "" {
 		if err := s.importLegacyIfEmpty(); err != nil {
 			return err

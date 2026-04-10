@@ -29,8 +29,8 @@ func TestHealthEndpointIncludesComponentChecks(t *testing.T) {
 		t.Fatalf("expected health status %q, got %q", "ok", payload.Status)
 	}
 
-	if len(payload.Checks) < 3 {
-		t.Fatalf("expected at least 3 health checks, got %d", len(payload.Checks))
+	if len(payload.Checks) < 4 {
+		t.Fatalf("expected at least 4 health checks, got %d", len(payload.Checks))
 	}
 
 	found := map[string]bool{}
@@ -41,10 +41,43 @@ func TestHealthEndpointIncludesComponentChecks(t *testing.T) {
 		found[check.Name] = true
 	}
 
-	for _, expected := range []string{"branch_store", "operation_manager", "primary_endpoint"} {
+	for _, expected := range []string{"branch_store", "operation_manager", "operation_store", "primary_endpoint"} {
 		if !found[expected] {
 			t.Fatalf("missing health check %q", expected)
 		}
+	}
+}
+
+func TestHealthEndpointReportsDegradedWhenOperationStoreUnavailable(t *testing.T) {
+	handler := New(Config{
+		Version:         "test-version",
+		OperationDBPath: t.TempDir(),
+	})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/health", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload healthEndpointResponse
+	decodeJSON(t, res, &payload)
+
+	if payload.Status != "degraded" {
+		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
+	}
+
+	foundStore := false
+	for _, check := range payload.Checks {
+		if check.Name == "operation_store" {
+			foundStore = true
+			if check.Status != "degraded" {
+				t.Fatalf("expected operation_store to be %q, got %q", "degraded", check.Status)
+			}
+		}
+	}
+
+	if !foundStore {
+		t.Fatal("expected operation_store health check")
 	}
 }
 

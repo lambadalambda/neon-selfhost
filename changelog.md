@@ -88,3 +88,4 @@
 - Controller HTTP server now sets explicit `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` values in addition to header timeout to reduce slow-client resource exhaustion risk.
 - Added GitHub Actions CI workflow at `.github/workflows/go-tests.yml` to run `go test ./...` on pull requests and pushes to `master`.
 - Operation log persistence now uses SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) with startup reload, interrupted-running recovery, and one-time import support from legacy `operations.jsonl` files (skipping corrupt lines safely).
+- SQLite operation-log initialization now writes a `schema_meta` version record, health now reports explicit `operation_store` status (including degraded fallback), and README now includes a simple `controller.db` backup/export example.
