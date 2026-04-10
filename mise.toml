@@ -43,8 +43,8 @@ run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_s
 
 [tasks."db:backup"]
 description = "Backup controller SQLite database"
-run = 'CONTROLLER_DATA_DIR="${CONTROLLER_DATA_DIR:-.data/controller}"; mkdir -p "$CONTROLLER_DATA_DIR"; sqlite3 "$CONTROLLER_DATA_DIR/controller.db" ".backup ''$CONTROLLER_DATA_DIR/controller-backup-$(date +%Y%m%d-%H%M%S).db''"'
+run = 'CONTROLLER_DATA_DIR="${CONTROLLER_DATA_DIR:-.data/controller}"; STAMP="$(date +%Y%m%d-%H%M%S)"; BACKUP_DIR="$CONTROLLER_DATA_DIR/backup-$STAMP"; mkdir -p "$BACKUP_DIR"; sqlite3 "$CONTROLLER_DATA_DIR/controller.db" ".backup ''$BACKUP_DIR/controller.db''"; sqlite3 "$CONTROLLER_DATA_DIR/operations.db" ".backup ''$BACKUP_DIR/operations.db''"; echo "backup created at $BACKUP_DIR"'
 
 [tasks."db:restore"]
-description = "Restore controller SQLite database from BACKUP_FILE"
-run = 'test -n "${BACKUP_FILE:-}" || { echo "set BACKUP_FILE=/path/to/controller-backup.db"; exit 1; }; CONTROLLER_DATA_DIR="${CONTROLLER_DATA_DIR:-.data/controller}"; mkdir -p "$CONTROLLER_DATA_DIR"; sqlite3 "$CONTROLLER_DATA_DIR/controller.db" ".restore ''${BACKUP_FILE}''"'
+description = "Restore controller SQLite databases from BACKUP_DIR"
+run = 'test -n "${BACKUP_DIR:-}" || { echo "set BACKUP_DIR=/path/to/backup-dir"; exit 1; }; CONTROLLER_DATA_DIR="${CONTROLLER_DATA_DIR:-.data/controller}"; test -f "$BACKUP_DIR/controller.db" || { echo "missing $BACKUP_DIR/controller.db"; exit 1; }; test -f "$BACKUP_DIR/operations.db" || { echo "missing $BACKUP_DIR/operations.db"; exit 1; }; mkdir -p "$CONTROLLER_DATA_DIR"; sqlite3 "$CONTROLLER_DATA_DIR/controller.db" ".restore ''$BACKUP_DIR/controller.db''"; sqlite3 "$CONTROLLER_DATA_DIR/operations.db" ".restore ''$BACKUP_DIR/operations.db''"; echo "restore completed from $BACKUP_DIR"'

@@ -54,13 +54,15 @@ func main() {
 	}
 
 	endpointSelectionPath := ""
+	branchDBPath := ""
 	operationDBPath := ""
 	legacyOperationLogPath := ""
 	if cfg.ComputeDataDir != "" {
 		endpointSelectionPath = filepath.Join(cfg.ComputeDataDir, "endpoint-selection.json")
 	}
 	if cfg.ControllerDataDir != "" {
-		operationDBPath = filepath.Join(cfg.ControllerDataDir, "controller.db")
+		branchDBPath = filepath.Join(cfg.ControllerDataDir, "controller.db")
+		operationDBPath = filepath.Join(cfg.ControllerDataDir, "operations.db")
 		legacyOperationLogPath = filepath.Join(cfg.ControllerDataDir, "operations.jsonl")
 	}
 
@@ -146,6 +148,7 @@ func main() {
 		OperationDBPath:          operationDBPath,
 		LegacyOperationLogPath:   legacyOperationLogPath,
 		BranchStoreMode:          branchStoreMode,
+		BranchDBPath:             branchDBPath,
 		BranchSchemaVersion:      branchSchemaVersion,
 		Logger:                   logger.With("component", "http_api"),
 	})

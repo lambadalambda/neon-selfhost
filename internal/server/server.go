@@ -50,6 +50,7 @@ type Config struct {
 	OperationDBPath          string
 	LegacyOperationLogPath   string
 	BranchStoreMode          string
+	BranchDBPath             string
 	BranchSchemaVersion      int
 
 	BasicAuthUser     string
@@ -67,7 +68,8 @@ type statusResponse struct {
 type persistenceStatusPayload struct {
 	BranchStoreMode        string `json:"branch_store_mode"`
 	OperationStoreMode     string `json:"operation_store_mode"`
-	DBPath                 string `json:"db_path,omitempty"`
+	BranchDBPath           string `json:"branch_db_path,omitempty"`
+	OperationDBPath        string `json:"operation_db_path,omitempty"`
 	BranchSchemaVersion    int    `json:"branch_schema_version,omitempty"`
 	OperationSchemaVersion int    `json:"operation_schema_version,omitempty"`
 }
@@ -127,6 +129,7 @@ type branchPayload struct {
 }
 
 type operationPayload struct {
+	ID         uint64  `json:"id"`
 	Type       string  `json:"type"`
 	Status     string  `json:"status"`
 	Message    string  `json:"message,omitempty"`
@@ -301,7 +304,8 @@ func New(cfg Config) http.Handler {
 			Persistence: persistenceStatusPayload{
 				BranchStoreMode:        branchStoreMode,
 				OperationStoreMode:     opStoreMode,
-				DBPath:                 strings.TrimSpace(cfg.OperationDBPath),
+				BranchDBPath:           strings.TrimSpace(cfg.BranchDBPath),
+				OperationDBPath:        strings.TrimSpace(cfg.OperationDBPath),
 				BranchSchemaVersion:    cfg.BranchSchemaVersion,
 				OperationSchemaVersion: opStoreSchemaVersion,
 			},
@@ -374,6 +378,10 @@ func New(cfg Config) http.Handler {
 			Offset: offset,
 			Status: strings.TrimSpace(r.URL.Query().Get("status")),
 			Type:   strings.TrimSpace(r.URL.Query().Get("type")),
+		}
+		if filter.Status != "" && !isKnownOperationStatus(filter.Status) {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "status must be one of running, succeeded, failed, rejected")
+			return
 		}
 		entries := operations.ListFiltered(filter)
 		payload := make([]operationPayload, 0, len(entries))
@@ -1015,6 +1023,15 @@ func New(cfg Config) http.Handler {
 	return handler
 }
 
+func isKnownOperationStatus(status string) bool {
+	switch status {
+	case operationStatusRunning, operationStatusSucceeded, operationStatusFailed, operationStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 func withBasicAuth(next http.Handler, expectedUser string, expectedPassword string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		providedUser, providedPassword, ok := r.BasicAuth()
@@ -1090,6 +1107,7 @@ func makeBranchPayload(b branch.Branch) branchPayload {
 
 func makeOperationPayload(op operationEntry) operationPayload {
 	payload := operationPayload{
+		ID:        op.ID,
 		Type:      op.Type,
 		Status:    op.Status,
 		Message:   op.Message,

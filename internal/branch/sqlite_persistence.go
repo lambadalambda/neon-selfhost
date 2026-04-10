@@ -186,11 +186,9 @@ func persistSQLiteBranches(db *sql.DB, branches []Branch) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM branches`); err != nil {
-		return err
-	}
-
+	keepNames := make([]string, 0, len(branches))
 	for _, b := range branches {
+		keepNames = append(keepNames, b.Name)
 		createdAt := b.CreatedAt.UTC().Format(time.RFC3339Nano)
 		deleted := 0
 		if b.Deleted {
@@ -208,7 +206,18 @@ func persistSQLiteBranches(db *sql.DB, branches []Branch) error {
 		}
 
 		if _, err := tx.Exec(
-			`INSERT INTO branches (name, parent, created_at, deleted, deleted_at, tenant_id, timeline_id, password, endpoint_published, endpoint_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO branches (name, parent, created_at, deleted, deleted_at, tenant_id, timeline_id, password, endpoint_published, endpoint_port)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(name) DO UPDATE SET
+				parent = excluded.parent,
+				created_at = excluded.created_at,
+				deleted = excluded.deleted,
+				deleted_at = excluded.deleted_at,
+				tenant_id = excluded.tenant_id,
+				timeline_id = excluded.timeline_id,
+				password = excluded.password,
+				endpoint_published = excluded.endpoint_published,
+				endpoint_port = excluded.endpoint_port`,
 			b.Name,
 			b.Parent,
 			createdAt,
@@ -220,6 +229,20 @@ func persistSQLiteBranches(db *sql.DB, branches []Branch) error {
 			endpointPublished,
 			b.EndpointPort,
 		); err != nil {
+			return err
+		}
+	}
+
+	if len(keepNames) > 0 {
+		args := make([]any, 0, len(keepNames))
+		placeholders := make([]string, 0, len(keepNames))
+		for _, name := range keepNames {
+			args = append(args, name)
+			placeholders = append(placeholders, "?")
+		}
+
+		query := `DELETE FROM branches WHERE name NOT IN (` + strings.Join(placeholders, ",") + `)`
+		if _, err := tx.Exec(query, args...); err != nil {
 			return err
 		}
 	}

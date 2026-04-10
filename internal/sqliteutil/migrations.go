@@ -39,6 +39,12 @@ func ApplyMigrations(db *sql.DB, schemaName string, migrations []Migration) (int
 		return sorted[i].Version < sorted[j].Version
 	})
 
+	for i := 1; i < len(sorted); i++ {
+		if sorted[i].Version == sorted[i-1].Version {
+			return 0, fmt.Errorf("duplicate migration version %d for schema %q", sorted[i].Version, schemaName)
+		}
+	}
+
 	currentVersion, err := currentSchemaVersion(db, schemaName)
 	if err != nil {
 		return 0, err

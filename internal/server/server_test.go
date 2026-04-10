@@ -32,7 +32,8 @@ func TestStatusEndpoint(t *testing.T) {
 		Persistence struct {
 			BranchStoreMode        string `json:"branch_store_mode"`
 			OperationStoreMode     string `json:"operation_store_mode"`
-			DBPath                 string `json:"db_path"`
+			BranchDBPath           string `json:"branch_db_path"`
+			OperationDBPath        string `json:"operation_db_path"`
 			BranchSchemaVersion    int    `json:"branch_schema_version"`
 			OperationSchemaVersion int    `json:"operation_schema_version"`
 		} `json:"persistence"`
@@ -87,8 +88,9 @@ func TestStatusEndpointIncludesPersistenceDetails(t *testing.T) {
 	handler := New(Config{
 		Version:                "test-version",
 		BranchStoreMode:        "sqlite",
+		BranchDBPath:           filepath.Join(t.TempDir(), "controller.db"),
 		BranchSchemaVersion:    1,
-		OperationDBPath:        filepath.Join(t.TempDir(), "controller.db"),
+		OperationDBPath:        filepath.Join(t.TempDir(), "operations.db"),
 		LegacyOperationLogPath: filepath.Join(t.TempDir(), "operations.jsonl"),
 	})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
@@ -104,7 +106,8 @@ func TestStatusEndpointIncludesPersistenceDetails(t *testing.T) {
 		Persistence struct {
 			BranchStoreMode        string `json:"branch_store_mode"`
 			OperationStoreMode     string `json:"operation_store_mode"`
-			DBPath                 string `json:"db_path"`
+			BranchDBPath           string `json:"branch_db_path"`
+			OperationDBPath        string `json:"operation_db_path"`
 			BranchSchemaVersion    int    `json:"branch_schema_version"`
 			OperationSchemaVersion int    `json:"operation_schema_version"`
 		} `json:"persistence"`
@@ -122,8 +125,12 @@ func TestStatusEndpointIncludesPersistenceDetails(t *testing.T) {
 		t.Fatalf("expected operation_store_mode %q, got %q", "sqlite", payload.Persistence.OperationStoreMode)
 	}
 
-	if payload.Persistence.DBPath == "" {
-		t.Fatal("expected non-empty db_path")
+	if payload.Persistence.BranchDBPath == "" {
+		t.Fatal("expected non-empty branch_db_path")
+	}
+
+	if payload.Persistence.OperationDBPath == "" {
+		t.Fatal("expected non-empty operation_db_path")
 	}
 
 	if payload.Persistence.BranchSchemaVersion != 1 {

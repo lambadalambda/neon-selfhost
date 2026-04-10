@@ -127,6 +127,45 @@ func TestOperationsEndpointRejectsInvalidPagingParams(t *testing.T) {
 	assertAPIErrorCode(t, res, "validation_error")
 }
 
+func TestOperationsEndpointRejectsUnknownStatusFilter(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/operations?status=done", "")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "validation_error")
+}
+
+func TestOperationsEndpointFilteringAndPagingWithSQLiteStore(t *testing.T) {
+	handler := New(Config{Version: "test-version", OperationDBPath: filepath.Join(t.TempDir(), "operations.db")})
+
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"sqlite-one"}`); res.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, res.Code)
+	}
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"sqlite-one"}`); res.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, res.Code)
+	}
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"sqlite-two"}`); res.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, res.Code)
+	}
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/operations?status=succeeded&type=create_branch&limit=1&offset=0", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	var payload operationsListResponse
+	decodeJSON(t, res, &payload)
+	if len(payload.Operations) != 1 {
+		t.Fatalf("expected one sqlite-filtered operation, got %d", len(payload.Operations))
+	}
+	if payload.Operations[0].Status != operationStatusSucceeded {
+		t.Fatalf("expected status %q, got %q", operationStatusSucceeded, payload.Operations[0].Status)
+	}
+}
+
 func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 	manager := newOperationManager(nil, 50, nil, nil)
 

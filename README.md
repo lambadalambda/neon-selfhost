@@ -74,15 +74,17 @@ For safety, binding the controller to a non-loopback `HTTP_HOST` now requires ba
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`). On first startup with SQLite, legacy `branches.json` state is imported when present.
 
-Operation history (`GET /api/v1/operations`) is persisted in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
+Operation history (`GET /api/v1/operations`) is persisted in SQLite (`operations.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
 
 `GET /api/v1/status` includes persistence details (store modes, DB path, and migration versions).
 
-Quick backup/export example for the controller database:
+Quick backup/export example for the branch-state database:
 
 ```bash
 sqlite3 "${CONTROLLER_DATA_DIR}/controller.db" ".backup '${CONTROLLER_DATA_DIR}/controller-$(date +%Y%m%d-%H%M%S).db'"
 ```
+
+Use `mise run db:backup` / `mise run db:restore` to snapshot and restore both `controller.db` and `operations.db` together.
 
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 
@@ -218,7 +220,7 @@ Backup or restore controller metadata:
 
 ```bash
 mise run db:backup
-BACKUP_FILE=/path/to/controller-backup.db mise run db:restore
+BACKUP_DIR=/path/to/backup-dir mise run db:restore
 ```
 
 The backing script is `scripts/reset_seed_data.sh`.
