@@ -93,3 +93,4 @@
 - Auto-publish attachment resolution now uses bounded exponential backoff with jitter for transient `branch not found` races instead of a single fixed-delay retry.
 - Added an incremental SQLite branch-state backend (`BRANCH_STORE_BACKEND=sqlite`) that persists branch state in `controller.db` and imports legacy `branches.json` data when initializing an empty SQLite table.
 - SQLite branch-store initialization now configures `busy_timeout`, controller shutdown now closes branch-store resources explicitly, and startup now rejects non-JSON branch-store backends when `CONTROLLER_DATA_DIR` is unset.
+- Branch-state persistence is now fully SQLite-first when `CONTROLLER_DATA_DIR` is set (no runtime JSON/sqlite backend switch); startup imports legacy `branches.json` into `controller.db` on empty SQLite state.

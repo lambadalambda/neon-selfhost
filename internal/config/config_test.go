@@ -42,9 +42,6 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("expected empty compute data dir, got %q", cfg.ComputeDataDir)
 	}
 
-	if cfg.BranchStoreBackend != defaultBranchStoreBackend {
-		t.Fatalf("expected branch store backend %q, got %q", defaultBranchStoreBackend, cfg.BranchStoreBackend)
-	}
 }
 
 func TestLoadWithPortAndBasicAuth(t *testing.T) {
@@ -54,7 +51,6 @@ func TestLoadWithPortAndBasicAuth(t *testing.T) {
 	t.Setenv("BASIC_AUTH_PASSWORD", "secret")
 	t.Setenv("CONTROLLER_DATA_DIR", "/var/lib/neon/controller")
 	t.Setenv("COMPUTE_DATA_DIR", "/var/lib/neon/compute")
-	t.Setenv("BRANCH_STORE_BACKEND", "sqlite")
 
 	cfg, err := Load()
 	if err != nil {
@@ -85,9 +81,6 @@ func TestLoadWithPortAndBasicAuth(t *testing.T) {
 		t.Fatalf("expected compute data dir %q, got %q", "/var/lib/neon/compute", cfg.ComputeDataDir)
 	}
 
-	if cfg.BranchStoreBackend != branchStoreBackendSQLite {
-		t.Fatalf("expected branch store backend %q, got %q", branchStoreBackendSQLite, cfg.BranchStoreBackend)
-	}
 }
 
 func TestLoadRejectsMissingBasicAuthPassword(t *testing.T) {
@@ -352,15 +345,6 @@ func TestLoadRejectsInvalidAllowInsecureHTTPBindValue(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid ALLOW_INSECURE_HTTP_BIND")
-	}
-}
-
-func TestLoadRejectsInvalidBranchStoreBackend(t *testing.T) {
-	t.Setenv("BRANCH_STORE_BACKEND", "postgres")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for invalid BRANCH_STORE_BACKEND")
 	}
 }
 

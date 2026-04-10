@@ -40,30 +40,13 @@ func main() {
 	}
 
 	branchStore := branch.NewStore()
-	if cfg.ControllerDataDir == "" && cfg.BranchStoreBackend != "json" {
-		logger.Error("branch store backend requires CONTROLLER_DATA_DIR", "backend", cfg.BranchStoreBackend)
-		os.Exit(1)
-	}
 	if cfg.ControllerDataDir != "" {
-		switch cfg.BranchStoreBackend {
-		case "sqlite":
-			sqliteStore, err := branch.NewSQLitePersistentStore(cfg.ControllerDataDir)
-			if err != nil {
-				logger.Error("init sqlite branch store", "error", err)
-				os.Exit(1)
-			}
-			branchStore = sqliteStore
-		case "json":
-			persistentStore, err := branch.NewPersistentStore(cfg.ControllerDataDir)
-			if err != nil {
-				logger.Error("init persistent branch store", "error", err)
-				os.Exit(1)
-			}
-			branchStore = persistentStore
-		default:
-			logger.Error("unsupported branch store backend", "backend", cfg.BranchStoreBackend)
+		sqliteStore, err := branch.NewSQLitePersistentStore(cfg.ControllerDataDir)
+		if err != nil {
+			logger.Error("init sqlite branch store", "error", err)
 			os.Exit(1)
 		}
+		branchStore = sqliteStore
 	}
 
 	endpointSelectionPath := ""
