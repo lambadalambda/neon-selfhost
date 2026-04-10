@@ -279,3 +279,7 @@ func (f *fakeBranchEndpointController) Refresh(branchName string, _ BranchAttach
 	f.refreshCalls = append(f.refreshCalls, branchName)
 	return nil
 }
+
+func (f *fakeBranchEndpointController) Close() error {
+	return nil
+}

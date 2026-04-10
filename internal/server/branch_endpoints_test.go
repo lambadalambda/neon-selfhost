@@ -112,6 +112,86 @@ func TestSelectionPathUsesCollisionSafeBranchIdentifier(t *testing.T) {
 	}
 }
 
+func TestCloseStopsListenersAndPublishedContainers(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithAttachmentAndPassword("feature-a", "main", "tenant-a", "timeline-a", "secret-1"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	port := freeTCPPort(t)
+	if _, err := store.SetEndpoint("feature-a", true, port); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), port, port)
+	controller.engine = engine
+
+	if err := controller.startListener("feature-a", port); err != nil {
+		t.Fatalf("start listener: %v", err)
+	}
+
+	containerName := controller.containerName("feature-a")
+	inspect := dockerContainerInspect{ID: "container-feature-a", Name: containerName}
+	inspect.State.Running = true
+	inspect.State.Status = "running"
+	engine.containers[containerName] = inspect
+
+	if err := controller.Close(); err != nil {
+		t.Fatalf("close controller: %v", err)
+	}
+
+	controller.mu.Lock()
+	listenerCount := len(controller.listeners)
+	controller.mu.Unlock()
+	if listenerCount != 0 {
+		t.Fatalf("expected no listeners after close, found %d", listenerCount)
+	}
+
+	if len(engine.stopCalls) != 1 || engine.stopCalls[0] != "container-feature-a" {
+		t.Fatalf("expected stop call for published container, got %v", engine.stopCalls)
+	}
+
+	if len(engine.removeCalls) != 1 || engine.removeCalls[0] != "container-feature-a" {
+		t.Fatalf("expected remove call for published container, got %v", engine.removeCalls)
+	}
+}
+
+func TestIdleTimeoutStopsBranchComputeContainer(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithAttachmentAndPassword("feature-idle", "main", "tenant-idle", "timeline-idle", "secret-idle"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	port := freeTCPPort(t)
+	if _, err := store.SetEndpoint("feature-idle", true, port); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), port, port)
+	controller.engine = engine
+	controller.idleTimeout = 20 * time.Millisecond
+
+	containerName := controller.containerName("feature-idle")
+	inspect := dockerContainerInspect{ID: "container-feature-idle", Name: containerName}
+	inspect.State.Running = true
+	inspect.State.Status = "running"
+	engine.containers[containerName] = inspect
+
+	controller.incrementActive("feature-idle")
+	controller.decrementActive("feature-idle")
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for len(engine.stopCalls) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(engine.stopCalls) != 1 || engine.stopCalls[0] != "container-feature-idle" {
+		t.Fatalf("expected idle timeout stop call, got %v", engine.stopCalls)
+	}
+}
+
 func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir string, portStart int, portEnd int) *dockerBranchEndpointController {
 	return &dockerBranchEndpointController{
 		store:            store,
@@ -129,8 +209,10 @@ func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir s
 		computeDataDir:   computeDataDir,
 		pgVersion:        16,
 		startupTimeout:   500 * time.Millisecond,
+		idleTimeout:      50 * time.Millisecond,
 		listeners:        map[string]net.Listener{},
 		activeConns:      map[string]int{},
+		idleTimers:       map[string]*time.Timer{},
 		lastErrors:       map[string]string{},
 		branchStartLocks: map[string]*sync.Mutex{},
 	}
@@ -155,6 +237,35 @@ func (fakeDockerBranchEndpointEngine) StopContainer(_ string) error {
 }
 
 func (fakeDockerBranchEndpointEngine) RemoveContainer(_ string, _ bool) error {
+	return nil
+}
+
+type trackingBranchEndpointEngine struct {
+	containers  map[string]dockerContainerInspect
+	stopCalls   []string
+	removeCalls []string
+}
+
+func (e *trackingBranchEndpointEngine) InspectContainerByName(name string) (dockerContainerInspect, bool, error) {
+	inspect, exists := e.containers[name]
+	return inspect, exists, nil
+}
+
+func (e *trackingBranchEndpointEngine) CreateContainer(_ dockerCreateContainerRequest) (string, error) {
+	return "", nil
+}
+
+func (e *trackingBranchEndpointEngine) StartContainer(_ string) error {
+	return nil
+}
+
+func (e *trackingBranchEndpointEngine) StopContainer(containerID string) error {
+	e.stopCalls = append(e.stopCalls, containerID)
+	return nil
+}
+
+func (e *trackingBranchEndpointEngine) RemoveContainer(containerID string, _ bool) error {
+	e.removeCalls = append(e.removeCalls, containerID)
 	return nil
 }
 

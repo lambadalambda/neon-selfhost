@@ -26,6 +26,7 @@ const (
 	defaultBranchEndpointImage     = "neon-selfhost/compute:dev"
 	defaultBranchComposeProject    = "neon-selfhost"
 	defaultBranchEndpointTimeout   = 60 * time.Second
+	defaultBranchEndpointIdleStop  = 10 * time.Minute
 	branchComputePort              = 55433
 )
 
@@ -37,6 +38,7 @@ type BranchEndpointController interface {
 	Connection(branchName string) (branchEndpointState, error)
 	List() ([]branchEndpointState, error)
 	Refresh(branchName string, attachment BranchAttachment, password string) error
+	Close() error
 }
 
 type branchEndpointState struct {
@@ -75,6 +77,7 @@ type DockerBranchEndpointOptions struct {
 	PGVersion      int
 
 	StartupTimeout time.Duration
+	IdleTimeout    time.Duration
 	Logger         *slog.Logger
 }
 
@@ -133,6 +136,10 @@ func (n noopBranchEndpointController) Refresh(_ string, _ BranchAttachment, _ st
 	return nil
 }
 
+func (n noopBranchEndpointController) Close() error {
+	return nil
+}
+
 type dockerBranchEndpointEngine interface {
 	InspectContainerByName(name string) (dockerContainerInspect, bool, error)
 	CreateContainer(req dockerCreateContainerRequest) (string, error)
@@ -158,11 +165,13 @@ type dockerBranchEndpointController struct {
 	computeDataDir string
 	pgVersion      int
 	startupTimeout time.Duration
+	idleTimeout    time.Duration
 	logger         *slog.Logger
 
 	mu               sync.Mutex
 	listeners        map[string]net.Listener
 	activeConns      map[string]int
+	idleTimers       map[string]*time.Timer
 	lastErrors       map[string]string
 	branchStartLocks map[string]*sync.Mutex
 }
@@ -239,6 +248,11 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		startupTimeout = defaultBranchEndpointTimeout
 	}
 
+	idleTimeout := opts.IdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultBranchEndpointIdleStop
+	}
+
 	engineClient, err := newDockerEngineClient(opts.SocketPath)
 	if err != nil {
 		return nil, err
@@ -260,9 +274,11 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		computeDataDir:   computeDataDir,
 		pgVersion:        pgVersion,
 		startupTimeout:   startupTimeout,
+		idleTimeout:      idleTimeout,
 		logger:           loggerOrDefault(opts.Logger),
 		listeners:        map[string]net.Listener{},
 		activeConns:      map[string]int{},
+		idleTimers:       map[string]*time.Timer{},
 		lastErrors:       map[string]string{},
 		branchStartLocks: map[string]*sync.Mutex{},
 	}
@@ -578,6 +594,10 @@ func (c *dockerBranchEndpointController) stopListener(branchName string) {
 		delete(c.listeners, branchName)
 	}
 	delete(c.activeConns, branchName)
+	if timer, exists := c.idleTimers[branchName]; exists {
+		timer.Stop()
+		delete(c.idleTimers, branchName)
+	}
 	delete(c.lastErrors, branchName)
 	c.mu.Unlock()
 
@@ -806,6 +826,10 @@ func sanitizeEndpointBranchName(branchName string) string {
 
 func (c *dockerBranchEndpointController) incrementActive(branchName string) {
 	c.mu.Lock()
+	if timer, exists := c.idleTimers[branchName]; exists {
+		timer.Stop()
+		delete(c.idleTimers, branchName)
+	}
 	c.activeConns[branchName]++
 	c.mu.Unlock()
 }
@@ -816,8 +840,60 @@ func (c *dockerBranchEndpointController) decrementActive(branchName string) {
 		c.activeConns[branchName]--
 	} else {
 		delete(c.activeConns, branchName)
+		c.scheduleIdleStopLocked(branchName)
 	}
 	c.mu.Unlock()
+}
+
+func (c *dockerBranchEndpointController) scheduleIdleStopLocked(branchName string) {
+	if c.idleTimeout <= 0 {
+		return
+	}
+
+	if c.idleTimers == nil {
+		c.idleTimers = map[string]*time.Timer{}
+	}
+
+	if timer, exists := c.idleTimers[branchName]; exists {
+		timer.Stop()
+	}
+
+	c.idleTimers[branchName] = time.AfterFunc(c.idleTimeout, func() {
+		c.stopBranchComputeForIdle(branchName)
+	})
+}
+
+func (c *dockerBranchEndpointController) stopBranchComputeForIdle(branchName string) {
+	c.mu.Lock()
+	if c.activeConns[branchName] > 0 {
+		delete(c.idleTimers, branchName)
+		c.mu.Unlock()
+		return
+	}
+	delete(c.idleTimers, branchName)
+	c.mu.Unlock()
+
+	b, err := c.store.GetActive(branchName)
+	if err != nil || !b.EndpointPublished {
+		return
+	}
+
+	containerName := c.containerName(branchName)
+	inspect, exists, err := c.engine.InspectContainerByName(containerName)
+	if err != nil {
+		c.recordError(branchName, fmt.Errorf("inspect branch compute for idle stop: %w", err))
+		return
+	}
+	if !exists || !inspect.State.Running {
+		return
+	}
+
+	if err := c.engine.StopContainer(inspect.ID); err != nil {
+		c.recordError(branchName, fmt.Errorf("stop branch compute for idle timeout: %w", err))
+		return
+	}
+
+	c.log().Info("stopped branch compute container after idle timeout", "branch", branchName, "container", containerName, "idle_timeout", c.idleTimeout.String())
 }
 
 func (c *dockerBranchEndpointController) recordError(branchName string, err error) {
@@ -847,6 +923,63 @@ func (c *dockerBranchEndpointController) branchLock(branchName string) *sync.Mut
 	lock := &sync.Mutex{}
 	c.branchStartLocks[branchName] = lock
 	return lock
+}
+
+func (c *dockerBranchEndpointController) Close() error {
+	listeners := make([]net.Listener, 0)
+	c.mu.Lock()
+	for branchName, listener := range c.listeners {
+		listeners = append(listeners, listener)
+		delete(c.listeners, branchName)
+	}
+	for branchName, timer := range c.idleTimers {
+		timer.Stop()
+		delete(c.idleTimers, branchName)
+	}
+	c.activeConns = map[string]int{}
+	c.lastErrors = map[string]string{}
+	c.mu.Unlock()
+
+	var closeErrs []error
+	for _, listener := range listeners {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			closeErrs = append(closeErrs, err)
+		}
+	}
+
+	for _, b := range c.store.ListActive() {
+		if !b.EndpointPublished {
+			continue
+		}
+
+		containerName := c.containerName(b.Name)
+		inspect, exists, err := c.engine.InspectContainerByName(containerName)
+		if err != nil {
+			closeErrs = append(closeErrs, err)
+			continue
+		}
+		if !exists {
+			continue
+		}
+
+		if err := c.engine.StopContainer(inspect.ID); err != nil {
+			closeErrs = append(closeErrs, err)
+			continue
+		}
+
+		if err := c.engine.RemoveContainer(inspect.ID, true); err != nil {
+			closeErrs = append(closeErrs, err)
+			continue
+		}
+
+		c.log().Info("stopped branch compute container during shutdown", "branch", b.Name, "container", containerName)
+	}
+
+	if len(closeErrs) > 0 {
+		return errors.Join(closeErrs...)
+	}
+
+	return nil
 }
 
 func (c *dockerBranchEndpointController) log() *slog.Logger {

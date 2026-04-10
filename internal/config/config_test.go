@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("HTTP_HOST", "")
@@ -171,6 +174,10 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	if cfg.BranchEndpointPortEnd != defaultBranchEndpointPortEnd {
 		t.Fatalf("expected branch endpoint port end %d, got %d", defaultBranchEndpointPortEnd, cfg.BranchEndpointPortEnd)
 	}
+
+	if cfg.BranchEndpointIdleStop != defaultBranchEndpointIdleStop {
+		t.Fatalf("expected branch endpoint idle stop %s, got %s", defaultBranchEndpointIdleStop, cfg.BranchEndpointIdleStop)
+	}
 }
 
 func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
@@ -188,6 +195,7 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("BRANCH_ENDPOINT_BIND_HOST", "0.0.0.0")
 	t.Setenv("BRANCH_ENDPOINT_PORT_START", "56100")
 	t.Setenv("BRANCH_ENDPOINT_PORT_END", "56199")
+	t.Setenv("BRANCH_ENDPOINT_IDLE_TIMEOUT", "45s")
 
 	cfg, err := Load()
 	if err != nil {
@@ -248,6 +256,10 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 
 	if cfg.BranchEndpointPortEnd != 56199 {
 		t.Fatalf("expected branch endpoint port end %d, got %d", 56199, cfg.BranchEndpointPortEnd)
+	}
+
+	if cfg.BranchEndpointIdleStop != 45*time.Second {
+		t.Fatalf("expected branch endpoint idle stop %s, got %s", 45*time.Second, cfg.BranchEndpointIdleStop)
 	}
 }
 
@@ -322,5 +334,14 @@ func TestLoadRejectsInvalidAllowInsecureHTTPBindValue(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid ALLOW_INSECURE_HTTP_BIND")
+	}
+}
+
+func TestLoadRejectsInvalidBranchEndpointIdleTimeout(t *testing.T) {
+	t.Setenv("BRANCH_ENDPOINT_IDLE_TIMEOUT", "0s")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid BRANCH_ENDPOINT_IDLE_TIMEOUT")
 	}
 }

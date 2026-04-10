@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const defaultHTTPPort = 8080
@@ -28,6 +29,7 @@ const (
 	defaultBranchEndpointBindHost  = "127.0.0.1"
 	defaultBranchEndpointPortStart = 56000
 	defaultBranchEndpointPortEnd   = 56049
+	defaultBranchEndpointIdleStop  = 10 * time.Minute
 )
 
 type Config struct {
@@ -55,6 +57,7 @@ type Config struct {
 	BranchEndpointBindHost  string
 	BranchEndpointPortStart int
 	BranchEndpointPortEnd   int
+	BranchEndpointIdleStop  time.Duration
 }
 
 func Load() (Config, error) {
@@ -181,6 +184,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("BRANCH_ENDPOINT_PORT_END must be greater than or equal to BRANCH_ENDPOINT_PORT_START")
 	}
 
+	branchEndpointIdleStop := defaultBranchEndpointIdleStop
+	if rawIdleStop, exists := os.LookupEnv("BRANCH_ENDPOINT_IDLE_TIMEOUT"); exists && strings.TrimSpace(rawIdleStop) != "" {
+		parsedIdleStop, err := time.ParseDuration(strings.TrimSpace(rawIdleStop))
+		if err != nil || parsedIdleStop <= 0 {
+			return Config{}, fmt.Errorf("invalid BRANCH_ENDPOINT_IDLE_TIMEOUT %q", rawIdleStop)
+		}
+
+		branchEndpointIdleStop = parsedIdleStop
+	}
+
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
 	}
@@ -218,6 +231,7 @@ func Load() (Config, error) {
 		BranchEndpointBindHost:  branchEndpointBindHost,
 		BranchEndpointPortStart: branchEndpointPortStart,
 		BranchEndpointPortEnd:   branchEndpointPortEnd,
+		BranchEndpointIdleStop:  branchEndpointIdleStop,
 	}, nil
 }
 

@@ -113,6 +113,7 @@ func main() {
 			User:           cfg.PrimaryEndpointUser,
 			ComputeDataDir: cfg.ComputeDataDir,
 			PGVersion:      cfg.PageserverPGVersion,
+			IdleTimeout:    cfg.BranchEndpointIdleStop,
 			Logger:         logger.With("component", "branch_endpoints"),
 		})
 		if err != nil {
@@ -137,6 +138,9 @@ func main() {
 		Addr:              cfg.Addr(),
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	listener, err := net.Listen("tcp", cfg.Addr())
@@ -166,6 +170,10 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if err := branchEndpoints.Close(); err != nil {
+		logger.Error("shutdown branch endpoints", "error", err)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logger.Error("shutdown http server", "error", err)

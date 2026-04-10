@@ -83,3 +83,6 @@
 - Console UI now has a modernized interaction pass: keyboard-accessible sidebar/history actions, visible focus states, improved hover/disabled feedback, reduced-motion handling, and clearer SQL mode signaling (read-only vs write-enabled styling + indicator).
 - README quickstart now leads with the `mise run stack:up` flow (full usable local stack immediately), while keeping controller-only startup as a separate dev path.
 - Controller/server logging now uses structured `slog` output for startup/shutdown and core operation flows (operation lifecycle, branch endpoint lifecycle, SQL execution outcomes, and auto-publish failures), improving operator observability.
+- Controller shutdown now explicitly closes branch endpoint listeners and stops/removes published branch compute containers via a new `BranchEndpointController.Close()` lifecycle hook.
+- Published branch compute containers now support idle auto-stop (`BRANCH_ENDPOINT_IDLE_TIMEOUT`, default `10m`): after inactivity they are stopped automatically while listeners stay published for lazy restart on next connection.
+- Controller HTTP server now sets explicit `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` values in addition to header timeout to reduce slow-client resource exhaustion risk.
