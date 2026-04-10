@@ -14,6 +14,7 @@ func TestSQLitePersistentStoreRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite persistent store: %v", err)
 	}
+	defer store.Close()
 
 	if _, err := store.Create("feature-a", "main"); err != nil {
 		t.Fatalf("create branch: %v", err)
@@ -23,6 +24,7 @@ func TestSQLitePersistentStoreRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload sqlite persistent store: %v", err)
 	}
+	defer reloaded.Close()
 
 	if _, err := reloaded.GetActive("feature-a"); err != nil {
 		t.Fatalf("expected persisted branch after reload: %v", err)
@@ -51,8 +53,24 @@ func TestSQLitePersistentStoreImportsLegacyJSONState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite persistent store with legacy import: %v", err)
 	}
+	defer store.Close()
 
 	if _, err := store.GetActive("legacy-branch"); err != nil {
 		t.Fatalf("expected imported legacy branch: %v", err)
+	}
+}
+
+func TestSQLitePersistentStoreCloseIsIdempotent(t *testing.T) {
+	store, err := NewSQLitePersistentStoreWithClock(t.TempDir(), defaultClock)
+	if err != nil {
+		t.Fatalf("new sqlite persistent store: %v", err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("second close: %v", err)
 	}
 }

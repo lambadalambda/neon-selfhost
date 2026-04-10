@@ -49,6 +49,11 @@ func NewSQLitePersistentStoreWithClock(dataDir string, now func() time.Time) (*S
 		return nil, err
 	}
 
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS branches (
 			name TEXT PRIMARY KEY,
@@ -104,7 +109,7 @@ func NewSQLitePersistentStoreWithClock(dataDir string, now func() time.Time) (*S
 		return nil
 	}
 
-	return newStoreWithBranches(now, branches, persist), nil
+	return newStoreWithBranchesAndClose(now, branches, persist, db.Close), nil
 }
 
 func loadSQLiteBranchMap(db *sql.DB) (map[string]Branch, error) {

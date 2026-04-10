@@ -72,7 +72,7 @@ When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console a
 
 For safety, binding the controller to a non-loopback `HTTP_HOST` now requires basic auth by default. You can bypass this only by explicitly setting `ALLOW_INSECURE_HTTP_BIND=1` (intended for local testing only).
 
-When `CONTROLLER_DATA_DIR` is set, branch state persists under that directory. The default backend is JSON (`branches.json`), and an incremental SQLite backend can be enabled with `BRANCH_STORE_BACKEND=sqlite` (stored in `controller.db`).
+When `CONTROLLER_DATA_DIR` is set, branch state persists under that directory. The default backend is JSON (`branches.json`), and an incremental SQLite backend can be enabled with `BRANCH_STORE_BACKEND=sqlite` (stored in `controller.db`). `BRANCH_STORE_BACKEND=sqlite` requires `CONTROLLER_DATA_DIR`.
 
 Operation history (`GET /api/v1/operations`) is persisted in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
 

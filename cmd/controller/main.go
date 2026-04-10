@@ -40,6 +40,10 @@ func main() {
 	}
 
 	branchStore := branch.NewStore()
+	if cfg.ControllerDataDir == "" && cfg.BranchStoreBackend != "json" {
+		logger.Error("branch store backend requires CONTROLLER_DATA_DIR", "backend", cfg.BranchStoreBackend)
+		os.Exit(1)
+	}
 	if cfg.ControllerDataDir != "" {
 		switch cfg.BranchStoreBackend {
 		case "sqlite":
@@ -197,6 +201,10 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if err := branchStore.Close(); err != nil {
+		logger.Error("shutdown branch store", "error", err)
+	}
 
 	if err := branchEndpoints.Close(); err != nil {
 		logger.Error("shutdown branch endpoints", "error", err)

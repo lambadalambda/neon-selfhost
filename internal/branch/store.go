@@ -40,6 +40,7 @@ type Store struct {
 	now      func() time.Time
 	branches map[string]Branch
 	persist  func([]Branch) error
+	closeFn  func() error
 }
 
 func NewStore() *Store {
@@ -71,15 +72,37 @@ func defaultBranchMap(now func() time.Time) map[string]Branch {
 }
 
 func newStoreWithBranches(now func() time.Time, branches map[string]Branch, persist func([]Branch) error) *Store {
+	return newStoreWithBranchesAndClose(now, branches, persist, nil)
+}
+
+func newStoreWithBranchesAndClose(now func() time.Time, branches map[string]Branch, persist func([]Branch) error, closeFn func() error) *Store {
 	if now == nil {
 		now = defaultClock
+	}
+
+	if closeFn == nil {
+		closeFn = func() error { return nil }
 	}
 
 	return &Store{
 		now:      now,
 		branches: cloneBranches(branches),
 		persist:  persist,
+		closeFn:  closeFn,
 	}
+}
+
+func (s *Store) Close() error {
+	s.mu.Lock()
+	closeFn := s.closeFn
+	s.closeFn = func() error { return nil }
+	s.mu.Unlock()
+
+	if closeFn == nil {
+		return nil
+	}
+
+	return closeFn()
 }
 
 func (s *Store) ListActive() []Branch {
