@@ -86,3 +86,4 @@
 - Controller shutdown now explicitly closes branch endpoint listeners and stops/removes published branch compute containers via a new `BranchEndpointController.Close()` lifecycle hook.
 - Published branch compute containers now support idle auto-stop (`BRANCH_ENDPOINT_IDLE_TIMEOUT`, default `10m`): after inactivity they are stopped automatically while listeners stay published for lazy restart on next connection.
 - Controller HTTP server now sets explicit `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` values in addition to header timeout to reduce slow-client resource exhaustion risk.
+- Added GitHub Actions CI workflow at `.github/workflows/go-tests.yml` to run `go test ./...` on pull requests and pushes to `master`.
