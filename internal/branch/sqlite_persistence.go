@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"neon-selfhost/internal/sqliteutil"
+
 	_ "modernc.org/sqlite"
 )
 
 const defaultSQLiteStateFileName = "controller.db"
+const SQLiteBranchSchemaVersion = 1
 
 func NewSQLitePersistentStore(dataDir string) (*Store, error) {
 	return NewSQLitePersistentStoreWithClock(dataDir, defaultClock)
@@ -54,20 +57,23 @@ func NewSQLitePersistentStoreWithClock(dataDir string, now func() time.Time) (*S
 		return nil, err
 	}
 
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS branches (
-			name TEXT PRIMARY KEY,
-			parent TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			deleted INTEGER NOT NULL,
-			deleted_at TEXT,
-			tenant_id TEXT NOT NULL,
-			timeline_id TEXT NOT NULL,
-			password TEXT NOT NULL,
-			endpoint_published INTEGER NOT NULL,
-			endpoint_port INTEGER NOT NULL
-		)
-	`); err != nil {
+	if _, err := sqliteutil.ApplyMigrations(db, "branches", []sqliteutil.Migration{{
+		Version: SQLiteBranchSchemaVersion,
+		SQL: `
+			CREATE TABLE IF NOT EXISTS branches (
+				name TEXT PRIMARY KEY,
+				parent TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				deleted INTEGER NOT NULL,
+				deleted_at TEXT,
+				tenant_id TEXT NOT NULL,
+				timeline_id TEXT NOT NULL,
+				password TEXT NOT NULL,
+				endpoint_published INTEGER NOT NULL,
+				endpoint_port INTEGER NOT NULL
+			)
+		`,
+	}}); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

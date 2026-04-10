@@ -14,18 +14,21 @@ import (
 	"sync"
 	"time"
 
+	"neon-selfhost/internal/sqliteutil"
+
 	_ "modernc.org/sqlite"
 )
 
 var ErrOperationInProgress = errors.New("another operation is in progress")
 
 const (
-	operationStatusRunning   = "running"
-	operationStatusSucceeded = "succeeded"
-	operationStatusFailed    = "failed"
-	operationStatusRejected  = "rejected"
-	defaultOperationLogLimit = 200
-	operationInterruptedMsg  = "operation interrupted by controller restart"
+	operationStatusRunning       = "running"
+	operationStatusSucceeded     = "succeeded"
+	operationStatusFailed        = "failed"
+	operationStatusRejected      = "rejected"
+	defaultOperationLogLimit     = 200
+	operationInterruptedMsg      = "operation interrupted by controller restart"
+	sqliteOperationSchemaVersion = 1
 )
 
 type operationEntry struct {
@@ -61,6 +64,18 @@ type sqliteOperationStore struct {
 	db            *sql.DB
 	legacyLogPath string
 	logger        *slog.Logger
+	schemaVersion int
+}
+
+type operationQueryFilter struct {
+	Limit  int
+	Offset int
+	Status string
+	Type   string
+}
+
+type operationQueryableStore interface {
+	Query(filter operationQueryFilter) ([]operationEntry, error)
 }
 
 type operationManager struct {
@@ -139,16 +154,50 @@ func (m *operationManager) Run(operationType string, fn func() error) error {
 }
 
 func (m *operationManager) List(limit int) []operationEntry {
+	return m.ListFiltered(operationQueryFilter{Limit: limit})
+}
+
+func (m *operationManager) ListFiltered(filter operationQueryFilter) []operationEntry {
+	if filter.Limit <= 0 {
+		filter.Limit = defaultOperationLogLimit
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+
+	if queryable, ok := m.store.(operationQueryableStore); ok {
+		entries, err := queryable.Query(filter)
+		if err == nil {
+			return entries
+		}
+		m.logger.Warn("query operation entries failed; falling back to in-memory list", "error", err)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if limit < 1 || limit > len(m.entries) {
-		limit = len(m.entries)
+	filtered := make([]operationEntry, 0, len(m.entries))
+	for _, entry := range m.entries {
+		if filter.Status != "" && entry.Status != filter.Status {
+			continue
+		}
+		if filter.Type != "" && entry.Type != filter.Type {
+			continue
+		}
+		filtered = append(filtered, entry)
 	}
 
-	start := len(m.entries) - limit
-	cloned := make([]operationEntry, 0, limit)
-	for _, entry := range m.entries[start:] {
+	if filter.Offset >= len(filtered) {
+		return []operationEntry{}
+	}
+
+	filtered = filtered[filter.Offset:]
+	if filter.Limit > len(filtered) {
+		filter.Limit = len(filtered)
+	}
+
+	cloned := make([]operationEntry, 0, filter.Limit)
+	for _, entry := range filtered[:filter.Limit] {
 		copyEntry := entry
 		if entry.FinishedAt != nil {
 			finishedAt := *entry.FinishedAt
@@ -279,31 +328,23 @@ func (s *sqliteOperationStore) init() error {
 		return err
 	}
 
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS operations (
-			id INTEGER PRIMARY KEY,
-			type TEXT NOT NULL,
-			status TEXT NOT NULL,
-			message TEXT NOT NULL DEFAULT '',
-			started_at TEXT NOT NULL,
-			finished_at TEXT
-		)
-	`); err != nil {
+	version, err := sqliteutil.ApplyMigrations(s.db, "operations", []sqliteutil.Migration{{
+		Version: sqliteOperationSchemaVersion,
+		SQL: `
+			CREATE TABLE IF NOT EXISTS operations (
+				id INTEGER PRIMARY KEY,
+				type TEXT NOT NULL,
+				status TEXT NOT NULL,
+				message TEXT NOT NULL DEFAULT '',
+				started_at TEXT NOT NULL,
+				finished_at TEXT
+			)
+		`,
+	}})
+	if err != nil {
 		return err
 	}
-
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS schema_meta (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)
-	`); err != nil {
-		return err
-	}
-
-	if _, err := s.db.Exec(`INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1')`); err != nil {
-		return err
-	}
+	s.schemaVersion = version
 
 	if s.legacyLogPath != "" {
 		if err := s.importLegacyIfEmpty(); err != nil {
@@ -371,6 +412,76 @@ func (s *sqliteOperationStore) Load(now func() time.Time, maxEntries int) ([]ope
 
 func (s *sqliteOperationStore) Upsert(entry operationEntry) error {
 	return upsertOperation(s.db, entry)
+}
+
+func (s *sqliteOperationStore) Query(filter operationQueryFilter) ([]operationEntry, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = defaultOperationLogLimit
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+
+	where := make([]string, 0, 2)
+	args := make([]any, 0, 4)
+	if filter.Status != "" {
+		where = append(where, "status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.Type != "" {
+		where = append(where, "type = ?")
+		args = append(args, filter.Type)
+	}
+
+	query := "SELECT id, type, status, message, started_at, finished_at FROM operations"
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := make([]operationEntry, 0, filter.Limit)
+	for rows.Next() {
+		var entry operationEntry
+		var startedAtRaw string
+		var finishedAtRaw sql.NullString
+		if err := rows.Scan(&entry.ID, &entry.Type, &entry.Status, &entry.Message, &startedAtRaw, &finishedAtRaw); err != nil {
+			return nil, err
+		}
+
+		startedAt, err := time.Parse(time.RFC3339Nano, startedAtRaw)
+		if err != nil {
+			continue
+		}
+		entry.StartedAt = startedAt.UTC()
+
+		if finishedAtRaw.Valid {
+			finishedAt, err := time.Parse(time.RFC3339Nano, finishedAtRaw.String)
+			if err == nil {
+				finished := finishedAt.UTC()
+				entry.FinishedAt = &finished
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Return chronological order within page for continuity.
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+
+	return entries, nil
 }
 
 type operationExecer interface {

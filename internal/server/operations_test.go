@@ -80,6 +80,53 @@ func TestOperationsEndpointIncludesMutationResults(t *testing.T) {
 	}
 }
 
+func TestOperationsEndpointSupportsFilteringAndPaging(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-one"}`); res.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, res.Code)
+	}
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-one"}`); res.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, res.Code)
+	}
+	if res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-two"}`); res.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, res.Code)
+	}
+
+	filtered := performRequest(t, handler, http.MethodGet, "/api/v1/operations?status=succeeded&type=create_branch", "")
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, filtered.Code)
+	}
+
+	var filteredPayload operationsListResponse
+	decodeJSON(t, filtered, &filteredPayload)
+	if len(filteredPayload.Operations) != 2 {
+		t.Fatalf("expected 2 filtered operations, got %d", len(filteredPayload.Operations))
+	}
+
+	paged := performRequest(t, handler, http.MethodGet, "/api/v1/operations?limit=1&offset=1", "")
+	if paged.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, paged.Code)
+	}
+
+	var pagedPayload operationsListResponse
+	decodeJSON(t, paged, &pagedPayload)
+	if len(pagedPayload.Operations) != 1 {
+		t.Fatalf("expected 1 paged operation, got %d", len(pagedPayload.Operations))
+	}
+}
+
+func TestOperationsEndpointRejectsInvalidPagingParams(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/operations?limit=0", "")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, res.Code)
+	}
+
+	assertAPIErrorCode(t, res, "validation_error")
+}
+
 func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 	manager := newOperationManager(nil, 50, nil, nil)
 
@@ -272,12 +319,12 @@ func TestSQLiteOperationStoreInitializesSchemaMeta(t *testing.T) {
 		t.Fatalf("expected sqlite operation store type, got %T", store)
 	}
 
-	var version sql.NullString
-	if err := sqlStore.db.QueryRow(`SELECT value FROM schema_meta WHERE key = 'version'`).Scan(&version); err != nil {
-		t.Fatalf("query schema meta version: %v", err)
+	var version sql.NullInt64
+	if err := sqlStore.db.QueryRow(`SELECT MAX(version) FROM schema_migrations WHERE schema_name = 'operations'`).Scan(&version); err != nil {
+		t.Fatalf("query schema migration version: %v", err)
 	}
 
-	if !version.Valid || version.String != "1" {
-		t.Fatalf("expected schema version %q, got %+v", "1", version)
+	if !version.Valid || version.Int64 != 1 {
+		t.Fatalf("expected schema version %d, got %+v", 1, version)
 	}
 }

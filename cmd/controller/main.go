@@ -40,6 +40,8 @@ func main() {
 	}
 
 	branchStore := branch.NewStore()
+	branchStoreMode := "memory"
+	branchSchemaVersion := 0
 	if cfg.ControllerDataDir != "" {
 		sqliteStore, err := branch.NewSQLitePersistentStore(cfg.ControllerDataDir)
 		if err != nil {
@@ -47,6 +49,8 @@ func main() {
 			os.Exit(1)
 		}
 		branchStore = sqliteStore
+		branchStoreMode = "sqlite"
+		branchSchemaVersion = branch.SQLiteBranchSchemaVersion
 	}
 
 	endpointSelectionPath := ""
@@ -141,6 +145,8 @@ func main() {
 		BasicAuthPassword:        cfg.BasicAuthPassword,
 		OperationDBPath:          operationDBPath,
 		LegacyOperationLogPath:   legacyOperationLogPath,
+		BranchStoreMode:          branchStoreMode,
+		BranchSchemaVersion:      branchSchemaVersion,
 		Logger:                   logger.With("component", "http_api"),
 	})
 	var handlerCloser interface{ Close() error }

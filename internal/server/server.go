@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,8 @@ type Config struct {
 	SQLExecutor              SQLQueryExecutor
 	OperationDBPath          string
 	LegacyOperationLogPath   string
+	BranchStoreMode          string
+	BranchSchemaVersion      int
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -55,9 +58,18 @@ type Config struct {
 }
 
 type statusResponse struct {
-	Status  string `json:"status"`
-	Service string `json:"service"`
-	Version string `json:"version"`
+	Status      string                   `json:"status"`
+	Service     string                   `json:"service"`
+	Version     string                   `json:"version"`
+	Persistence persistenceStatusPayload `json:"persistence"`
+}
+
+type persistenceStatusPayload struct {
+	BranchStoreMode        string `json:"branch_store_mode"`
+	OperationStoreMode     string `json:"operation_store_mode"`
+	DBPath                 string `json:"db_path,omitempty"`
+	BranchSchemaVersion    int    `json:"branch_schema_version,omitempty"`
+	OperationSchemaVersion int    `json:"operation_schema_version,omitempty"`
 }
 
 type healthResponse struct {
@@ -253,6 +265,8 @@ func New(cfg Config) http.Handler {
 
 	opStore := operationStore(noopOperationStore{})
 	opStoreStatus := "ok"
+	opStoreMode := "in_memory"
+	opStoreSchemaVersion := 0
 	if strings.TrimSpace(cfg.OperationDBPath) != "" {
 		sqliteStore, err := newSQLiteOperationStore(cfg.OperationDBPath, cfg.LegacyOperationLogPath, logger)
 		if err != nil {
@@ -260,7 +274,16 @@ func New(cfg Config) http.Handler {
 			opStoreStatus = "degraded"
 		} else {
 			opStore = sqliteStore
+			opStoreMode = "sqlite"
+			if concrete, ok := sqliteStore.(*sqliteOperationStore); ok {
+				opStoreSchemaVersion = concrete.schemaVersion
+			}
 		}
+	}
+
+	branchStoreMode := strings.TrimSpace(cfg.BranchStoreMode)
+	if branchStoreMode == "" {
+		branchStoreMode = "memory"
 	}
 
 	operations := newOperationManager(nil, defaultOperationLogLimit, logger, opStore)
@@ -275,6 +298,13 @@ func New(cfg Config) http.Handler {
 			Status:  "ok",
 			Service: "controller",
 			Version: version,
+			Persistence: persistenceStatusPayload{
+				BranchStoreMode:        branchStoreMode,
+				OperationStoreMode:     opStoreMode,
+				DBPath:                 strings.TrimSpace(cfg.OperationDBPath),
+				BranchSchemaVersion:    cfg.BranchSchemaVersion,
+				OperationSchemaVersion: opStoreSchemaVersion,
+			},
 		}
 		writeJSON(w, http.StatusOK, response)
 	})
@@ -316,8 +346,36 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, branchesResponse{Branches: payload})
 	})
 
-	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, _ *http.Request) {
-		entries := operations.List(defaultOperationLogLimit)
+	mux.HandleFunc("GET /api/v1/operations", func(w http.ResponseWriter, r *http.Request) {
+		limit := defaultOperationLogLimit
+		rawLimit := strings.TrimSpace(r.URL.Query().Get("limit"))
+		if rawLimit != "" {
+			parsedLimit, err := strconv.Atoi(rawLimit)
+			if err != nil || parsedLimit < 1 || parsedLimit > 1000 {
+				writeJSONError(w, http.StatusBadRequest, "validation_error", "limit must be between 1 and 1000")
+				return
+			}
+			limit = parsedLimit
+		}
+
+		offset := 0
+		rawOffset := strings.TrimSpace(r.URL.Query().Get("offset"))
+		if rawOffset != "" {
+			parsedOffset, err := strconv.Atoi(rawOffset)
+			if err != nil || parsedOffset < 0 {
+				writeJSONError(w, http.StatusBadRequest, "validation_error", "offset must be zero or greater")
+				return
+			}
+			offset = parsedOffset
+		}
+
+		filter := operationQueryFilter{
+			Limit:  limit,
+			Offset: offset,
+			Status: strings.TrimSpace(r.URL.Query().Get("status")),
+			Type:   strings.TrimSpace(r.URL.Query().Get("type")),
+		}
+		entries := operations.ListFiltered(filter)
 		payload := make([]operationPayload, 0, len(entries))
 		for _, entry := range entries {
 			payload = append(payload, makeOperationPayload(entry))

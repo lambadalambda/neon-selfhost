@@ -66,7 +66,7 @@ Status: pre-alpha. The core branch-first flow works in Docker mode (branch manag
 - `POST /api/v1/endpoints/primary/switch`
 - `GET /api/v1/endpoints/primary/connection`
 - `GET /api/v1/endpoints` (published branch endpoints)
-- `GET /api/v1/operations`
+- `GET /api/v1/operations` (supports `status`, `type`, `limit`, `offset` query params)
 
 When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console and API routes require HTTP basic auth.
 
@@ -75,6 +75,8 @@ For safety, binding the controller to a non-loopback `HTTP_HOST` now requires ba
 When `CONTROLLER_DATA_DIR` is set, branch state persists in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`). On first startup with SQLite, legacy `branches.json` state is imported when present.
 
 Operation history (`GET /api/v1/operations`) is persisted in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
+
+`GET /api/v1/status` includes persistence details (store modes, DB path, and migration versions).
 
 Quick backup/export example for the controller database:
 
@@ -210,6 +212,13 @@ Run the same verification with automatic stack start/stop:
 
 ```bash
 mise run db:verify:fresh
+```
+
+Backup or restore controller metadata:
+
+```bash
+mise run db:backup
+BACKUP_FILE=/path/to/controller-backup.db mise run db:restore
 ```
 
 The backing script is `scripts/reset_seed_data.sh`.
