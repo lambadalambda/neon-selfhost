@@ -29,6 +29,7 @@ type Config struct {
 	PrimaryEndpoint          PrimaryEndpointController
 	BranchEndpoints          BranchEndpointController
 	SQLExecutor              SQLQueryExecutor
+	OperationLogPath         string
 
 	BasicAuthUser     string
 	BasicAuthPassword string
@@ -232,7 +233,7 @@ func New(cfg Config) http.Handler {
 		autoPublishExistingBranches(store, attachmentResolver, branchEndpoints, logger)
 	}
 
-	operations := newOperationManager(nil, defaultOperationLogLimit, logger)
+	operations := newOperationManager(nil, defaultOperationLogLimit, logger, cfg.OperationLogPath)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {

@@ -50,8 +50,12 @@ func main() {
 	}
 
 	endpointSelectionPath := ""
+	operationLogPath := ""
 	if cfg.ComputeDataDir != "" {
 		endpointSelectionPath = filepath.Join(cfg.ComputeDataDir, "endpoint-selection.json")
+	}
+	if cfg.ControllerDataDir != "" {
+		operationLogPath = filepath.Join(cfg.ControllerDataDir, "operations.jsonl")
 	}
 
 	primaryEndpoint := server.PrimaryEndpointController(server.NewInMemoryPrimaryEndpointController(
@@ -132,6 +136,7 @@ func main() {
 		BranchEndpoints:          branchEndpoints,
 		BasicAuthUser:            cfg.BasicAuthUser,
 		BasicAuthPassword:        cfg.BasicAuthPassword,
+		OperationLogPath:         operationLogPath,
 		Logger:                   logger.With("component", "http_api"),
 	})
 	httpServer := &http.Server{

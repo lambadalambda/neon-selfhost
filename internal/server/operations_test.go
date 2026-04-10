@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -78,7 +80,7 @@ func TestOperationsEndpointIncludesMutationResults(t *testing.T) {
 }
 
 func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
-	manager := newOperationManager(nil, 50, nil)
+	manager := newOperationManager(nil, 50, nil, "")
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -126,7 +128,7 @@ func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 }
 
 func TestOperationManagerRecordsFailure(t *testing.T) {
-	manager := newOperationManager(nil, 50, nil)
+	manager := newOperationManager(nil, 50, nil, "")
 
 	expected := errors.New("boom")
 	err := manager.Run("create_branch", func() error {
@@ -151,5 +153,75 @@ func TestOperationManagerRecordsFailure(t *testing.T) {
 
 	if operations[0].FinishedAt == nil {
 		t.Fatal("expected failed operation to include finished_at")
+	}
+}
+
+func TestOperationManagerPersistsAndReloadsEntries(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
+	manager := newOperationManager(nil, 50, nil, logPath)
+
+	if err := manager.Run("create_branch", func() error { return nil }); err != nil {
+		t.Fatalf("run succeeded operation: %v", err)
+	}
+
+	failure := errors.New("boom")
+	err := manager.Run("delete_branch", func() error { return failure })
+	if !errors.Is(err, failure) {
+		t.Fatalf("expected failure %v, got %v", failure, err)
+	}
+
+	reloaded := newOperationManager(nil, 50, nil, logPath)
+	operations := reloaded.List(10)
+	if len(operations) != 2 {
+		t.Fatalf("expected 2 operations after reload, got %d", len(operations))
+	}
+
+	if operations[0].Status != operationStatusSucceeded {
+		t.Fatalf("expected first operation status %q, got %q", operationStatusSucceeded, operations[0].Status)
+	}
+
+	if operations[1].Status != operationStatusFailed {
+		t.Fatalf("expected second operation status %q, got %q", operationStatusFailed, operations[1].Status)
+	}
+}
+
+func TestOperationManagerMarksRunningOperationAsFailedAfterReload(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
+	manager := newOperationManager(nil, 50, nil, logPath)
+
+	if _, err := manager.start("create_branch"); err != nil {
+		t.Fatalf("start operation: %v", err)
+	}
+
+	reloaded := newOperationManager(nil, 50, nil, logPath)
+	operations := reloaded.List(10)
+	if len(operations) != 1 {
+		t.Fatalf("expected 1 operation after reload, got %d", len(operations))
+	}
+
+	if operations[0].Status != operationStatusFailed {
+		t.Fatalf("expected interrupted running operation to become %q, got %q", operationStatusFailed, operations[0].Status)
+	}
+
+	if operations[0].FinishedAt == nil {
+		t.Fatal("expected interrupted running operation to have finished_at after reload")
+	}
+}
+
+func TestOperationManagerSkipsCorruptLogLines(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "operations.jsonl")
+	content := "{\"id\":1,\"type\":\"create_branch\",\"status\":\"succeeded\",\"started_at\":\"2026-01-01T00:00:00Z\",\"finished_at\":\"2026-01-01T00:00:01Z\"}\nnot-json\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write operation log fixture: %v", err)
+	}
+
+	manager := newOperationManager(nil, 50, nil, logPath)
+	operations := manager.List(10)
+	if len(operations) != 1 {
+		t.Fatalf("expected 1 valid operation entry, got %d", len(operations))
+	}
+
+	if operations[0].ID != 1 {
+		t.Fatalf("expected operation id 1, got %d", operations[0].ID)
 	}
 }
