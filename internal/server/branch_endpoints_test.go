@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -179,7 +180,9 @@ func TestIdleTimeoutStopsBranchComputeContainer(t *testing.T) {
 	inspect.State.Status = "running"
 	engine.containers[containerName] = inspect
 
-	controller.incrementActive("feature-idle")
+	if !controller.tryIncrementActive("feature-idle") {
+		t.Fatal("expected initial active connection increment")
+	}
 	controller.decrementActive("feature-idle")
 
 	deadline := time.Now().Add(500 * time.Millisecond)
@@ -192,29 +195,72 @@ func TestIdleTimeoutStopsBranchComputeContainer(t *testing.T) {
 	}
 }
 
+func TestTryIncrementActiveRejectsWhenAtMaxConnections(t *testing.T) {
+	store := branch.NewStore()
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), 56000, 56049)
+	controller.maxActiveConnections = 1
+	controller.activeConns["main"] = 1
+
+	if controller.tryIncrementActive("main") {
+		t.Fatal("expected active connection increment to be rejected at limit")
+	}
+}
+
+func TestProxyConnectionsReturnsAfterPeersClose(t *testing.T) {
+	clientSide, clientProxy := net.Pipe()
+	backendSide, backendProxy := net.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		proxyConnections(clientProxy, backendProxy)
+		close(done)
+	}()
+
+	go func() {
+		_, _ = io.WriteString(clientSide, "hello")
+		_ = clientSide.Close()
+	}()
+
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(backendSide, buf); err != nil {
+		t.Fatalf("read forwarded payload: %v", err)
+	}
+	if string(buf) != "hello" {
+		t.Fatalf("expected payload %q, got %q", "hello", string(buf))
+	}
+	_ = backendSide.Close()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("proxyConnections did not return after peers closed")
+	}
+}
+
 func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir string, portStart int, portEnd int) *dockerBranchEndpointController {
 	return &dockerBranchEndpointController{
-		store:            store,
-		engine:           fakeDockerBranchEndpointEngine{},
-		composeProject:   "neon-selfhost",
-		advertisedHost:   "127.0.0.1",
-		bindHost:         "127.0.0.1",
-		portStart:        portStart,
-		portEnd:          portEnd,
-		database:         "postgres",
-		user:             "cloud_admin",
-		computeImage:     "neon-selfhost/compute:dev",
-		computeVolume:    "neon-selfhost_compute_state",
-		computeNetwork:   "neon-selfhost_neon_internal",
-		computeDataDir:   computeDataDir,
-		pgVersion:        16,
-		startupTimeout:   500 * time.Millisecond,
-		idleTimeout:      50 * time.Millisecond,
-		listeners:        map[string]net.Listener{},
-		activeConns:      map[string]int{},
-		idleTimers:       map[string]*time.Timer{},
-		lastErrors:       map[string]string{},
-		branchStartLocks: map[string]*sync.Mutex{},
+		store:                store,
+		engine:               fakeDockerBranchEndpointEngine{},
+		composeProject:       "neon-selfhost",
+		advertisedHost:       "127.0.0.1",
+		bindHost:             "127.0.0.1",
+		portStart:            portStart,
+		portEnd:              portEnd,
+		database:             "postgres",
+		user:                 "cloud_admin",
+		computeImage:         "neon-selfhost/compute:dev",
+		computeVolume:        "neon-selfhost_compute_state",
+		computeNetwork:       "neon-selfhost_neon_internal",
+		computeDataDir:       computeDataDir,
+		pgVersion:            16,
+		startupTimeout:       500 * time.Millisecond,
+		idleTimeout:          50 * time.Millisecond,
+		maxActiveConnections: 32,
+		listeners:            map[string]net.Listener{},
+		activeConns:          map[string]int{},
+		idleTimers:           map[string]*time.Timer{},
+		lastErrors:           map[string]string{},
+		branchStartLocks:     map[string]*sync.Mutex{},
 	}
 }
 

@@ -27,6 +27,7 @@ const (
 	defaultBranchComposeProject    = "neon-selfhost"
 	defaultBranchEndpointTimeout   = 60 * time.Second
 	defaultBranchEndpointIdleStop  = 10 * time.Minute
+	defaultBranchEndpointMaxActive = 32
 	branchComputePort              = 55433
 )
 
@@ -78,6 +79,7 @@ type DockerBranchEndpointOptions struct {
 
 	StartupTimeout time.Duration
 	IdleTimeout    time.Duration
+	MaxActiveConns int
 	Logger         *slog.Logger
 }
 
@@ -152,21 +154,22 @@ type dockerBranchEndpointController struct {
 	store  *branch.Store
 	engine dockerBranchEndpointEngine
 
-	composeProject string
-	advertisedHost string
-	bindHost       string
-	portStart      int
-	portEnd        int
-	database       string
-	user           string
-	computeImage   string
-	computeVolume  string
-	computeNetwork string
-	computeDataDir string
-	pgVersion      int
-	startupTimeout time.Duration
-	idleTimeout    time.Duration
-	logger         *slog.Logger
+	composeProject       string
+	advertisedHost       string
+	bindHost             string
+	portStart            int
+	portEnd              int
+	database             string
+	user                 string
+	computeImage         string
+	computeVolume        string
+	computeNetwork       string
+	computeDataDir       string
+	pgVersion            int
+	startupTimeout       time.Duration
+	idleTimeout          time.Duration
+	maxActiveConnections int
+	logger               *slog.Logger
 
 	mu               sync.Mutex
 	listeners        map[string]net.Listener
@@ -253,34 +256,40 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		idleTimeout = defaultBranchEndpointIdleStop
 	}
 
+	maxActiveConns := opts.MaxActiveConns
+	if maxActiveConns <= 0 {
+		maxActiveConns = defaultBranchEndpointMaxActive
+	}
+
 	engineClient, err := newDockerEngineClient(opts.SocketPath)
 	if err != nil {
 		return nil, err
 	}
 
 	controller := &dockerBranchEndpointController{
-		store:            opts.Store,
-		engine:           engineClient,
-		composeProject:   composeProject,
-		advertisedHost:   advertisedHost,
-		bindHost:         bindHost,
-		portStart:        portStart,
-		portEnd:          portEnd,
-		database:         database,
-		user:             user,
-		computeImage:     computeImage,
-		computeVolume:    computeVolume,
-		computeNetwork:   computeNetwork,
-		computeDataDir:   computeDataDir,
-		pgVersion:        pgVersion,
-		startupTimeout:   startupTimeout,
-		idleTimeout:      idleTimeout,
-		logger:           loggerOrDefault(opts.Logger),
-		listeners:        map[string]net.Listener{},
-		activeConns:      map[string]int{},
-		idleTimers:       map[string]*time.Timer{},
-		lastErrors:       map[string]string{},
-		branchStartLocks: map[string]*sync.Mutex{},
+		store:                opts.Store,
+		engine:               engineClient,
+		composeProject:       composeProject,
+		advertisedHost:       advertisedHost,
+		bindHost:             bindHost,
+		portStart:            portStart,
+		portEnd:              portEnd,
+		database:             database,
+		user:                 user,
+		computeImage:         computeImage,
+		computeVolume:        computeVolume,
+		computeNetwork:       computeNetwork,
+		computeDataDir:       computeDataDir,
+		pgVersion:            pgVersion,
+		startupTimeout:       startupTimeout,
+		idleTimeout:          idleTimeout,
+		maxActiveConnections: maxActiveConns,
+		logger:               loggerOrDefault(opts.Logger),
+		listeners:            map[string]net.Listener{},
+		activeConns:          map[string]int{},
+		idleTimers:           map[string]*time.Timer{},
+		lastErrors:           map[string]string{},
+		branchStartLocks:     map[string]*sync.Mutex{},
 	}
 
 	if err := controller.restorePublishedListeners(); err != nil {
@@ -624,7 +633,11 @@ func (c *dockerBranchEndpointController) acceptLoop(branchName string, listener 
 }
 
 func (c *dockerBranchEndpointController) handleClientConnection(branchName string, clientConn net.Conn) {
-	c.incrementActive(branchName)
+	if !c.tryIncrementActive(branchName) {
+		c.recordError(branchName, fmt.Errorf("branch endpoint reached max active connections (%d)", c.maxActiveConnections))
+		_ = clientConn.Close()
+		return
+	}
 	defer c.decrementActive(branchName)
 	defer clientConn.Close()
 
@@ -669,14 +682,17 @@ func proxyConnections(clientConn net.Conn, backendConn net.Conn) {
 
 	go func() {
 		_, err := io.Copy(backendConn, clientConn)
+		closeConnWrite(backendConn)
 		errCh <- err
 	}()
 
 	go func() {
 		_, err := io.Copy(clientConn, backendConn)
+		closeConnWrite(clientConn)
 		errCh <- err
 	}()
 
+	<-errCh
 	<-errCh
 }
 
@@ -824,14 +840,21 @@ func sanitizeEndpointBranchName(branchName string) string {
 	return value
 }
 
-func (c *dockerBranchEndpointController) incrementActive(branchName string) {
+func (c *dockerBranchEndpointController) tryIncrementActive(branchName string) bool {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if timer, exists := c.idleTimers[branchName]; exists {
 		timer.Stop()
 		delete(c.idleTimers, branchName)
 	}
+
+	if c.maxActiveConnections > 0 && c.activeConns[branchName] >= c.maxActiveConnections {
+		return false
+	}
+
 	c.activeConns[branchName]++
-	c.mu.Unlock()
+	return true
 }
 
 func (c *dockerBranchEndpointController) decrementActive(branchName string) {
@@ -894,6 +917,16 @@ func (c *dockerBranchEndpointController) stopBranchComputeForIdle(branchName str
 	}
 
 	c.log().Info("stopped branch compute container after idle timeout", "branch", branchName, "container", containerName, "idle_timeout", c.idleTimeout.String())
+}
+
+func closeConnWrite(conn net.Conn) {
+	type closeWriter interface {
+		CloseWrite() error
+	}
+
+	if cw, ok := conn.(closeWriter); ok {
+		_ = cw.CloseWrite()
+	}
 }
 
 func (c *dockerBranchEndpointController) recordError(branchName string, err error) {

@@ -178,6 +178,10 @@ func TestLoadPrimaryEndpointDefaults(t *testing.T) {
 	if cfg.BranchEndpointIdleStop != defaultBranchEndpointIdleStop {
 		t.Fatalf("expected branch endpoint idle stop %s, got %s", defaultBranchEndpointIdleStop, cfg.BranchEndpointIdleStop)
 	}
+
+	if cfg.BranchEndpointMaxConns != defaultBranchEndpointMaxConns {
+		t.Fatalf("expected branch endpoint max conns %d, got %d", defaultBranchEndpointMaxConns, cfg.BranchEndpointMaxConns)
+	}
 }
 
 func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
@@ -196,6 +200,7 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("BRANCH_ENDPOINT_PORT_START", "56100")
 	t.Setenv("BRANCH_ENDPOINT_PORT_END", "56199")
 	t.Setenv("BRANCH_ENDPOINT_IDLE_TIMEOUT", "45s")
+	t.Setenv("BRANCH_ENDPOINT_MAX_CONNECTIONS", "48")
 
 	cfg, err := Load()
 	if err != nil {
@@ -260,6 +265,10 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 
 	if cfg.BranchEndpointIdleStop != 45*time.Second {
 		t.Fatalf("expected branch endpoint idle stop %s, got %s", 45*time.Second, cfg.BranchEndpointIdleStop)
+	}
+
+	if cfg.BranchEndpointMaxConns != 48 {
+		t.Fatalf("expected branch endpoint max conns %d, got %d", 48, cfg.BranchEndpointMaxConns)
 	}
 }
 
@@ -343,5 +352,14 @@ func TestLoadRejectsInvalidBranchEndpointIdleTimeout(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid BRANCH_ENDPOINT_IDLE_TIMEOUT")
+	}
+}
+
+func TestLoadRejectsInvalidBranchEndpointMaxConnections(t *testing.T) {
+	t.Setenv("BRANCH_ENDPOINT_MAX_CONNECTIONS", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid BRANCH_ENDPOINT_MAX_CONNECTIONS")
 	}
 }

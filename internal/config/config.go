@@ -30,6 +30,7 @@ const (
 	defaultBranchEndpointPortStart = 56000
 	defaultBranchEndpointPortEnd   = 56049
 	defaultBranchEndpointIdleStop  = 10 * time.Minute
+	defaultBranchEndpointMaxConns  = 32
 )
 
 type Config struct {
@@ -58,6 +59,7 @@ type Config struct {
 	BranchEndpointPortStart int
 	BranchEndpointPortEnd   int
 	BranchEndpointIdleStop  time.Duration
+	BranchEndpointMaxConns  int
 }
 
 func Load() (Config, error) {
@@ -194,6 +196,16 @@ func Load() (Config, error) {
 		branchEndpointIdleStop = parsedIdleStop
 	}
 
+	branchEndpointMaxConns := defaultBranchEndpointMaxConns
+	if rawMaxConns, exists := os.LookupEnv("BRANCH_ENDPOINT_MAX_CONNECTIONS"); exists && strings.TrimSpace(rawMaxConns) != "" {
+		parsedMaxConns, err := strconv.Atoi(strings.TrimSpace(rawMaxConns))
+		if err != nil || parsedMaxConns < 1 {
+			return Config{}, fmt.Errorf("invalid BRANCH_ENDPOINT_MAX_CONNECTIONS %q", rawMaxConns)
+		}
+
+		branchEndpointMaxConns = parsedMaxConns
+	}
+
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
 	}
@@ -232,6 +244,7 @@ func Load() (Config, error) {
 		BranchEndpointPortStart: branchEndpointPortStart,
 		BranchEndpointPortEnd:   branchEndpointPortEnd,
 		BranchEndpointIdleStop:  branchEndpointIdleStop,
+		BranchEndpointMaxConns:  branchEndpointMaxConns,
 	}, nil
 }
 

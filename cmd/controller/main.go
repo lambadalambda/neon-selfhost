@@ -120,6 +120,7 @@ func main() {
 			ComputeDataDir: cfg.ComputeDataDir,
 			PGVersion:      cfg.PageserverPGVersion,
 			IdleTimeout:    cfg.BranchEndpointIdleStop,
+			MaxActiveConns: cfg.BranchEndpointMaxConns,
 			Logger:         logger.With("component", "branch_endpoints"),
 		})
 		if err != nil {
