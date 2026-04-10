@@ -90,3 +90,4 @@
 - Operation log persistence now uses SQLite (`controller.db` under `CONTROLLER_DATA_DIR`) with startup reload, interrupted-running recovery, and one-time import support from legacy `operations.jsonl` files (skipping corrupt lines safely).
 - SQLite operation-log initialization now writes a `schema_meta` version record, health now reports explicit `operation_store` status (including degraded fallback), and README now includes a simple `controller.db` backup/export example.
 - Branch endpoint proxying now waits for both copy directions and half-closes write sides to avoid lingering goroutines; per-branch active connections are now capped (`BRANCH_ENDPOINT_MAX_CONNECTIONS`, default `32`) to prevent unbounded listener load.
+- Auto-publish attachment resolution now uses bounded exponential backoff with jitter for transient `branch not found` races instead of a single fixed-delay retry.

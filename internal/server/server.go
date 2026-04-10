@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,6 +34,9 @@ func (h closeableHandler) Close() error {
 const (
 	defaultJSONRequestBodyMaxBytes int64 = 1 << 20
 	sqlJSONRequestBodyMaxBytes     int64 = 128 * 1024
+	autoPublishResolveMaxAttempts        = 6
+	autoPublishResolveBaseDelay          = 80 * time.Millisecond
+	autoPublishResolveMaxDelay           = 1500 * time.Millisecond
 )
 
 type Config struct {
@@ -1173,13 +1177,52 @@ func ensureBranchPublished(store *branch.Store, attachmentResolver BranchAttachm
 }
 
 func resolveAttachmentForAutoPublish(attachmentResolver BranchAttachmentResolver, branchName string) (BranchAttachment, error) {
-	attachment, err := attachmentResolver.Resolve(branchName)
-	if err == nil || !errors.Is(err, branch.ErrNotFound) {
-		return attachment, err
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	var lastErr error
+	for attempt := 0; attempt < autoPublishResolveMaxAttempts; attempt++ {
+		attachment, err := attachmentResolver.Resolve(branchName)
+		if err == nil {
+			return attachment, nil
+		}
+
+		if !errors.Is(err, branch.ErrNotFound) {
+			return BranchAttachment{}, err
+		}
+
+		lastErr = err
+		if attempt == autoPublishResolveMaxAttempts-1 {
+			break
+		}
+
+		time.Sleep(autoPublishResolveDelay(attempt, rng))
 	}
 
-	time.Sleep(150 * time.Millisecond)
-	return attachmentResolver.Resolve(branchName)
+	if lastErr == nil {
+		lastErr = branch.ErrNotFound
+	}
+
+	return BranchAttachment{}, lastErr
+}
+
+func autoPublishResolveDelay(attempt int, rng *rand.Rand) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+
+	delay := autoPublishResolveBaseDelay << attempt
+	if delay > autoPublishResolveMaxDelay {
+		delay = autoPublishResolveMaxDelay
+	}
+
+	if rng == nil {
+		return delay
+	}
+
+	minDelay := float64(delay) * 0.75
+	maxDelay := float64(delay) * 1.25
+	jittered := minDelay + rng.Float64()*(maxDelay-minDelay)
+	return time.Duration(jittered)
 }
 
 func normalizeRestoreRequest(req restoreRequest) (string, time.Time, string, error) {
