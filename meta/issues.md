@@ -1,0 +1,8 @@
+- [ ] [Restore primary endpoint after failed switch](issues/restore-primary-endpoint-after-failed-switch.md)
+- [ ] [Make controller database restore safe](issues/make-controller-database-restore-safe.md)
+- [ ] [Drain HTTP requests before closing resources](issues/drain-http-before-closing-resources.md)
+- [ ] [Clean up orphaned pageserver timelines](issues/clean-up-orphaned-pageserver-timelines.md)
+- [ ] [Cancel stalled branch endpoint proxies](issues/cancel-stalled-branch-endpoint-proxies.md)
+- [ ] [Harden Docker access and database credentials](issues/harden-docker-access-and-database-credentials.md)
+- [ ] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
+- [ ] [Make the race test suite pass](issues/make-race-test-suite-pass.md)
