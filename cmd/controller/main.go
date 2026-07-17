@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -46,7 +48,6 @@ func main() {
 			logger.Error("lock controller data directory", "error", err)
 			os.Exit(1)
 		}
-		defer controllerDataLock.Close()
 	}
 
 	branchStore := branch.NewStore()
@@ -162,8 +163,8 @@ func main() {
 		BranchSchemaVersion:      branchSchemaVersion,
 		Logger:                   logger.With("component", "http_api"),
 	})
-	var handlerCloser interface{ Close() error }
-	if closer, ok := handler.(interface{ Close() error }); ok {
+	var handlerCloser io.Closer
+	if closer, ok := handler.(io.Closer); ok {
 		handlerCloser = closer
 	}
 
@@ -193,35 +194,57 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	exitCode := 0
 	select {
 	case serveErr := <-errCh:
 		logger.Error("serve http", "error", serveErr)
-		os.Exit(1)
+		exitCode = 1
 	case sig := <-sigCh:
 		logger.Info("received signal, shutting down", "signal", sig.String())
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
-	if err := branchStore.Close(); err != nil {
-		logger.Error("shutdown branch store", "error", err)
-	}
-
-	if err := branchEndpoints.Close(); err != nil {
-		logger.Error("shutdown branch endpoints", "error", err)
-	}
-
+	resources := []namedCloser{{name: "branch endpoints", closer: branchEndpoints}}
 	if handlerCloser != nil {
-		if err := handlerCloser.Close(); err != nil {
-			logger.Error("shutdown handler resources", "error", err)
+		resources = append(resources, namedCloser{name: "handler resources", closer: handlerCloser})
+	}
+	resources = append(resources, namedCloser{name: "branch store", closer: branchStore})
+	if err := shutdownController(ctx, httpServer, resources...); err != nil {
+		logger.Error("controller shutdown incomplete", "error", err)
+		exitCode = 1
+	}
+	cancel()
+
+	if controllerDataLock != nil {
+		if err := controllerDataLock.Close(); err != nil {
+			logger.Error("release controller data lock", "error", err)
+			exitCode = 1
 		}
 	}
-
-	if err := httpServer.Shutdown(ctx); err != nil {
-		logger.Error("shutdown http server", "error", err)
-		os.Exit(1)
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
-
 	logger.Info("controller shutdown complete")
+}
+
+type namedCloser struct {
+	name   string
+	closer io.Closer
+}
+
+func shutdownController(ctx context.Context, server *http.Server, resources ...namedCloser) error {
+	var shutdownErrs []error
+	if err := server.Shutdown(ctx); err != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("shutdown HTTP server: %w", err))
+	}
+	for _, resource := range resources {
+		if resource.closer == nil {
+			continue
+		}
+		if err := resource.closer.Close(); err != nil {
+			shutdownErrs = append(shutdownErrs, fmt.Errorf("close %s: %w", resource.name, err))
+		}
+	}
+	return errors.Join(shutdownErrs...)
 }
