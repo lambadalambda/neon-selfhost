@@ -137,7 +137,7 @@ func TestCloseStopsListenersAndPublishedContainers(t *testing.T) {
 	inspect := dockerContainerInspect{ID: "container-feature-a", Name: containerName}
 	inspect.State.Running = true
 	inspect.State.Status = "running"
-	engine.containers[containerName] = inspect
+	engine.setContainer(containerName, inspect)
 
 	if err := controller.Close(); err != nil {
 		t.Fatalf("close controller: %v", err)
@@ -150,12 +150,13 @@ func TestCloseStopsListenersAndPublishedContainers(t *testing.T) {
 		t.Fatalf("expected no listeners after close, found %d", listenerCount)
 	}
 
-	if len(engine.stopCalls) != 1 || engine.stopCalls[0] != "container-feature-a" {
-		t.Fatalf("expected stop call for published container, got %v", engine.stopCalls)
+	stopCalls, removeCalls := engine.calls()
+	if len(stopCalls) != 1 || stopCalls[0] != "container-feature-a" {
+		t.Fatalf("expected stop call for published container, got %v", stopCalls)
 	}
 
-	if len(engine.removeCalls) != 1 || engine.removeCalls[0] != "container-feature-a" {
-		t.Fatalf("expected remove call for published container, got %v", engine.removeCalls)
+	if len(removeCalls) != 1 || removeCalls[0] != "container-feature-a" {
+		t.Fatalf("expected remove call for published container, got %v", removeCalls)
 	}
 }
 
@@ -170,7 +171,8 @@ func TestIdleTimeoutStopsBranchComputeContainer(t *testing.T) {
 		t.Fatalf("set endpoint: %v", err)
 	}
 
-	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	stopCh := make(chan string, 1)
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}, stopCh: stopCh}
 	controller := newTestDockerBranchEndpointController(store, t.TempDir(), port, port)
 	controller.engine = engine
 	controller.idleTimeout = 20 * time.Millisecond
@@ -179,20 +181,20 @@ func TestIdleTimeoutStopsBranchComputeContainer(t *testing.T) {
 	inspect := dockerContainerInspect{ID: "container-feature-idle", Name: containerName}
 	inspect.State.Running = true
 	inspect.State.Status = "running"
-	engine.containers[containerName] = inspect
+	engine.setContainer(containerName, inspect)
 
 	if !controller.tryIncrementActive("feature-idle") {
 		t.Fatal("expected initial active connection increment")
 	}
 	controller.decrementActive("feature-idle")
 
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for len(engine.stopCalls) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if len(engine.stopCalls) != 1 || engine.stopCalls[0] != "container-feature-idle" {
-		t.Fatalf("expected idle timeout stop call, got %v", engine.stopCalls)
+	select {
+	case containerID := <-stopCh:
+		if containerID != "container-feature-idle" {
+			t.Fatalf("expected idle timeout stop for container-feature-idle, got %q", containerID)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for idle container stop")
 	}
 }
 
@@ -369,12 +371,16 @@ func (fakeDockerBranchEndpointEngine) RemoveContainer(_ string, _ bool) error {
 }
 
 type trackingBranchEndpointEngine struct {
+	mu          sync.Mutex
 	containers  map[string]dockerContainerInspect
 	stopCalls   []string
 	removeCalls []string
+	stopCh      chan string
 }
 
 func (e *trackingBranchEndpointEngine) InspectContainerByName(name string) (dockerContainerInspect, bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	inspect, exists := e.containers[name]
 	return inspect, exists, nil
 }
@@ -388,13 +394,36 @@ func (e *trackingBranchEndpointEngine) StartContainer(_ string) error {
 }
 
 func (e *trackingBranchEndpointEngine) StopContainer(containerID string) error {
+	e.mu.Lock()
 	e.stopCalls = append(e.stopCalls, containerID)
+	stopCh := e.stopCh
+	e.mu.Unlock()
+	if stopCh != nil {
+		select {
+		case stopCh <- containerID:
+		default:
+		}
+	}
 	return nil
 }
 
 func (e *trackingBranchEndpointEngine) RemoveContainer(containerID string, _ bool) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.removeCalls = append(e.removeCalls, containerID)
 	return nil
+}
+
+func (e *trackingBranchEndpointEngine) setContainer(name string, inspect dockerContainerInspect) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.containers[name] = inspect
+}
+
+func (e *trackingBranchEndpointEngine) calls() ([]string, []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.stopCalls...), append([]string(nil), e.removeCalls...)
 }
 
 func freeTCPPort(t *testing.T) int {

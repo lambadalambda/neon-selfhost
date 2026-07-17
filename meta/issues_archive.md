@@ -5,3 +5,4 @@
 - [x] [Cancel stalled branch endpoint proxies](issues/cancel-stalled-branch-endpoint-proxies.md)
 - [x] [Harden Podman access and database credentials](issues/harden-docker-access-and-database-credentials.md)
 - [x] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
+- [x] [Make the race test suite pass](issues/make-race-test-suite-pass.md)

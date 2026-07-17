@@ -48,6 +48,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Branch endpoint idle-timeout tests now synchronize their tracking engine and pass reliably under the Go race detector.
 - Operation audit persistence now fails closed before mutations, preserves running entries during retention trimming, reconciles terminal writes before later operations, and reports runtime degradation through health checks.
 - Podman Compose now requires and applies an explicit endpoint password, and the controller runs as non-root with Podman socket-group access.
 - Branch endpoint TCP proxies now force-close stalled peers after a bounded half-close drain period, preventing leaked sockets and active-connection slots.

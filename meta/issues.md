@@ -1,1 +1,0 @@
-- [ ] [Make the race test suite pass](issues/make-race-test-suite-pass.md)
