@@ -6,12 +6,12 @@ services:
       context: .
       dockerfile: Dockerfile.controller
     image: neon-selfhost/controller:dev
-    user: "0:0"
+    user: "65532:0"
     environment:
       HTTP_HOST: 0.0.0.0
       PORT: "8080"
       BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin}
-      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD before running docker compose}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD before running podman compose}
       CONTROLLER_DATA_DIR: /var/lib/neon/controller
       COMPUTE_DATA_DIR: /var/lib/neon/compute
       PRIMARY_ENDPOINT_MODE: docker
@@ -20,7 +20,7 @@ services:
       PRIMARY_ENDPOINT_PORT: "55433"
       PRIMARY_ENDPOINT_DATABASE: postgres
       PRIMARY_ENDPOINT_USER: cloud_admin
-      PRIMARY_ENDPOINT_PASSWORD: cloud_admin
+      PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD before running podman compose}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DOCKER_COMPOSE_PROJECT: neon-selfhost
       PAGESERVER_API: http://pageserver:9898
@@ -34,7 +34,7 @@ services:
     volumes:
       - controller_state:/var/lib/neon/controller
       - compute_state:/var/lib/neon/compute
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CONTAINER_ENGINE_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock
     networks:
       - neon_internal
 
@@ -127,6 +127,7 @@ services:
       PG_VERSION: ${PG_VERSION:-16}
       TENANT_ID: ${TENANT_ID:-}
       TIMELINE_ID: ${TIMELINE_ID:-}
+      PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD before running podman compose}
     volumes:
       - compute_state:/var/lib/neon/compute
       - ./configs/neon/compute_wrapper/var/db/postgres/configs:/var/db/postgres/configs:ro

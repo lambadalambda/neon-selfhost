@@ -274,6 +274,16 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsMissingDockerEndpointPassword(t *testing.T) {
+	t.Setenv("PRIMARY_ENDPOINT_MODE", "docker")
+	t.Setenv("PRIMARY_ENDPOINT_PASSWORD", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Docker-compatible endpoint mode to require PRIMARY_ENDPOINT_PASSWORD")
+	}
+}
+
 func TestLoadRejectsInvalidPrimaryEndpointMode(t *testing.T) {
 	t.Setenv("PRIMARY_ENDPOINT_MODE", "invalid")
 

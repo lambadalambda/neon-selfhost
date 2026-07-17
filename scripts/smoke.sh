@@ -17,7 +17,7 @@ usage() {
 Usage: ./scripts/smoke.sh [--manage-stack] [--keep-stack]
 
 Options:
-  --manage-stack  Start and stop `docker compose --profile neon` for the smoke run.
+  --manage-stack  Start and stop `podman compose --profile neon` for the smoke run.
   --keep-stack    Keep the stack running at the end (only with --manage-stack).
   --help          Show this help.
 
@@ -40,7 +40,7 @@ require_command() {
 }
 
 compose() {
-  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" docker compose --profile neon "$@"
+  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" podman compose --profile neon "$@"
 }
 
 api_json() {
@@ -171,7 +171,7 @@ require_command curl
 require_command jq
 
 if [[ "${MANAGE_STACK}" == "true" ]]; then
-  require_command docker
+  require_command podman
 fi
 
 trap cleanup EXIT

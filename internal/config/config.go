@@ -131,6 +131,9 @@ func Load() (Config, error) {
 
 	primaryEndpointPassword, exists := os.LookupEnv("PRIMARY_ENDPOINT_PASSWORD")
 	if !exists || primaryEndpointPassword == "" {
+		if primaryEndpointMode == primaryEndpointModeDocker {
+			return Config{}, fmt.Errorf("PRIMARY_ENDPOINT_PASSWORD is required when PRIMARY_ENDPOINT_MODE=docker")
+		}
 		primaryEndpointPassword = primaryEndpointUser
 	}
 

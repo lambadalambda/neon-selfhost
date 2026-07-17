@@ -2,9 +2,9 @@
 
 ## Overview
 
-`neon-selfhost` is planned as a Docker-first, operator-friendly setup around open-source Neon with a minimal web console.
+`neon-selfhost` is planned as a Podman-first, operator-friendly setup around open-source Neon with a minimal web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant branch store that can persist state to disk, plus compose wiring for storage broker/pageserver/safekeepers/compute and Docker-backed primary/branch compute lifecycle orchestration.
+Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant SQLite branch store, plus compose wiring for storage broker/pageserver/safekeepers/compute and Podman-backed primary/branch compute lifecycle orchestration through its Docker-compatible API.
 
 Design target:
 
@@ -34,9 +34,9 @@ Design target:
    - Broker if required by the selected Neon runtime wiring (Neon internal coordination service used by some control/runtime paths).
 
 3. Persistent storage
-   - Named Docker volumes for pageserver, safekeepers, compute state, and controller state.
+   - Named Podman volumes for pageserver, safekeepers, compute state, and controller state.
 
-## Docker Topology (MVP)
+## Podman Topology (MVP)
 
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
@@ -48,7 +48,8 @@ Design target:
   - Pageserver HTTP and page service ports
   - Safekeeper ports
 - Controller runtime mount:
-  - `/var/run/docker.sock` for compute lifecycle orchestration via Docker Engine API
+  - Podman API socket, mounted at `/var/run/docker.sock` for compatibility with the controller's engine client
+  - The controller runs as non-root UID `65532` with socket-group access; the socket still grants engine-level authority and is not a security boundary
 - Networks:
   - One internal network for service-to-service communication
 
@@ -105,7 +106,7 @@ Planned for later slices:
 
 Current API behavior notes:
 
-- Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to a local JSON state file.
+- Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to SQLite.
 - `GET /` serves a single-page controller console for branch, restore, endpoint, and operation-log workflows.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
@@ -114,13 +115,13 @@ Current API behavior notes:
 - `POST /api/v1/branches/{name}/reset` creates a fresh child timeline from the branch parent head and re-attaches the branch to that timeline.
 - Branch endpoint publish/unpublish/list/connection APIs are implemented; publish allocates a per-branch host port and unpublish tears down listener/container state.
 - Branch endpoint publish state (`published` + `port`) is persisted with branch metadata.
-- Published branch endpoints are available in Docker mode and use a controller TCP gateway that lazy-starts branch compute on first client connection.
-- Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Docker Engine API calls via the controller's Docker socket mount.
+- Published branch endpoints are available in container-engine mode and use a controller TCP gateway that lazy-starts branch compute on first client connection.
+- Primary endpoint start/stop/switch APIs orchestrate the compose `compute` container through Podman's Docker-compatible API via the controller's socket mount.
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
 - Branch reset refreshes published branch endpoint selection metadata; branch delete unpublishes branch endpoint state before soft-delete.
 - Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
-- Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from Docker runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
+- Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from container runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
 - Endpoint connection responses include endpoint credential metadata (`user`, `password`) alongside runtime diagnostics.
 - Branch credentials are branch-specific and controller-managed; create/restore operations assign random passwords persisted with branch state.
 - Endpoint connection DSN is emitted only when `ready=true`.
@@ -143,7 +144,7 @@ Current API behavior notes:
 ## Operational Caveats
 
 - Single-node deployment does not provide host-level high availability.
-- Named Docker volumes improve persistence but are not a backup strategy.
+- Named Podman volumes improve persistence but are not a backup strategy.
 - Off-host backups are required for meaningful disaster recovery.
 - PITR/branch retention and branch fan-out increase disk usage; in Phase 1, fail safely with clear errors/logs on disk pressure, with proactive warning/guardrail automation planned for Phase 2.
 - Soft-deleted branches may continue consuming storage until cleanup/GC conditions are met.

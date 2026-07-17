@@ -7,19 +7,19 @@ run = "go test ./..."
 
 [tasks."stack:up"]
 description = "Start controller + Neon stack"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon up -d --build'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" podman compose --profile neon up -d --build'
 
 [tasks."stack:down"]
 description = "Stop controller + Neon stack"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon down'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:-unused}" podman compose --profile neon down'
 
 [tasks."stack:ps"]
 description = "Show stack container status"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon ps -a'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:-unused}" podman compose --profile neon ps -a'
 
 [tasks."stack:logs"]
 description = "Show recent stack logs"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" docker compose --profile neon logs --no-color --tail=200'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:-unused}" podman compose --profile neon logs --no-color --tail=200'
 
 [tasks.smoke]
 description = "Run API smoke test against active stack"
@@ -27,7 +27,7 @@ run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.s
 
 [tasks."smoke:fresh"]
 description = "Run smoke test with managed stack lifecycle"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.sh --manage-stack'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" ./scripts/smoke.sh --manage-stack'
 
 [tasks."db:reset-seed"]
 description = "Reset and seed branch test dataset on main"
@@ -39,7 +39,7 @@ run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_s
 
 [tasks."db:verify:fresh"]
 description = "Reset/seed/verify with managed stack lifecycle"
-run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_seed_data.sh --manage-stack'
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" ./scripts/reset_seed_data.sh --manage-stack'
 
 [tasks."db:backup"]
 description = "Backup stopped native controller (requires CONTROLLER_DATA_DIR)"

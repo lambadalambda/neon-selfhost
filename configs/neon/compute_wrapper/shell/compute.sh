@@ -21,6 +21,7 @@ echo "Pageserver is ready"
 cp "${CONFIG_FILE_ORG}" "${CONFIG_FILE}"
 
 role_name="$(jq -r '.spec.cluster.roles[0].name // "cloud_admin"' "${CONFIG_FILE}")"
+selected_password=${PRIMARY_ENDPOINT_PASSWORD:-}
 
 md5_role_password() {
   local role_password="$1"
@@ -42,7 +43,7 @@ md5_role_password() {
 if [[ -f "${ENDPOINT_SELECTION_FILE}" ]]; then
   selected_tenant_id="$(jq -r '.tenant_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
   selected_timeline_id="$(jq -r '.timeline_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
-  selected_password="$(jq -r '.password // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
+  selection_password="$(jq -r '.password // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
 
   if [[ -n "${selected_tenant_id}" && -n "${selected_timeline_id}" ]]; then
     TENANT_ID=${selected_tenant_id}
@@ -50,16 +51,21 @@ if [[ -f "${ENDPOINT_SELECTION_FILE}" ]]; then
     export TENANT_ID TIMELINE_ID
   fi
 
-  if [[ -n "${selected_password}" ]]; then
-    encrypted_password="$(md5_role_password "${selected_password}" "${role_name}")"
-
-    updated_config="$(mktemp)"
-    jq --arg role_name "${role_name}" --arg encrypted_password "${encrypted_password}" '
-      (.spec.cluster.roles[] | select(.name == $role_name).encrypted_password) = $encrypted_password
-    ' "${CONFIG_FILE}" >"${updated_config}"
-    mv "${updated_config}" "${CONFIG_FILE}"
+  if [[ -n "${selection_password}" ]]; then
+    selected_password=${selection_password}
   fi
 fi
+
+if [[ -z "${selected_password}" ]]; then
+  echo "PRIMARY_ENDPOINT_PASSWORD or endpoint selection password is required" >&2
+  exit 1
+fi
+encrypted_password="$(md5_role_password "${selected_password}" "${role_name}")"
+updated_config="$(mktemp)"
+jq --arg role_name "${role_name}" --arg encrypted_password "${encrypted_password}" '
+  (.spec.cluster.roles[] | select(.name == $role_name).encrypted_password) = $encrypted_password
+' "${CONFIG_FILE}" >"${updated_config}"
+mv "${updated_config}" "${CONFIG_FILE}"
 
 if [[ -n "${TENANT_ID:-}" && -n "${TIMELINE_ID:-}" ]]; then
   tenant_id=${TENANT_ID}

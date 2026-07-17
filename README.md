@@ -1,10 +1,10 @@
 # neon-selfhost
 
-`neon-selfhost` is a Docker-first control plane and web console for running open-source Neon locally.
+`neon-selfhost` is a Podman-first control plane and web console for running open-source Neon locally.
 
 If you are new to Neon: think of it as PostgreSQL with branchable timelines, so you can spin up safe copies of data for testing, migrations, and rollback drills without cloning full environments.
 
-Status: pre-alpha. The core branch-first flow works in Docker mode (branch management, branch endpoint publish, branch overview, restore, and branch-scoped SQL execution), but this is still experimental and not production-ready.
+Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatible API mode (branch management, branch endpoint publish, branch overview, restore, and branch-scoped SQL execution), but this is still experimental and not production-ready.
 
 ## What This Is
 
@@ -16,7 +16,7 @@ Status: pre-alpha. The core branch-first flow works in Docker mode (branch manag
 
 - Web console at `/` with Dashboard, Branches, Branch overview, and SQL Editor pages.
 - Branch lifecycle APIs: list/create/reset/delete (soft-delete).
-- Branch endpoint APIs: publish/unpublish/list/connection, with auto-publish defaults in Docker mode.
+- Branch endpoint APIs: publish/unpublish/list/connection, with auto-publish defaults in container-engine mode.
 - Branch-scoped SQL execution API and UI integration (single statement, read-only defaults, bounded result sizes/timeouts).
 - Timestamp-based restore API (`POST /api/v1/restore`) backed by pageserver timestamp-to-LSN resolution.
 - Operator basics: HTTP basic auth, branch-state persistence, health/status endpoints, and operation log API.
@@ -86,7 +86,7 @@ Podman Compose deployments store these databases in a named volume. Stop the con
 
 Restore now fails closed with `restore_unavailable` when pageserver-backed restore integration is not configured.
 
-Primary endpoint start/stop/switch and connection APIs orchestrate the compose `compute` container lifecycle through the Docker socket. Start/switch resolve branch attachment metadata (tenant/timeline) via pageserver APIs, persist endpoint selection under `COMPUTE_DATA_DIR`, and restart compute against that selection.
+Primary endpoint start/stop/switch and connection APIs orchestrate the compose `compute` container lifecycle through Podman's Docker-compatible API socket. Start/switch resolve branch attachment metadata (tenant/timeline) via pageserver APIs, persist endpoint selection under `COMPUTE_DATA_DIR`, and restart compute against that selection.
 
 Endpoint switch still branches from the selected parent timeline head, while restore creates a new timeline anchored at the resolved timestamp LSN.
 
@@ -100,7 +100,7 @@ SQL execution is read-only by default, with optional write mode when `allow_writ
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 
-Published branch endpoints are Docker-mode only: active branches are auto-published on startup, and newly created/restored branches are auto-published by default. `POST /api/v1/branches/{name}/publish` still supports explicit publish and allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Published branch compute containers now support idle auto-stop (`BRANCH_ENDPOINT_IDLE_TIMEOUT`, default `10m`) while keeping listeners published for lazy restart on the next connection. Each branch endpoint listener also enforces a per-branch active-connection cap (`BRANCH_ENDPOINT_MAX_CONNECTIONS`, default `32`) to protect the controller. `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
+Published branch endpoints are container-engine-mode only: active branches are auto-published on startup, and newly created/restored branches are auto-published by default. `POST /api/v1/branches/{name}/publish` still supports explicit publish and allocates a host port from a configured range, starts a lightweight TCP listener in the controller, and lazily starts branch compute on first client connection. Published branch compute containers now support idle auto-stop (`BRANCH_ENDPOINT_IDLE_TIMEOUT`, default `10m`) while keeping listeners published for lazy restart on the next connection. Each branch endpoint listener also enforces a per-branch active-connection cap (`BRANCH_ENDPOINT_MAX_CONNECTIONS`, default `32`) to protect the controller. `POST /api/v1/branches/{name}/unpublish` tears down the listener and branch compute container. `GET /api/v1/endpoints` lists currently published branch endpoints.
 
 Branch reset (`POST /api/v1/branches/{name}/reset`) refreshes published branch endpoint attachment metadata in addition to primary-endpoint metadata. Branch delete now unpublishes branch endpoint state before soft-delete.
 
@@ -124,7 +124,7 @@ Oversized JSON request bodies return `request_too_large` (`413`): most write/con
 ## Quickstart (Full Local Stack)
 
 ```bash
-BASIC_AUTH_PASSWORD=change-me mise run stack:up
+PRIMARY_ENDPOINT_PASSWORD=replace-me BASIC_AUTH_PASSWORD=change-me mise run stack:up
 mise run stack:ps
 ```
 
@@ -157,10 +157,10 @@ BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD=change-me mise exec -- go run ./cmd/co
 curl -u admin:change-me http://127.0.0.1:8080/api/v1/status
 ```
 
-To bring up the controller plus Neon storage/compute services without mise tasks, set `BASIC_AUTH_PASSWORD` and run:
+To bring up the controller plus Neon storage/compute services without mise tasks, set both passwords and run:
 
 ```bash
-BASIC_AUTH_PASSWORD=change-me docker compose --profile neon up
+BASIC_AUTH_PASSWORD=change-me PRIMARY_ENDPOINT_PASSWORD=replace-me podman compose --profile neon up
 ```
 
 Or use mise tasks:
@@ -171,8 +171,11 @@ mise run stack:ps
 ```
 
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
-The compose controller runs with `PRIMARY_ENDPOINT_MODE=docker`, uses `/var/run/docker.sock` to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata.
-Use `PRIMARY_ENDPOINT_PASSWORD` if endpoint credentials differ from the default `cloud_admin` value.
+The compose controller runs with the internally named `PRIMARY_ENDPOINT_MODE=docker` compatibility mode, uses Podman's Docker-compatible API socket to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata. `PRIMARY_ENDPOINT_PASSWORD` is required and is applied before compute starts.
+
+The controller process runs as UID `65532`, with supplementary socket-group access. Access to the Podman API socket still grants engine-level authority equivalent to the account running the Podman machine. Keep the controller bound to localhost, use strong auth, and do not treat the socket mount as a security boundary. The tested default is a rootful Podman machine; rootless Podman requires a `CONTAINER_ENGINE_SOCKET` override and compatible socket ownership and is not yet validated.
+
+Endpoint selection files contain live database passwords in plaintext on the shared `compute_state` volume so compute containers with a different UID can consume them. Treat access to that volume as credential access.
 
 Compose also exposes a localhost branch endpoint range (`56000-56049` by default). Tune this via `BRANCH_ENDPOINT_BIND_HOST`, `BRANCH_ENDPOINT_PORT_START`, and `BRANCH_ENDPOINT_PORT_END`.
 
@@ -292,7 +295,7 @@ mise run stack:down
 ## Operational Caveats (MVP)
 
 - Single-node deployment is not HA. Host or disk loss can still cause data loss.
-- Docker named volumes are not backups.
+- Podman named volumes are not backups.
 - Branching and PITR retention increase disk usage; in Phase 1, operations must fail safely with clear errors/logs, while proactive disk guardrails are planned for Phase 2.
 - Soft-deleting a branch does not imply immediate disk reclamation.
 - If exposing UI or Postgres beyond localhost, terminate TLS via a reverse proxy; basic auth alone is not Internet-grade protection.
@@ -300,8 +303,8 @@ mise run stack:down
 ## Repository Layout
 
 - `AGENTS.md` - contribution and coding-agent rules.
-- `configs/neon/pageserver` - pageserver runtime config used by `docker compose --profile neon`.
-- `configs/neon/compute_wrapper` - compute wrapper build/runtime files used by `docker compose --profile neon`.
+- `configs/neon/pageserver` - pageserver runtime config used by `podman compose --profile neon`.
+- `configs/neon/compute_wrapper` - compute wrapper build/runtime files used by `podman compose --profile neon`.
 - `docs/architecture.md` - architecture, deployment topology, and safety model.
 - `docs/mvp-roadmap.md` - phased plan for delivery.
 

@@ -28,7 +28,7 @@ Usage: ./scripts/reset_seed_data.sh [--seed-only] [--manage-stack] [--keep-stack
 
 Options:
   --seed-only           Reset and seed only (skip branch isolation verification).
-  --manage-stack        Start and stop `docker compose --profile neon` for this run.
+  --manage-stack        Start and stop `podman compose --profile neon` for this run.
   --keep-stack          Keep compose stack running at end (requires --manage-stack).
   --keep-verify-branch  Keep verification branch (requires verify mode).
   --force               Allow destructive reset against non-local BASE_URL.
@@ -58,7 +58,7 @@ require_command() {
 }
 
 compose() {
-  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" docker compose --project-directory "${REPO_ROOT}" --profile neon "$@"
+  BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" podman compose --project-directory "${REPO_ROOT}" --profile neon "$@"
 }
 
 extract_base_host() {
@@ -385,7 +385,7 @@ require_command jq
 require_command psql
 
 if [[ "${MANAGE_STACK}" == "true" ]]; then
-  require_command docker
+  require_command podman
 fi
 
 trap cleanup EXIT

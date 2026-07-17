@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is for a Docker-first self-host control plane and web UI for Neon.
+This repository is for a Podman-first self-host control plane and web UI for Neon.
 
 ## Working Rules
 
@@ -22,7 +22,7 @@ This repository is for a Docker-first self-host control plane and web UI for Neo
    - Explicit error handling.
    - Clear logging for operators.
 
-5. Keep the architecture simple and Docker-first.
+5. Keep the architecture simple and Podman-first.
    - Favor single-node, single-tenant defaults.
    - Avoid optional complexity until the core snapshot/restore/switch flow is solid.
 

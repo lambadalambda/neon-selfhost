@@ -1,8 +1,8 @@
-# Harden Docker access and database credentials
+# Harden Podman access and database credentials
 
 ## Summary
 
-The default deployment combines a root controller, unrestricted Docker socket access, and a known fallback database credential.
+The default deployment combines engine-level Podman socket access with a known fallback database credential.
 
 ## Requirements
 
@@ -13,6 +13,6 @@ The default deployment combines a root controller, unrestricted Docker socket ac
 ## Acceptance Criteria
 
 - Compose validation fails when the endpoint password is absent.
-- Configuration tests reject missing Docker-mode endpoint credentials.
-- The controller no longer needs unrestricted root execution solely to access Docker.
-- Documentation describes the remaining Docker trust boundary.
+- Configuration tests reject missing Docker-compatible endpoint credentials.
+- The controller no longer runs as root solely to access Podman.
+- Documentation describes the remaining Podman socket trust boundary.
