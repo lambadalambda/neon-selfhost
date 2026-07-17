@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,6 +205,57 @@ func TestCreateBranchRollsBackWhenAutoPublishFails(t *testing.T) {
 	decodeJSON(t, listRes, &listed)
 	if len(listed.Branches) != 1 || listed.Branches[0].Name != "main" {
 		t.Fatalf("expected only main active after rollback, got %+v", listed.Branches)
+	}
+}
+
+func TestCreateBranchCleansUpTimelineWhenAutoPublishFails(t *testing.T) {
+	store := branch.NewStore()
+	attachment := BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-feature"}
+	resolver := &cleanupTrackingResolver{attachment: attachment}
+	branchEndpoints := &fakeBranchEndpointController{publishErr: branch.ErrNoSpace}
+	handler := New(Config{
+		Version:                  "test-version",
+		BranchStore:              store,
+		BranchAttachmentResolver: resolver,
+		BranchEndpoints:          branchEndpoints,
+	})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if res.Code != http.StatusInsufficientStorage {
+		t.Fatalf("expected status %d, got %d", http.StatusInsufficientStorage, res.Code)
+	}
+	if len(resolver.deleted) != 1 || resolver.deleted[0] != attachment {
+		t.Fatalf("expected cleanup of attachment %+v, got %+v", attachment, resolver.deleted)
+	}
+}
+
+func TestCreateBranchPreservesPublishAndTimelineCleanupErrors(t *testing.T) {
+	store := branch.NewStore()
+	cleanupErr := fmt.Errorf("%w: pageserver delete failed", ErrPrimaryEndpointUnavailable)
+	resolver := &cleanupTrackingResolver{
+		attachment: BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-feature"},
+		deleteErr:  cleanupErr,
+	}
+	branchEndpoints := &fakeBranchEndpointController{publishErr: branch.ErrNoSpace}
+	handler := New(Config{
+		Version:                  "test-version",
+		BranchStore:              store,
+		BranchAttachmentResolver: resolver,
+		BranchEndpoints:          branchEndpoints,
+	})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if res.Code != http.StatusInsufficientStorage {
+		t.Fatalf("expected original status %d, got %d", http.StatusInsufficientStorage, res.Code)
+	}
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	decodeJSON(t, res, &payload)
+	if !strings.Contains(payload.Error.Message, cleanupErr.Error()) {
+		t.Fatalf("expected cleanup error in response, got %q", payload.Error.Message)
 	}
 }
 

@@ -1,3 +1,4 @@
 - [x] [Restore primary endpoint after failed switch](issues/restore-primary-endpoint-after-failed-switch.md)
 - [x] [Make controller database restore safe](issues/make-controller-database-restore-safe.md)
 - [x] [Drain HTTP requests before closing resources](issues/drain-http-before-closing-resources.md)
+- [x] [Clean up orphaned pageserver timelines](issues/clean-up-orphaned-pageserver-timelines.md)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -302,6 +303,154 @@ func TestPageserverBranchAttachmentResolverResolveResetCreatesNewTimelineFromPar
 	}
 }
 
+func TestPageserverResolverCleansCreatedTimelineWhenAttachmentPersistenceFails(t *testing.T) {
+	store, err := branch.NewSQLitePersistentStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create SQLite store: %v", err)
+	}
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	if _, err := store.SetAttachment("main", "tenant-main", "timeline-main"); err != nil {
+		t.Fatalf("set main attachment: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	cleanupErr := errors.New("delete timeline failed")
+	client := &fakePageserverAttachmentClient{deleteTimelineErr: cleanupErr}
+	resolver := &pageserverBranchAttachmentResolver{store: store, client: client, pgVersion: 16}
+	_, err = resolver.Resolve("feature-a")
+	if err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("expected cleanup error identity, got %v", err)
+	}
+	if len(client.deleteTimelineCalls) != 1 {
+		t.Fatalf("expected one timeline cleanup, got %+v", client.deleteTimelineCalls)
+	}
+}
+
+func TestPageserverClientDeletesTimeline(t *testing.T) {
+	var method string
+	var requestPath string
+	pageserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = r.Method
+		requestPath = r.URL.Path
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer pageserver.Close()
+	client, err := newPageserverHTTPAttachmentClient(pageserver.URL, 16, pageserver.Client())
+	if err != nil {
+		t.Fatalf("create pageserver client: %v", err)
+	}
+
+	if err := client.DeleteTimeline("tenant-a", "timeline-a"); err != nil {
+		t.Fatalf("delete timeline: %v", err)
+	}
+	if method != http.MethodDelete || requestPath != "/v1/tenant/tenant-a/timeline/timeline-a" {
+		t.Fatalf("expected DELETE timeline request, got %s %s", method, requestPath)
+	}
+}
+
+func TestResetCleansCreatedTimelineWhenAttachmentPersistenceFails(t *testing.T) {
+	store, err := branch.NewSQLitePersistentStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create SQLite store: %v", err)
+	}
+	if _, err := store.CreateWithPassword("feature-a", "main", "secret"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	resolver := &cleanupTrackingResolver{attachment: BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-reset"}}
+	handler := New(Config{Version: "test-version", BranchStore: store, BranchAttachmentResolver: resolver})
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+	if len(resolver.deleted) != 1 || resolver.deleted[0] != resolver.attachment {
+		t.Fatalf("expected reset timeline cleanup, got %+v", resolver.deleted)
+	}
+}
+
+func TestResetRestoresPreviousAttachmentBeforeCleaningTimelineOnDownstreamFailure(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithPassword("feature-a", "main", "secret"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	if _, err := store.SetAttachment("feature-a", "tenant-main", "timeline-old"); err != nil {
+		t.Fatalf("set old attachment: %v", err)
+	}
+	newAttachment := BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-new"}
+	resolver := &cleanupTrackingResolver{attachment: newAttachment}
+	controller := &capturingPrimaryEndpointController{
+		state:               primaryEndpointState{Branch: "feature-a", Running: true},
+		setAttachmentErrors: []error{fmt.Errorf("%w: set new attachment failed", ErrPrimaryEndpointUnavailable), nil},
+	}
+	handler := New(Config{
+		Version:                  "test-version",
+		BranchStore:              store,
+		BranchAttachmentResolver: resolver,
+		PrimaryEndpoint:          controller,
+	})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+	current, err := store.GetActive("feature-a")
+	if err != nil {
+		t.Fatalf("get rolled-back branch: %v", err)
+	}
+	if current.TimelineID != "timeline-old" {
+		t.Fatalf("expected old timeline after rollback, got %q", current.TimelineID)
+	}
+	if len(resolver.deleted) != 1 || resolver.deleted[0] != newAttachment {
+		t.Fatalf("expected cleanup of new timeline, got %+v", resolver.deleted)
+	}
+}
+
+func TestResetReappliesPreviousPrimarySelectionBeforeCleaningTimeline(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithPassword("feature-a", "main", "secret"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	if _, err := store.SetAttachment("feature-a", "tenant-main", "timeline-old"); err != nil {
+		t.Fatalf("set old attachment: %v", err)
+	}
+	newAttachment := BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-new"}
+	resolver := &cleanupTrackingResolver{attachment: newAttachment}
+	controller := &capturingPrimaryEndpointController{
+		state:        primaryEndpointState{Branch: "feature-a", Running: true, TenantID: "tenant-main", TimelineID: "timeline-old"},
+		switchErrors: []error{fmt.Errorf("%w: switch failed", ErrPrimaryEndpointUnavailable), nil},
+	}
+	handler := New(Config{
+		Version:                  "test-version",
+		BranchStore:              store,
+		BranchAttachmentResolver: resolver,
+		PrimaryEndpoint:          controller,
+	})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/feature-a/reset", "")
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, res.Code)
+	}
+	if controller.switchCalls != 2 {
+		t.Fatalf("expected failed switch and compensating switch, got %d calls", controller.switchCalls)
+	}
+	if controller.state.TimelineID != "timeline-old" {
+		t.Fatalf("expected primary endpoint restored to old timeline, got %q", controller.state.TimelineID)
+	}
+	if len(resolver.deleted) != 1 || resolver.deleted[0] != newAttachment {
+		t.Fatalf("expected cleanup after primary rollback, got %+v", resolver.deleted)
+	}
+}
+
 type staticBranchAttachmentResolver struct {
 	attachments map[string]BranchAttachment
 	resets      map[string]BranchAttachment
@@ -351,11 +500,14 @@ func (r staticBranchAttachmentResolver) ResolveRestore(_ string, _ string, _ tim
 type capturingPrimaryEndpointController struct {
 	state primaryEndpointState
 
-	lastSetBranch     string
-	lastSetTenantID   string
-	lastSetTimelineID string
-	lastSetPassword   string
-	lastSwitchBranch  string
+	lastSetBranch       string
+	lastSetTenantID     string
+	lastSetTimelineID   string
+	lastSetPassword     string
+	lastSwitchBranch    string
+	setAttachmentErrors []error
+	switchErrors        []error
+	switchCalls         int
 }
 
 func (c *capturingPrimaryEndpointController) Connection() (primaryEndpointState, error) {
@@ -363,6 +515,13 @@ func (c *capturingPrimaryEndpointController) Connection() (primaryEndpointState,
 }
 
 func (c *capturingPrimaryEndpointController) SetBranchAttachment(branchName string, tenantID string, timelineID string) error {
+	if len(c.setAttachmentErrors) > 0 {
+		err := c.setAttachmentErrors[0]
+		c.setAttachmentErrors = c.setAttachmentErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(branchName) == "" || strings.TrimSpace(tenantID) == "" || strings.TrimSpace(timelineID) == "" {
 		return errors.New("invalid attachment")
 	}
@@ -403,6 +562,14 @@ func (c *capturingPrimaryEndpointController) Stop() (primaryEndpointState, error
 }
 
 func (c *capturingPrimaryEndpointController) SwitchToBranch(branchName string) (primaryEndpointState, error) {
+	c.switchCalls++
+	if len(c.switchErrors) > 0 {
+		err := c.switchErrors[0]
+		c.switchErrors = c.switchErrors[1:]
+		if err != nil {
+			return primaryEndpointState{}, err
+		}
+	}
 	c.lastSwitchBranch = branchName
 	c.state.Branch = branchName
 	c.state.Running = true
@@ -416,6 +583,8 @@ type fakePageserverAttachmentClient struct {
 	timelinesByTenant   map[string][]string
 	createTenantCalls   []string
 	createTimelineCalls []fakeTimelineCreateCall
+	deleteTimelineCalls []BranchAttachment
+	deleteTimelineErr   error
 
 	getLSNKind  string
 	getLSNValue string
@@ -458,6 +627,11 @@ func (f *fakePageserverAttachmentClient) CreateTimeline(tenantID string, newTime
 	f.createTimelineCalls = append(f.createTimelineCalls, fakeTimelineCreateCall{TenantID: tenantID, TimelineID: newTimelineID, AncestorTimelineID: ancestorTimelineID, AncestorStartLSN: ancestorStartLSN})
 	f.timelinesByTenant[tenantID] = append(f.timelinesByTenant[tenantID], newTimelineID)
 	return nil
+}
+
+func (f *fakePageserverAttachmentClient) DeleteTimeline(tenantID string, timelineID string) error {
+	f.deleteTimelineCalls = append(f.deleteTimelineCalls, BranchAttachment{TenantID: tenantID, TimelineID: timelineID})
+	return f.deleteTimelineErr
 }
 
 func (f *fakePageserverAttachmentClient) GetLSNByTimestamp(_ string, _ string, _ time.Time) (string, string, error) {

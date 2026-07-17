@@ -48,6 +48,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Branch create, restore, and reset failures now roll back controller references before deleting newly created pageserver timelines, with compensating primary and branch endpoint restoration.
 - Controller shutdown now drains in-flight HTTP requests before closing endpoint and SQLite resources, while preserving bounded cleanup and failure exit codes.
 - Failed primary endpoint branch switches now stop any ambiguously started target runtime, restore the previous selection, and restart the previous endpoint when it was running.
 - Compose pageserver startup now mounts only `identity.toml` and `pageserver.toml` as read-only files, keeps `/data/.neon` writable for runtime tenant state, and configures local-fs remote storage for current Neon runtime requirements.

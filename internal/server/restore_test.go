@@ -233,3 +233,51 @@ func TestRestoreReturnsUnavailableWithoutResolverIntegration(t *testing.T) {
 		t.Fatalf("expected restore branch to remain absent when resolver is unavailable, got err=%v", err)
 	}
 }
+
+func TestRestoreRejectsExistingNameBeforeCreatingTimeline(t *testing.T) {
+	fixed := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+	store := branch.NewStoreWithClock(func() time.Time { return fixed })
+	if _, err := store.Create("restore-a", "main"); err != nil {
+		t.Fatalf("create existing branch: %v", err)
+	}
+	resolver := &cleanupTrackingResolver{attachment: BranchAttachment{TenantID: "tenant-main", TimelineID: "timeline-unused"}}
+	handler := New(Config{Version: "test-version", BranchStore: store, BranchAttachmentResolver: resolver})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/restore", `{"name":"restore-a","source_branch":"main","timestamp":"2010-01-02T00:00:00Z"}`)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, res.Code)
+	}
+	if resolver.restoreCalls != 0 {
+		t.Fatalf("expected duplicate rejection before timeline creation, got %d resolver calls", resolver.restoreCalls)
+	}
+}
+
+type cleanupTrackingResolver struct {
+	attachment   BranchAttachment
+	restoreLSN   string
+	deleteErr    error
+	restoreCalls int
+	deleted      []BranchAttachment
+}
+
+func (r *cleanupTrackingResolver) Resolve(_ string) (BranchAttachment, error) {
+	return r.attachment, nil
+}
+
+func (r *cleanupTrackingResolver) ResolveReset(_ string) (BranchAttachment, error) {
+	return r.attachment, nil
+}
+
+func (r *cleanupTrackingResolver) ResolveRestore(_ string, _ string, _ time.Time) (BranchAttachment, string, error) {
+	r.restoreCalls++
+	lsn := r.restoreLSN
+	if lsn == "" {
+		lsn = "0/16B6F50"
+	}
+	return r.attachment, lsn, nil
+}
+
+func (r *cleanupTrackingResolver) DeleteCreatedAttachment(attachment BranchAttachment) error {
+	r.deleted = append(r.deleted, attachment)
+	return r.deleteErr
+}

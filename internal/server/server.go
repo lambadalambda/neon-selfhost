@@ -768,6 +768,11 @@ func New(cfg Config) http.Handler {
 			if restoreAt.Before(source.CreatedAt.UTC()) {
 				return ErrRestoreHistoryUnavailable
 			}
+			if _, existingErr := store.GetActive(restoreName); existingErr == nil {
+				return branch.ErrAlreadyExists
+			} else if !errors.Is(existingErr, branch.ErrNotFound) {
+				return existingErr
+			}
 
 			attachment, resolved, resolveErr := attachmentResolver.ResolveRestore(source.Name, restoreName, restoreAt)
 			if resolveErr != nil {
@@ -778,18 +783,18 @@ func New(cfg Config) http.Handler {
 			tenantID := strings.TrimSpace(attachment.TenantID)
 			timelineID := strings.TrimSpace(attachment.TimelineID)
 			if resolvedLSN == "" || tenantID == "" || timelineID == "" {
-				return fmt.Errorf("%w: restore resolver returned incomplete attachment", ErrPrimaryEndpointUnavailable)
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, fmt.Errorf("%w: restore resolver returned incomplete attachment", ErrPrimaryEndpointUnavailable))
 			}
 
 			password, passwordErr := generateBranchPassword()
 			if passwordErr != nil {
-				return fmt.Errorf("%w: %v", ErrPrimaryEndpointUnavailable, passwordErr)
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, fmt.Errorf("%w: %v", ErrPrimaryEndpointUnavailable, passwordErr))
 			}
 
 			var createErr error
 			restored, createErr = store.CreateWithAttachmentAndPassword(restoreName, source.Name, tenantID, timelineID, password)
 			if createErr != nil {
-				return createErr
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, createErr)
 			}
 
 			if !autoPublishBranches {
@@ -798,29 +803,29 @@ func New(cfg Config) http.Handler {
 
 			if publishErr := ensureBranchPublished(store, attachmentResolver, branchEndpoints, restored.Name); publishErr != nil {
 				if _, rollbackErr := store.SoftDelete(restored.Name); rollbackErr != nil {
-					return fmt.Errorf("%w: auto-publish restored branch %q: %v (rollback failed: %v)", ErrPrimaryEndpointUnavailable, restored.Name, publishErr, rollbackErr)
+					return addOperationCompensation(publishErr, fmt.Errorf("rollback restored branch %q: %w", restored.Name, rollbackErr))
 				}
-
-				return publishErr
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, publishErr)
 			}
 
 			return nil
 		})
 		if err != nil {
+			primaryErr := primaryOperationError(err)
 			switch {
-			case errors.Is(err, ErrOperationInProgress):
+			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case errors.Is(err, ErrRestoreHistoryUnavailable):
+			case errors.Is(primaryErr, ErrRestoreHistoryUnavailable):
 				writeJSONError(w, http.StatusUnprocessableEntity, "history_unavailable", err.Error())
-			case errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
+			case errors.Is(primaryErr, branch.ErrInvalidName), errors.Is(primaryErr, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
-			case errors.Is(err, branch.ErrAlreadyExists):
+			case errors.Is(primaryErr, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case isPrimaryEndpointUnavailable(err):
+			case isPrimaryEndpointUnavailable(primaryErr):
 				writeJSONError(w, http.StatusServiceUnavailable, "restore_unavailable", err.Error())
-			case errors.Is(err, branch.ErrNoSpace):
+			case errors.Is(primaryErr, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
-			case errors.Is(err, branch.ErrPersistFailed):
+			case errors.Is(primaryErr, branch.ErrPersistFailed):
 				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -856,28 +861,32 @@ func New(cfg Config) http.Handler {
 			}
 
 			if publishErr := ensureBranchPublished(store, attachmentResolver, branchEndpoints, created.Name); publishErr != nil {
+				failedBranch, getErr := store.GetActive(created.Name)
 				if _, rollbackErr := store.SoftDelete(created.Name); rollbackErr != nil {
-					return fmt.Errorf("%w: auto-publish branch %q: %v (rollback failed: %v)", ErrPrimaryEndpointUnavailable, created.Name, publishErr, rollbackErr)
+					return addOperationCompensation(publishErr, fmt.Errorf("rollback branch %q: %w", created.Name, rollbackErr))
 				}
-
+				if getErr == nil {
+					return cleanupBranchAttachmentError(attachmentResolver, BranchAttachment{TenantID: failedBranch.TenantID, TimelineID: failedBranch.TimelineID}, publishErr)
+				}
 				return publishErr
 			}
 
 			return nil
 		})
 		if err != nil {
+			primaryErr := primaryOperationError(err)
 			switch {
-			case errors.Is(err, ErrOperationInProgress):
+			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
+			case errors.Is(primaryErr, branch.ErrInvalidName), errors.Is(primaryErr, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
-			case errors.Is(err, branch.ErrAlreadyExists):
+			case errors.Is(primaryErr, branch.ErrAlreadyExists):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case isPrimaryEndpointUnavailable(err):
+			case isPrimaryEndpointUnavailable(primaryErr):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
-			case errors.Is(err, branch.ErrNoSpace):
+			case errors.Is(primaryErr, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
-			case errors.Is(err, branch.ErrPersistFailed):
+			case errors.Is(primaryErr, branch.ErrPersistFailed):
 				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -917,6 +926,11 @@ func New(cfg Config) http.Handler {
 			if setPasswordErr := primaryEndpoint.SetBranchPassword(branchName, securedBranch.Password); setPasswordErr != nil {
 				return setPasswordErr
 			}
+			originalConnectionState, connectionErr := primaryEndpoint.Connection()
+			if connectionErr != nil {
+				return connectionErr
+			}
+			wasPrimaryBranch := originalConnectionState.Branch == branchName
 
 			attachment, resolveErr := attachmentResolver.ResolveReset(branchName)
 			if resolveErr != nil {
@@ -926,42 +940,63 @@ func New(cfg Config) http.Handler {
 			var setErr error
 			updated, setErr = store.SetAttachment(branchName, attachment.TenantID, attachment.TimelineID)
 			if setErr != nil {
-				return setErr
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, setErr)
+			}
+			rollbackReset := func(cause error) error {
+				if _, rollbackErr := store.SetAttachment(branchName, target.TenantID, target.TimelineID); rollbackErr != nil {
+					return addOperationCompensation(cause, fmt.Errorf("restore previous branch attachment: %w", rollbackErr))
+				}
+				var rollbackErrs []error
+				if rollbackErr := primaryEndpoint.SetBranchAttachment(branchName, target.TenantID, target.TimelineID); rollbackErr != nil {
+					rollbackErrs = append(rollbackErrs, fmt.Errorf("restore primary endpoint attachment: %w", rollbackErr))
+				}
+				previousAttachment := BranchAttachment{TenantID: target.TenantID, TimelineID: target.TimelineID}
+				if rollbackErr := branchEndpoints.Refresh(branchName, previousAttachment, securedBranch.Password); rollbackErr != nil {
+					rollbackErrs = append(rollbackErrs, fmt.Errorf("restore branch endpoint attachment: %w", rollbackErr))
+				}
+				if wasPrimaryBranch {
+					if _, rollbackErr := primaryEndpoint.SwitchToBranch(branchName); rollbackErr != nil {
+						rollbackErrs = append(rollbackErrs, fmt.Errorf("restart primary endpoint with previous attachment: %w", rollbackErr))
+					}
+				}
+				if len(rollbackErrs) > 0 {
+					return addOperationCompensation(cause, rollbackErrs...)
+				}
+				return cleanupBranchAttachmentError(attachmentResolver, attachment, cause)
 			}
 
 			if attachErr := primaryEndpoint.SetBranchAttachment(branchName, attachment.TenantID, attachment.TimelineID); attachErr != nil {
-				return attachErr
+				return rollbackReset(attachErr)
 			}
 
 			if refreshErr := branchEndpoints.Refresh(branchName, attachment, securedBranch.Password); refreshErr != nil {
-				return refreshErr
+				return rollbackReset(refreshErr)
 			}
 
-			connectionState, connErr := primaryEndpoint.Connection()
-			if connErr != nil {
-				return connErr
-			}
-
-			if connectionState.Branch != branchName {
+			if !wasPrimaryBranch {
 				return nil
 			}
 
 			_, switchErr := primaryEndpoint.SwitchToBranch(branchName)
-			return switchErr
+			if switchErr != nil {
+				return rollbackReset(switchErr)
+			}
+			return nil
 		})
 		if err != nil {
+			primaryErr := primaryOperationError(err)
 			switch {
-			case errors.Is(err, ErrOperationInProgress):
+			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
-			case errors.Is(err, branch.ErrProtected), errors.Is(err, branch.ErrInvalidName), errors.Is(err, branch.ErrParentMissing):
+			case errors.Is(primaryErr, branch.ErrProtected), errors.Is(primaryErr, branch.ErrInvalidName), errors.Is(primaryErr, branch.ErrParentMissing):
 				writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
-			case errors.Is(err, branch.ErrNotFound):
+			case errors.Is(primaryErr, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
-			case isPrimaryEndpointUnavailable(err):
+			case isPrimaryEndpointUnavailable(primaryErr):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
-			case errors.Is(err, branch.ErrNoSpace):
+			case errors.Is(primaryErr, branch.ErrNoSpace):
 				writeJSONError(w, http.StatusInsufficientStorage, "storage_error", err.Error())
-			case errors.Is(err, branch.ErrPersistFailed):
+			case errors.Is(primaryErr, branch.ErrPersistFailed):
 				writeJSONError(w, http.StatusServiceUnavailable, "storage_error", err.Error())
 			default:
 				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -1250,6 +1285,20 @@ func ensureBranchPublished(store *branch.Store, attachmentResolver BranchAttachm
 
 	_, err = branchEndpoints.Publish(branchName, BranchAttachment{TenantID: tenantID, TimelineID: timelineID}, securedBranch.Password)
 	return err
+}
+
+func cleanupBranchAttachmentError(resolver BranchAttachmentResolver, attachment BranchAttachment, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	cleaner, ok := resolver.(BranchAttachmentCleaner)
+	if !ok || strings.TrimSpace(attachment.TenantID) == "" || strings.TrimSpace(attachment.TimelineID) == "" {
+		return cause
+	}
+	if err := cleaner.DeleteCreatedAttachment(attachment); err != nil {
+		return addOperationCompensation(cause, fmt.Errorf("cleanup branch timeline: %w", err))
+	}
+	return cause
 }
 
 func resolveAttachmentForAutoPublish(attachmentResolver BranchAttachmentResolver, branchName string) (BranchAttachment, error) {
