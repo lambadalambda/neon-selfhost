@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +66,152 @@ func TestPrimaryEndpointSwitchStopsThenStartsRuntime(t *testing.T) {
 	}
 }
 
+func TestPrimaryEndpointSwitchRestartsPreviousRuntimeWhenSelectionWriteFails(t *testing.T) {
+	runtime := &fakePrimaryEndpointRuntime{running: true}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
+	}, t.TempDir())
+
+	_, err := manager.SwitchToBranch("feature-a")
+	if err == nil {
+		t.Fatal("expected switch error")
+	}
+	if !runtime.running {
+		t.Fatal("expected previous runtime to be restarted")
+	}
+	if runtime.startCalls != 1 {
+		t.Fatalf("expected one rollback start, got %d", runtime.startCalls)
+	}
+}
+
+func TestPrimaryEndpointSwitchRestoresSelectionAndRuntimeWhenNewStartFails(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	previousSelection := endpointSelectionState{Branch: "main", TenantID: "tenant-main", TimelineID: "timeline-main", Password: "secret-main"}
+	if err := writeEndpointSelection(selectionPath, previousSelection); err != nil {
+		t.Fatalf("write previous selection: %v", err)
+	}
+
+	runtime := &fakePrimaryEndpointRuntime{running: true, startErrors: []error{errors.New("cannot start feature"), nil}}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
+	}, selectionPath)
+	if err := manager.SetBranchAttachment("feature-a", "tenant-feature", "timeline-feature"); err != nil {
+		t.Fatalf("set feature attachment: %v", err)
+	}
+	if err := manager.SetBranchPassword("feature-a", "secret-feature"); err != nil {
+		t.Fatalf("set feature password: %v", err)
+	}
+
+	_, err := manager.SwitchToBranch("feature-a")
+	if err == nil {
+		t.Fatal("expected switch error")
+	}
+	if !runtime.running {
+		t.Fatal("expected previous runtime to be restarted")
+	}
+	if runtime.startCalls != 2 {
+		t.Fatalf("expected failed switch start and rollback start, got %d calls", runtime.startCalls)
+	}
+
+	restored, loaded, err := loadEndpointSelection(selectionPath)
+	if err != nil {
+		t.Fatalf("load restored selection: %v", err)
+	}
+	if !loaded || restored != previousSelection {
+		t.Fatalf("expected previous selection %+v, got %+v", previousSelection, restored)
+	}
+}
+
+func TestPrimaryEndpointSwitchStopsPossiblyStartedRuntimeBeforeRollback(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	if err := writeEndpointSelection(selectionPath, endpointSelectionState{Branch: "main", Password: "secret-main"}); err != nil {
+		t.Fatalf("write previous selection: %v", err)
+	}
+
+	runtime := &fakePrimaryEndpointRuntime{
+		running:             true,
+		startErrors:         []error{errors.New("start response timed out"), nil},
+		startRunningOnError: true,
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
+	}, selectionPath)
+
+	_, err := manager.SwitchToBranch("feature-a")
+	if err == nil {
+		t.Fatal("expected switch error")
+	}
+	if runtime.stopCalls != 2 {
+		t.Fatalf("expected initial stop and rollback stop, got %d calls", runtime.stopCalls)
+	}
+	if runtime.startCalls != 2 || !runtime.running {
+		t.Fatalf("expected previous runtime restart, got start calls=%d running=%t", runtime.startCalls, runtime.running)
+	}
+}
+
+func TestPrimaryEndpointSwitchReportsRollbackRestartFailure(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	if err := writeEndpointSelection(selectionPath, endpointSelectionState{Branch: "main", Password: "secret-main"}); err != nil {
+		t.Fatalf("write previous selection: %v", err)
+	}
+
+	switchErr := errors.New("cannot start feature")
+	rollbackErr := errors.New("cannot restart main")
+	runtime := &fakePrimaryEndpointRuntime{
+		running:     true,
+		startErrors: []error{switchErr, rollbackErr},
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
+	}, selectionPath)
+
+	_, err := manager.SwitchToBranch("feature-a")
+	if err == nil {
+		t.Fatal("expected switch error")
+	}
+	if !strings.Contains(err.Error(), "cannot start feature") || !strings.Contains(err.Error(), "cannot restart main") {
+		t.Fatalf("expected switch and rollback errors, got %v", err)
+	}
+	if !errors.Is(err, switchErr) || !errors.Is(err, rollbackErr) {
+		t.Fatalf("expected switch and rollback error identities, got %v", err)
+	}
+}
+
+func TestPrimaryEndpointSwitchDoesNotRestartWhenSelectionRestoreFails(t *testing.T) {
+	dir := t.TempDir()
+	selectionPath := filepath.Join(dir, "endpoint-selection.json")
+	if err := writeEndpointSelection(selectionPath, endpointSelectionState{Branch: "main", Password: "secret-main"}); err != nil {
+		t.Fatalf("write previous selection: %v", err)
+	}
+
+	runtime := &fakePrimaryEndpointRuntime{
+		running:     true,
+		startErrors: []error{errors.New("cannot start feature")},
+		startHook: func() {
+			if err := os.Remove(selectionPath); err != nil {
+				t.Fatalf("remove selection: %v", err)
+			}
+			if err := os.Mkdir(selectionPath, 0o755); err != nil {
+				t.Fatalf("replace selection with directory: %v", err)
+			}
+		},
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
+	}, selectionPath)
+
+	_, err := manager.SwitchToBranch("feature-a")
+	if err == nil || !strings.Contains(err.Error(), "restore previous endpoint selection failed") {
+		t.Fatalf("expected selection restore error, got %v", err)
+	}
+	if runtime.stopCalls != 2 {
+		t.Fatalf("expected possibly started runtime to be stopped, got %d stop calls", runtime.stopCalls)
+	}
+	if runtime.startCalls != 1 {
+		t.Fatalf("expected no restart with invalid selection, got %d start calls", runtime.startCalls)
+	}
+}
+
 func TestPrimaryEndpointStartReturnsEndpointUnavailableErrors(t *testing.T) {
 	handler := New(Config{
 		Version:         "test-version",
@@ -79,16 +228,19 @@ func TestPrimaryEndpointStartReturnsEndpointUnavailableErrors(t *testing.T) {
 }
 
 type fakePrimaryEndpointRuntime struct {
-	running        bool
-	ready          bool
-	readySet       bool
-	runtimeState   string
-	runtimeMessage string
-	statusErr      error
-	startErr       error
-	stopErr        error
-	startCalls     int
-	stopCalls      int
+	running             bool
+	ready               bool
+	readySet            bool
+	runtimeState        string
+	runtimeMessage      string
+	statusErr           error
+	startErr            error
+	startErrors         []error
+	startRunningOnError bool
+	startHook           func()
+	stopErr             error
+	startCalls          int
+	stopCalls           int
 }
 
 func (f *fakePrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, error) {
@@ -120,6 +272,24 @@ func (f *fakePrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, err
 
 func (f *fakePrimaryEndpointRuntime) Start() error {
 	f.startCalls++
+	if f.startHook != nil {
+		startHook := f.startHook
+		f.startHook = nil
+		startHook()
+	}
+	if len(f.startErrors) > 0 {
+		err := f.startErrors[0]
+		f.startErrors = f.startErrors[1:]
+		if err != nil {
+			if f.startRunningOnError {
+				f.running = true
+				f.startRunningOnError = false
+			}
+			return err
+		}
+		f.running = true
+		return nil
+	}
 	if f.startErr != nil {
 		return f.startErr
 	}

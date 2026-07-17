@@ -1,0 +1,1 @@
+- [x] [Restore primary endpoint after failed switch](issues/restore-primary-endpoint-after-failed-switch.md)

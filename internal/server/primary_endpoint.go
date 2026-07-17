@@ -333,6 +333,11 @@ func (m *primaryEndpointManager) SwitchToBranch(branch string) (primaryEndpointS
 	fallbackPassword := m.connInfo.User
 	m.mu.Unlock()
 
+	previousRuntimeStatus, err := runtime.Status()
+	if err != nil {
+		return primaryEndpointState{}, fmt.Errorf("status primary endpoint before branch switch: %w", err)
+	}
+
 	if strings.TrimSpace(password) == "" {
 		password = fallbackPassword
 	}
@@ -343,12 +348,35 @@ func (m *primaryEndpointManager) SwitchToBranch(branch string) (primaryEndpointS
 
 	nextSelection := endpointSelectionState{Branch: branch, TenantID: attachment.TenantID, TimelineID: attachment.TimelineID, Password: password}
 	if err := writeEndpointSelection(selectionPath, nextSelection); err != nil {
+		if previousRuntimeStatus.Running {
+			if rollbackErr := runtime.Start(); rollbackErr != nil {
+				return primaryEndpointState{}, errors.Join(err, fmt.Errorf("restart previous primary endpoint: %w", rollbackErr))
+			}
+		}
 		return primaryEndpointState{}, err
 	}
 
 	if err := runtime.Start(); err != nil {
-		_ = writeEndpointSelection(selectionPath, previousSelection)
-		return primaryEndpointState{}, fmt.Errorf("start primary endpoint for branch switch: %w", err)
+		switchErr := fmt.Errorf("start primary endpoint for branch switch: %w", err)
+		rollbackErrs := []error{switchErr}
+		stopErr := runtime.Stop()
+		if stopErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("stop failed primary endpoint before rollback: %w", stopErr))
+		}
+		if rollbackErr := writeEndpointSelection(selectionPath, previousSelection); rollbackErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("restore previous endpoint selection failed: %w", rollbackErr))
+			return primaryEndpointState{}, errors.Join(rollbackErrs...)
+		}
+		if stopErr != nil {
+			return primaryEndpointState{}, errors.Join(rollbackErrs...)
+		}
+		if previousRuntimeStatus.Running {
+			if rollbackErr := runtime.Start(); rollbackErr != nil {
+				rollbackErrs = append(rollbackErrs, fmt.Errorf("restart previous primary endpoint: %w", rollbackErr))
+				return primaryEndpointState{}, errors.Join(rollbackErrs...)
+			}
+		}
+		return primaryEndpointState{}, errors.Join(rollbackErrs...)
 	}
 
 	m.mu.Lock()
