@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 type operationsListResponse struct {
@@ -214,6 +216,87 @@ func TestOperationManagerRejectsConcurrentRuns(t *testing.T) {
 	}
 }
 
+func TestOperationManagerFinishesRunningEntryAfterRetentionTrimming(t *testing.T) {
+	store := newFaultOperationStore()
+	manager := newOperationManager(nil, 1, nil, store)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.Run("create_branch", func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	if err := manager.Run("delete_branch", func() error { return nil }); !errors.Is(err, ErrOperationInProgress) {
+		t.Fatalf("expected concurrent rejection, got %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("finish operation: %v", err)
+	}
+
+	entry := store.entry(1)
+	if entry.Status != operationStatusSucceeded || entry.FinishedAt == nil {
+		t.Fatalf("expected persisted terminal state, got %+v", entry)
+	}
+}
+
+func TestOperationManagerDoesNotRunWithoutPersistedStartMarker(t *testing.T) {
+	store := newFaultOperationStore()
+	store.upsertErr = errors.New("disk unavailable")
+	manager := newOperationManager(nil, 10, nil, store)
+	executed := false
+	err := manager.Run("create_branch", func() error {
+		executed = true
+		return nil
+	})
+	if !errors.Is(err, ErrOperationPersistence) {
+		t.Fatalf("expected operation persistence error, got %v", err)
+	}
+	if executed {
+		t.Fatal("operation executed without a persisted running marker")
+	}
+}
+
+func TestOperationManagerRetriesTerminalPersistence(t *testing.T) {
+	store := newFaultOperationStore()
+	store.failStatus = operationStatusSucceeded
+	store.failCount = 1
+	manager := newOperationManager(nil, 10, nil, store)
+	if err := manager.Run("create_branch", func() error { return nil }); err != nil {
+		t.Fatalf("run operation: %v", err)
+	}
+	entry := store.entry(1)
+	if entry.Status != operationStatusSucceeded || entry.FinishedAt == nil {
+		t.Fatalf("expected terminal state after retry, got %+v", entry)
+	}
+}
+
+func TestOperationManagerReconcilesTerminalStateBeforeNextOperation(t *testing.T) {
+	store := newFaultOperationStore()
+	store.failStatus = operationStatusSucceeded
+	store.failCount = operationPersistAttempts
+	manager := newOperationManager(nil, 10, nil, store)
+	if err := manager.Run("first", func() error { return nil }); !errors.Is(err, ErrOperationPersistence) {
+		t.Fatalf("expected first terminal persistence failure, got %v", err)
+	}
+	if entry := store.entry(1); entry.Status != operationStatusRunning {
+		t.Fatalf("expected stale running marker before recovery, got %+v", entry)
+	}
+	if err := manager.Run("second", func() error { return nil }); err != nil {
+		t.Fatalf("run after store recovery: %v", err)
+	}
+	if entry := store.entry(1); entry.Status != operationStatusSucceeded {
+		t.Fatalf("expected reconciled first operation, got %+v", entry)
+	}
+	if entry := store.entry(2); entry.Status != operationStatusSucceeded {
+		t.Fatalf("expected persisted second operation, got %+v", entry)
+	}
+}
+
 func TestOperationManagerRecordsFailure(t *testing.T) {
 	manager := newOperationManager(nil, 50, nil, nil)
 
@@ -366,4 +449,54 @@ func TestSQLiteOperationStoreInitializesSchemaMeta(t *testing.T) {
 	if !version.Valid || version.Int64 != 1 {
 		t.Fatalf("expected schema version %d, got %+v", 1, version)
 	}
+}
+
+type faultOperationStore struct {
+	mu         sync.Mutex
+	entries    map[uint64]operationEntry
+	loadErr    error
+	upsertErr  error
+	failStatus string
+	failCount  int
+	queryErr   error
+	closeCount int
+}
+
+func newFaultOperationStore() *faultOperationStore {
+	return &faultOperationStore{entries: map[uint64]operationEntry{}}
+}
+
+func (s *faultOperationStore) Load(_ func() time.Time, _ int) ([]operationEntry, uint64, error) {
+	return nil, 0, s.loadErr
+}
+
+func (s *faultOperationStore) Upsert(entry operationEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.upsertErr != nil {
+		return s.upsertErr
+	}
+	if entry.Status == s.failStatus && s.failCount > 0 {
+		s.failCount--
+		return errors.New("injected transient upsert failure")
+	}
+	s.entries[entry.ID] = entry
+	return nil
+}
+
+func (s *faultOperationStore) Close() error {
+	s.mu.Lock()
+	s.closeCount++
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *faultOperationStore) Query(_ operationQueryFilter) ([]operationEntry, error) {
+	return nil, s.queryErr
+}
+
+func (s *faultOperationStore) entry(id uint64) operationEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.entries[id]
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -19,7 +20,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var ErrOperationInProgress = errors.New("another operation is in progress")
+var (
+	ErrOperationInProgress  = errors.New("another operation is in progress")
+	ErrOperationPersistence = errors.New("operation persistence unavailable")
+)
 
 const (
 	operationStatusRunning       = "running"
@@ -29,6 +33,7 @@ const (
 	defaultOperationLogLimit     = 200
 	operationInterruptedMsg      = "operation interrupted by controller restart"
 	sqliteOperationSchemaVersion = 1
+	operationPersistAttempts     = 2
 )
 
 type operationEntry struct {
@@ -60,6 +65,22 @@ func (noopOperationStore) Close() error {
 	return nil
 }
 
+type unavailableOperationStore struct {
+	err error
+}
+
+func (s unavailableOperationStore) Load(_ func() time.Time, _ int) ([]operationEntry, uint64, error) {
+	return nil, 0, s.err
+}
+
+func (s unavailableOperationStore) Upsert(_ operationEntry) error {
+	return s.err
+}
+
+func (unavailableOperationStore) Close() error {
+	return nil
+}
+
 type sqliteOperationStore struct {
 	db            *sql.DB
 	legacyLogPath string
@@ -79,14 +100,16 @@ type operationQueryableStore interface {
 }
 
 type operationManager struct {
-	mu         sync.Mutex
-	now        func() time.Time
-	entries    []operationEntry
-	maxEntries int
-	nextID     uint64
-	running    bool
-	logger     *slog.Logger
-	store      operationStore
+	mu                  sync.Mutex
+	now                 func() time.Time
+	entries             []operationEntry
+	maxEntries          int
+	nextID              uint64
+	running             bool
+	logger              *slog.Logger
+	store               operationStore
+	persistenceDegraded bool
+	pendingTerminal     map[uint64]operationEntry
 }
 
 func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logger, store operationStore) *operationManager {
@@ -109,12 +132,14 @@ func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logg
 	}
 
 	loadedEntries, nextID, err := store.Load(now, maxEntries)
+	persistenceDegraded := false
 	if err != nil {
 		logger.Warn("load operation entries failed", "error", err)
 		_ = store.Close()
-		store = noopOperationStore{}
+		store = unavailableOperationStore{err: err}
 		loadedEntries = nil
 		nextID = 0
+		persistenceDegraded = true
 	}
 
 	if len(loadedEntries) > maxEntries {
@@ -122,19 +147,23 @@ func newOperationManager(now func() time.Time, maxEntries int, logger *slog.Logg
 	}
 
 	return &operationManager{
-		now:        now,
-		entries:    loadedEntries,
-		maxEntries: maxEntries,
-		nextID:     nextID,
-		logger:     logger,
-		store:      store,
+		now:                 now,
+		entries:             loadedEntries,
+		maxEntries:          maxEntries,
+		nextID:              nextID,
+		logger:              logger,
+		store:               store,
+		persistenceDegraded: persistenceDegraded,
+		pendingTerminal:     map[uint64]operationEntry{},
 	}
 }
 
 func (m *operationManager) Run(operationType string, fn func() error) error {
 	operationID, err := m.start(operationType)
 	if err != nil {
-		m.reject(operationType, err.Error())
+		if errors.Is(err, ErrOperationInProgress) {
+			m.reject(operationType, err.Error())
+		}
 		m.logger.Warn("operation rejected", "type", operationType, "error", err)
 		return err
 	}
@@ -143,12 +172,18 @@ func (m *operationManager) Run(operationType string, fn func() error) error {
 
 	err = fn()
 	if err != nil {
-		m.finish(operationID, operationStatusFailed, err.Error())
+		finishErr := m.finish(operationID, operationStatusFailed, err.Error())
 		m.logger.Error("operation failed", "id", operationID, "type", operationType, "error", err)
+		if finishErr != nil {
+			return addOperationCompensation(err, finishErr)
+		}
 		return err
 	}
 
-	m.finish(operationID, operationStatusSucceeded, "")
+	if err := m.finish(operationID, operationStatusSucceeded, ""); err != nil {
+		m.logger.Error("persist operation completion failed", "id", operationID, "type", operationType, "error", err)
+		return err
+	}
 	m.logger.Info("operation succeeded", "id", operationID, "type", operationType)
 	return nil
 }
@@ -170,6 +205,7 @@ func (m *operationManager) ListFiltered(filter operationQueryFilter) []operation
 		if err == nil {
 			return entries
 		}
+		m.markPersistenceDegraded()
 		m.logger.Warn("query operation entries failed; falling back to in-memory list", "error", err)
 	}
 
@@ -216,6 +252,9 @@ func (m *operationManager) start(operationType string) (uint64, error) {
 	if m.running {
 		return 0, ErrOperationInProgress
 	}
+	if err := m.flushPendingTerminalLocked(); err != nil {
+		return 0, err
+	}
 
 	m.nextID++
 	now := m.now().UTC()
@@ -225,7 +264,10 @@ func (m *operationManager) start(operationType string) (uint64, error) {
 		Status:    operationStatusRunning,
 		StartedAt: now,
 	})
-	m.persistEntryLocked(m.entries[len(m.entries)-1])
+	if err := m.persistEntryLocked(m.entries[len(m.entries)-1]); err != nil {
+		m.entries = m.entries[:len(m.entries)-1]
+		return 0, err
+	}
 	m.trimEntriesLocked()
 	m.running = true
 
@@ -250,11 +292,12 @@ func (m *operationManager) reject(operationType string, message string) {
 	m.trimEntriesLocked()
 }
 
-func (m *operationManager) finish(operationID uint64, status string, message string) {
+func (m *operationManager) finish(operationID uint64, status string, message string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := m.now().UTC()
+	found := false
 	for i := range m.entries {
 		if m.entries[i].ID != operationID {
 			continue
@@ -263,26 +306,89 @@ func (m *operationManager) finish(operationID uint64, status string, message str
 		m.entries[i].Status = status
 		m.entries[i].Message = message
 		m.entries[i].FinishedAt = &now
-		m.persistEntryLocked(m.entries[i])
+		found = true
+		if err := m.persistEntryLocked(m.entries[i]); err != nil {
+			m.pendingTerminal[operationID] = m.entries[i]
+			m.running = false
+			return err
+		}
+		delete(m.pendingTerminal, operationID)
 		break
 	}
 
 	m.running = false
+	if !found {
+		m.persistenceDegraded = true
+		return fmt.Errorf("%w: active operation %d is missing", ErrOperationPersistence, operationID)
+	}
+	return nil
 }
 
 func (m *operationManager) trimEntriesLocked() {
-	if len(m.entries) <= m.maxEntries {
-		return
+	for len(m.entries) > m.maxEntries {
+		removeAt := -1
+		for i := range m.entries {
+			if m.entries[i].Status != operationStatusRunning {
+				removeAt = i
+				break
+			}
+		}
+		if removeAt < 0 {
+			return
+		}
+		m.entries = append(m.entries[:removeAt], m.entries[removeAt+1:]...)
 	}
-
-	start := len(m.entries) - m.maxEntries
-	m.entries = append([]operationEntry(nil), m.entries[start:]...)
 }
 
-func (m *operationManager) persistEntryLocked(entry operationEntry) {
-	if err := m.store.Upsert(entry); err != nil {
-		m.logger.Warn("persist operation entry failed", "error", err)
+func (m *operationManager) persistEntryLocked(entry operationEntry) error {
+	var err error
+	for attempt := 0; attempt < operationPersistAttempts; attempt++ {
+		err = m.store.Upsert(entry)
+		if err == nil {
+			return nil
+		}
 	}
+	m.persistenceDegraded = true
+	m.logger.Warn("persist operation entry failed", "error", err)
+	return fmt.Errorf("%w: %v", ErrOperationPersistence, err)
+}
+
+func (m *operationManager) persistenceIsDegraded() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.persistenceDegraded
+}
+
+func (m *operationManager) markPersistenceDegraded() {
+	m.mu.Lock()
+	m.persistenceDegraded = true
+	m.mu.Unlock()
+}
+
+func (m *operationManager) flushPendingTerminalLocked() error {
+	if len(m.pendingTerminal) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(m.pendingTerminal))
+	for id := range m.pendingTerminal {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i int, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		if err := m.persistEntryLocked(m.pendingTerminal[id]); err != nil {
+			return err
+		}
+		delete(m.pendingTerminal, id)
+	}
+	return nil
+}
+
+func (m *operationManager) Close() error {
+	m.mu.Lock()
+	store := m.store
+	m.store = unavailableOperationStore{err: errors.New("operation manager is closed")}
+	m.mu.Unlock()
+	return store.Close()
 }
 
 func newSQLiteOperationStore(path string, legacyLogPath string, logger *slog.Logger) (operationStore, error) {

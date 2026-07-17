@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -79,6 +80,64 @@ func TestHealthEndpointReportsDegradedWhenOperationStoreUnavailable(t *testing.T
 	if !foundStore {
 		t.Fatal("expected operation_store health check")
 	}
+}
+
+func TestHealthEndpointReportsOperationStoreLoadFailure(t *testing.T) {
+	store := newFaultOperationStore()
+	store.loadErr = errors.New("load failed")
+	handler := New(Config{Version: "test-version", operationStore: store})
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected mutation refusal after load failure, got %d", res.Code)
+	}
+	assertOperationStoreDegraded(t, handler)
+	if closer, ok := handler.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			t.Fatalf("close handler: %v", err)
+		}
+	}
+	if store.closeCount != 1 {
+		t.Fatalf("expected failed-load store to close exactly once, got %d", store.closeCount)
+	}
+}
+
+func TestHealthEndpointReportsOperationStoreUpsertFailure(t *testing.T) {
+	store := newFaultOperationStore()
+	store.upsertErr = errors.New("upsert failed")
+	handler := New(Config{Version: "test-version", operationStore: store})
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected mutation refusal without audit persistence, got %d", res.Code)
+	}
+	assertAPIErrorCode(t, res, "operation_store_unavailable")
+	assertOperationStoreDegraded(t, handler)
+}
+
+func TestHealthEndpointReportsOperationStoreQueryFailure(t *testing.T) {
+	store := newFaultOperationStore()
+	store.queryErr = errors.New("query failed")
+	handler := New(Config{Version: "test-version", operationStore: store})
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/operations", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected in-memory operation fallback, got %d", res.Code)
+	}
+	assertOperationStoreDegraded(t, handler)
+}
+
+func assertOperationStoreDegraded(t *testing.T, handler http.Handler) {
+	t.Helper()
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/health", "")
+	var payload healthEndpointResponse
+	decodeJSON(t, res, &payload)
+	for _, check := range payload.Checks {
+		if check.Name == "operation_store" {
+			if check.Status != "degraded" || payload.Status != "degraded" {
+				t.Fatalf("expected degraded operation store and overall health, got %+v", payload)
+			}
+			return
+		}
+	}
+	t.Fatal("operation_store health check missing")
 }
 
 func TestHealthEndpointRejectsPostMethod(t *testing.T) {

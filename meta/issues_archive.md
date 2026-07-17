@@ -4,3 +4,4 @@
 - [x] [Clean up orphaned pageserver timelines](issues/clean-up-orphaned-pageserver-timelines.md)
 - [x] [Cancel stalled branch endpoint proxies](issues/cancel-stalled-branch-endpoint-proxies.md)
 - [x] [Harden Podman access and database credentials](issues/harden-docker-access-and-database-credentials.md)
+- [x] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)

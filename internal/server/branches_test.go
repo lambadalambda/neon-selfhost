@@ -259,6 +259,23 @@ func TestCreateBranchPreservesPublishAndTimelineCleanupErrors(t *testing.T) {
 	}
 }
 
+func TestCreateBranchPrioritizesTerminalOperationPersistenceFailure(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.Create("feature-a", "main"); err != nil {
+		t.Fatalf("create existing branch: %v", err)
+	}
+	opStore := newFaultOperationStore()
+	opStore.failStatus = operationStatusFailed
+	opStore.failCount = operationPersistAttempts
+	handler := New(Config{Version: "test-version", BranchStore: store, operationStore: opStore})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"name":"feature-a"}`)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected operation store failure status, got %d", res.Code)
+	}
+	assertAPIErrorCode(t, res, "operation_store_unavailable")
+}
+
 func TestCreateBranchValidationError(t *testing.T) {
 	handler := New(Config{Version: "test-version"})
 	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches", `{"parent":"main"}`)

@@ -1,2 +1,1 @@
-- [ ] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
 - [ ] [Make the race test suite pass](issues/make-race-test-suite-pass.md)

@@ -49,6 +49,7 @@ type Config struct {
 	SQLExecutor              SQLQueryExecutor
 	OperationDBPath          string
 	LegacyOperationLogPath   string
+	operationStore           operationStore
 	BranchStoreMode          string
 	BranchDBPath             string
 	BranchSchemaVersion      int
@@ -270,7 +271,10 @@ func New(cfg Config) http.Handler {
 	opStoreStatus := "ok"
 	opStoreMode := "in_memory"
 	opStoreSchemaVersion := 0
-	if strings.TrimSpace(cfg.OperationDBPath) != "" {
+	if cfg.operationStore != nil {
+		opStore = cfg.operationStore
+		opStoreMode = "injected"
+	} else if strings.TrimSpace(cfg.OperationDBPath) != "" {
 		sqliteStore, err := newSQLiteOperationStore(cfg.OperationDBPath, cfg.LegacyOperationLogPath, logger)
 		if err != nil {
 			logger.Warn("initialize sqlite operation store failed; using in-memory operation log", "path", cfg.OperationDBPath, "error", err)
@@ -322,8 +326,12 @@ func New(cfg Config) http.Handler {
 			primaryStatus = "degraded"
 		}
 
+		currentOperationStoreStatus := opStoreStatus
+		if operations.persistenceIsDegraded() {
+			currentOperationStoreStatus = "degraded"
+		}
 		overallStatus := "ok"
-		if primaryStatus != "ok" || opStoreStatus != "ok" {
+		if primaryStatus != "ok" || currentOperationStoreStatus != "ok" {
 			overallStatus = "degraded"
 		}
 
@@ -332,7 +340,7 @@ func New(cfg Config) http.Handler {
 			Checks: []healthCheckPayload{
 				{Name: "branch_store", Status: "ok"},
 				{Name: "operation_manager", Status: "ok"},
-				{Name: "operation_store", Status: opStoreStatus},
+				{Name: "operation_store", Status: currentOperationStoreStatus},
 				{Name: "primary_endpoint", Status: primaryStatus},
 			},
 		}
@@ -460,6 +468,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrNotFound):
@@ -498,6 +508,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrNotFound):
@@ -641,6 +653,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case isPrimaryEndpointUnavailable(err):
@@ -667,6 +681,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case isPrimaryEndpointUnavailable(err):
@@ -725,6 +741,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrParentMissing):
@@ -813,6 +831,8 @@ func New(cfg Config) http.Handler {
 		if err != nil {
 			primaryErr := primaryOperationError(err)
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(primaryErr, ErrRestoreHistoryUnavailable):
@@ -876,6 +896,8 @@ func New(cfg Config) http.Handler {
 		if err != nil {
 			primaryErr := primaryOperationError(err)
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(primaryErr, branch.ErrInvalidName), errors.Is(primaryErr, branch.ErrParentMissing):
@@ -986,6 +1008,8 @@ func New(cfg Config) http.Handler {
 		if err != nil {
 			primaryErr := primaryOperationError(err)
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(primaryErr, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(primaryErr, branch.ErrProtected), errors.Is(primaryErr, branch.ErrInvalidName), errors.Is(primaryErr, branch.ErrParentMissing):
@@ -1025,6 +1049,8 @@ func New(cfg Config) http.Handler {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, ErrOperationPersistence):
+				writeJSONError(w, http.StatusServiceUnavailable, "operation_store_unavailable", err.Error())
 			case errors.Is(err, ErrOperationInProgress):
 				writeJSONError(w, http.StatusConflict, "conflict", err.Error())
 			case errors.Is(err, branch.ErrProtected):
@@ -1051,11 +1077,7 @@ func New(cfg Config) http.Handler {
 		handler = withBasicAuth(handler, cfg.BasicAuthUser, cfg.BasicAuthPassword)
 	}
 
-	if closer, ok := opStore.(io.Closer); ok {
-		return closeableHandler{Handler: handler, closer: closer}
-	}
-
-	return handler
+	return closeableHandler{Handler: handler, closer: operations}
 }
 
 func isKnownOperationStatus(status string) bool {
