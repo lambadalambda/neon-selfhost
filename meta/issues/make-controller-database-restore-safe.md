@@ -7,7 +7,7 @@ The mise restore task can overwrite databases used by a running controller and d
 ## Requirements
 
 - Refuse to restore while the target controller is running.
-- Provide a restore path that targets the Docker Compose controller volume.
+- Provide a restore path that targets the Podman Compose controller volume.
 - Avoid reporting success when no controller databases were restored.
 - Document native and Compose restore usage accurately.
 
@@ -15,4 +15,4 @@ The mise restore task can overwrite databases used by a running controller and d
 
 - Automated tests cover running-controller refusal and missing database handling.
 - Native restore requires explicit, valid source and target data.
-- Compose users have a documented task that restores the named volume safely.
+- Podman Compose users have a documented task that restores the named volume safely.

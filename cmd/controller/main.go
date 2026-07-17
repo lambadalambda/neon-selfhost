@@ -14,6 +14,7 @@ import (
 
 	"neon-selfhost/internal/branch"
 	"neon-selfhost/internal/config"
+	"neon-selfhost/internal/controllerdb"
 	"neon-selfhost/internal/preflight"
 	"neon-selfhost/internal/server"
 )
@@ -37,6 +38,15 @@ func main() {
 	if err := preflight.CheckControllerDataDir(cfg.ComputeDataDir); err != nil {
 		logger.Error("compute data preflight", "error", err)
 		os.Exit(1)
+	}
+	var controllerDataLock *controllerdb.Lock
+	if cfg.ControllerDataDir != "" {
+		controllerDataLock, err = controllerdb.AcquireLock(cfg.ControllerDataDir)
+		if err != nil {
+			logger.Error("lock controller data directory", "error", err)
+			os.Exit(1)
+		}
+		defer controllerDataLock.Close()
 	}
 
 	branchStore := branch.NewStore()

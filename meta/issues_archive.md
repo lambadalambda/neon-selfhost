@@ -1,1 +1,2 @@
 - [x] [Restore primary endpoint after failed switch](issues/restore-primary-endpoint-after-failed-switch.md)
+- [x] [Make controller database restore safe](issues/make-controller-database-restore-safe.md)

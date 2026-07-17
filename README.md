@@ -78,13 +78,9 @@ Operation history (`GET /api/v1/operations`) is persisted in SQLite (`operations
 
 `GET /api/v1/status` includes persistence details (store modes, DB path, and migration versions).
 
-Quick backup/export example for the branch-state database:
+For a native controller, use `mise run db:backup` / `mise run db:restore` to snapshot and restore both `controller.db` and `operations.db` together. Set `CONTROLLER_DATA_DIR` explicitly and stop the controller first; an exclusive data-directory lock prevents backup or restore while the controller is using those databases. Restore also requires `BACKUP_DIR` and preserves the replaced databases in a timestamped `pre-restore-*` directory.
 
-```bash
-sqlite3 "${CONTROLLER_DATA_DIR}/controller.db" ".backup '${CONTROLLER_DATA_DIR}/controller-$(date +%Y%m%d-%H%M%S).db'"
-```
-
-Use `mise run db:backup` / `mise run db:restore` to snapshot and restore both `controller.db` and `operations.db` together.
+Podman Compose deployments store these databases in a named volume. Stop the controller and use `mise run db:backup:compose` / `mise run db:restore:compose` to export or replace that complete volume instead.
 
 `POST /api/v1/restore` now resolves timestamp-to-LSN via pageserver APIs, creates restore timelines at the resolved LSN, and persists the new branch attachment metadata.
 
@@ -216,12 +212,25 @@ Run the same verification with automatic stack start/stop:
 mise run db:verify:fresh
 ```
 
-Backup or restore controller metadata:
+Backup or restore metadata for a native controller:
 
 ```bash
-mise run db:backup
-BACKUP_DIR=/path/to/backup-dir mise run db:restore
+CONTROLLER_DATA_DIR=.data/controller mise run db:backup
+# Stop the native controller before restoring.
+CONTROLLER_DATA_DIR=.data/controller BACKUP_DIR=/path/to/backup-dir mise run db:restore
 ```
+
+For the Podman Compose stack, stop the controller before exporting or restoring its named volume:
+
+```bash
+export BASIC_AUTH_PASSWORD=change-me
+podman compose stop controller
+mise run db:backup:compose
+BACKUP_DIR=/path/to/backup-dir mise run db:restore:compose
+podman compose --profile neon up -d
+```
+
+The Compose tasks use the `neon-selfhost_controller_state` volume by default. Override `CONTROLLER_VOLUME` if your Compose provider uses a different name. Restore validates both SQLite databases and exports rollback state before replacing the volume.
 
 The backing script is `scripts/reset_seed_data.sh`.
 By default the script uses the active branch password returned by `GET /api/v1/endpoints/primary/connection`; set `DB_PASSWORD` only to override that.

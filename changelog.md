@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Safe native and Podman Compose controller database backup/restore tooling with exclusive data-directory locking, SQLite integrity validation, and automatic volume rollback.
 - HTTP basic auth support for controller API routes via `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD`.
 - Persistent branch store support via `CONTROLLER_DATA_DIR`, with branch state written to `branches.json`.
 - Serialized branch mutation execution and in-memory operation logging exposed by `GET /api/v1/operations`.
