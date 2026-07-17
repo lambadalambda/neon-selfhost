@@ -1,4 +1,3 @@
-- [ ] [Cancel stalled branch endpoint proxies](issues/cancel-stalled-branch-endpoint-proxies.md)
 - [ ] [Harden Docker access and database credentials](issues/harden-docker-access-and-database-credentials.md)
 - [ ] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
 - [ ] [Make the race test suite pass](issues/make-race-test-suite-pass.md)

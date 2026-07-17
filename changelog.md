@@ -48,6 +48,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Branch endpoint TCP proxies now force-close stalled peers after a bounded half-close drain period, preventing leaked sockets and active-connection slots.
 - Branch create, restore, and reset failures now roll back controller references before deleting newly created pageserver timelines, with compensating primary and branch endpoint restoration.
 - Controller shutdown now drains in-flight HTTP requests before closing endpoint and SQLite resources, while preserving bounded cleanup and failure exit codes.
 - Failed primary endpoint branch switches now stop any ambiguously started target runtime, restore the previous selection, and restart the previous endpoint when it was running.

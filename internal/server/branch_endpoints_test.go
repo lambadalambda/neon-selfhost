@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -235,6 +236,87 @@ func TestProxyConnectionsReturnsAfterPeersClose(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("proxyConnections did not return after peers closed")
 	}
+}
+
+func TestProxyConnectionsStopsAfterDrainTimeoutWithSilentPeer(t *testing.T) {
+	clientSide, clientProxy := net.Pipe()
+	backendSide, backendProxy := net.Pipe()
+	defer backendSide.Close()
+
+	done := make(chan struct{})
+	go func() {
+		proxyConnectionsWithDrainTimeout(clientProxy, backendProxy, 20*time.Millisecond)
+		close(done)
+	}()
+	if err := clientSide.Close(); err != nil {
+		t.Fatalf("close client: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("proxy did not close a silent peer after drain timeout")
+	}
+	if _, err := backendSide.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected backend peer to observe proxy closure")
+	}
+}
+
+func TestProxyConnectionsStopsBothCopiesAfterCopyError(t *testing.T) {
+	clientSide, clientProxy := net.Pipe()
+	backendSide, backendProxy := net.Pipe()
+	defer clientSide.Close()
+	defer backendSide.Close()
+
+	done := make(chan struct{})
+	go func() {
+		proxyConnectionsWithDrainTimeout(readErrorConn{Conn: clientProxy, err: errors.New("injected read failure")}, backendProxy, 20*time.Millisecond)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("proxy did not terminate both copies after an error")
+	}
+}
+
+func TestProxyDrainTimeoutReleasesActiveConnection(t *testing.T) {
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56049)
+	if !controller.tryIncrementActive("feature-a") {
+		t.Fatal("expected active connection increment")
+	}
+	clientSide, clientProxy := net.Pipe()
+	backendSide, backendProxy := net.Pipe()
+	defer backendSide.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer controller.decrementActive("feature-a")
+		proxyConnectionsWithDrainTimeout(clientProxy, backendProxy, 20*time.Millisecond)
+	}()
+	_ = clientSide.Close()
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("proxy did not release active connection after drain timeout")
+	}
+	controller.mu.Lock()
+	active := controller.activeConns["feature-a"]
+	controller.mu.Unlock()
+	if active != 0 {
+		t.Fatalf("expected active connection count 0, got %d", active)
+	}
+}
+
+type readErrorConn struct {
+	net.Conn
+	err error
+}
+
+func (c readErrorConn) Read(_ []byte) (int, error) {
+	return 0, c.err
 }
 
 func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir string, portStart int, portEnd int) *dockerBranchEndpointController {

@@ -28,6 +28,7 @@ const (
 	defaultBranchEndpointTimeout   = 60 * time.Second
 	defaultBranchEndpointIdleStop  = 10 * time.Minute
 	defaultBranchEndpointMaxActive = 32
+	defaultBranchProxyDrainTimeout = 5 * time.Second
 	branchComputePort              = 55433
 )
 
@@ -678,6 +679,13 @@ func (c *dockerBranchEndpointController) handleClientConnection(branchName strin
 }
 
 func proxyConnections(clientConn net.Conn, backendConn net.Conn) {
+	proxyConnectionsWithDrainTimeout(clientConn, backendConn, defaultBranchProxyDrainTimeout)
+}
+
+func proxyConnectionsWithDrainTimeout(clientConn net.Conn, backendConn net.Conn, drainTimeout time.Duration) {
+	if drainTimeout <= 0 {
+		drainTimeout = defaultBranchProxyDrainTimeout
+	}
 	errCh := make(chan error, 2)
 
 	go func() {
@@ -692,8 +700,24 @@ func proxyConnections(clientConn net.Conn, backendConn net.Conn) {
 		errCh <- err
 	}()
 
-	<-errCh
-	<-errCh
+	firstErr := <-errCh
+	if firstErr != nil {
+		_ = clientConn.Close()
+		_ = backendConn.Close()
+		<-errCh
+		return
+	}
+
+	timer := time.NewTimer(drainTimeout)
+	defer timer.Stop()
+	select {
+	case <-errCh:
+		return
+	case <-timer.C:
+		_ = clientConn.Close()
+		_ = backendConn.Close()
+		<-errCh
+	}
 }
 
 func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string, attachment BranchAttachment, password string) (string, error) {
