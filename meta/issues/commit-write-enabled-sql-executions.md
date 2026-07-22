@@ -18,3 +18,10 @@ Successful SQL executions with write mode enabled currently return success but a
 - Read-only requests still reject writes.
 - Unit, integration, race, and Compose checks pass.
 - A disposable production probe is committed, observed, and removed after deployment.
+
+## Outcome
+
+- Successful read-write executions close their result stream and commit through a bounded context.
+- Truncated writes, read-only writes, query failures, and pre-commit cancellation roll back without committing.
+- Definitive commit rollback and unknown commit outcome errors have distinct API responses.
+- Unit, API, integration, race, vet, and Compose checks pass.

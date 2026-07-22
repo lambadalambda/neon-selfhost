@@ -685,6 +685,12 @@ func New(cfg Config) http.Handler {
 			switch {
 			case errors.Is(err, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case errors.Is(err, ErrSQLWriteResultTruncated):
+				writeJSONError(w, http.StatusUnprocessableEntity, "result_limit", "write result exceeded execution limits and was rolled back")
+			case errors.Is(err, ErrSQLCommitFailed):
+				writeJSONError(w, http.StatusInternalServerError, "commit_failed", "transaction was rolled back during commit")
+			case errors.Is(err, ErrSQLCommitOutcomeUnknown):
+				writeJSONError(w, http.StatusServiceUnavailable, "commit_outcome_unknown", "commit outcome is unknown; verify data before retrying")
 			case isPrimaryEndpointUnavailable(err):
 				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
 			case errors.Is(err, context.DeadlineExceeded):

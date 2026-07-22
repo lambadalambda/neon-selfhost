@@ -276,6 +276,29 @@ func TestExecuteSQLReturnsUnavailableWhenExecutorUnavailable(t *testing.T) {
 	assertAPIErrorCode(t, res, "endpoint_unavailable")
 }
 
+func TestExecuteSQLClassifiesTransactionOutcomeErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "write result truncated", err: ErrSQLWriteResultTruncated, wantStatus: http.StatusUnprocessableEntity, wantCode: "result_limit"},
+		{name: "commit rolled back", err: ErrSQLCommitFailed, wantStatus: http.StatusInternalServerError, wantCode: "commit_failed"},
+		{name: "commit outcome unknown", err: ErrSQLCommitOutcomeUnknown, wantStatus: http.StatusServiceUnavailable, wantCode: "commit_outcome_unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := New(Config{Version: "test-version", SQLExecutor: &fakeSQLQueryExecutor{err: tt.err}})
+			res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"INSERT INTO app.documents(title) VALUES ('x')","allow_writes":true}`)
+			if res.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d", tt.wantStatus, res.Code)
+			}
+			assertAPIErrorCode(t, res, tt.wantCode)
+		})
+	}
+}
+
 func TestExecuteSQLReturnsNotFoundForUnknownBranch(t *testing.T) {
 	handler := New(Config{Version: "test-version", SQLExecutor: &fakeSQLQueryExecutor{result: sqlExecutionResult{Branch: "missing"}}})
 	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/missing/sql/execute", `{"sql":"SELECT 1"}`)

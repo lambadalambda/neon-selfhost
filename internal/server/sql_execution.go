@@ -20,11 +20,18 @@ const (
 	defaultSQLExecutionConnectTimeout   = 15 * time.Second
 	defaultSQLExecutionStatementTimeout = 10 * time.Second
 	defaultSQLExecutionLockTimeout      = 1 * time.Second
+	defaultSQLExecutionCommitTimeout    = 5 * time.Second
 	defaultSQLExecutionCleanupTimeout   = 3 * time.Second
 	defaultSQLExecutionMaxRows          = 200
 	defaultSQLExecutionMaxBytes         = 1 << 20
 	defaultSQLExecutionMaxQueryBytes    = 64 * 1024
 	defaultSQLExecutionMaxCellBytes     = 8 * 1024
+)
+
+var (
+	ErrSQLWriteResultTruncated = errors.New("write result exceeded execution limits")
+	ErrSQLCommitFailed         = errors.New("transaction was rolled back during commit")
+	ErrSQLCommitOutcomeUnknown = errors.New("transaction commit outcome is unknown")
 )
 
 type SQLQueryExecutor interface {
@@ -103,9 +110,16 @@ type branchEndpointSQLQueryExecutor struct {
 	connectTimeout   time.Duration
 	statementTimeout time.Duration
 	lockTimeout      time.Duration
+	commitTimeout    time.Duration
 	maxRows          int
 	maxBytes         int
 	maxCellBytes     int
+}
+
+type sqlExecutionTransaction interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
 }
 
 func NewBranchEndpointSQLQueryExecutor(branchEndpoints BranchEndpointController) SQLQueryExecutor {
@@ -123,6 +137,7 @@ func NewBranchEndpointSQLQueryExecutor(branchEndpoints BranchEndpointController)
 		connectTimeout:   defaultSQLExecutionConnectTimeout,
 		statementTimeout: defaultSQLExecutionStatementTimeout,
 		lockTimeout:      defaultSQLExecutionLockTimeout,
+		commitTimeout:    defaultSQLExecutionCommitTimeout,
 		maxRows:          defaultSQLExecutionMaxRows,
 		maxBytes:         defaultSQLExecutionMaxBytes,
 		maxCellBytes:     defaultSQLExecutionMaxCellBytes,
@@ -445,6 +460,10 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	if err != nil {
 		return sqlExecutionResult{}, mapSQLExecutionError(err)
 	}
+	return e.executeTransaction(ctx, tx, branchName, database, query, readOnly)
+}
+
+func (e *branchEndpointSQLQueryExecutor) executeTransaction(ctx context.Context, tx sqlExecutionTransaction, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error) {
 	defer rollbackSQLTx(tx)
 
 	started := time.Now()
@@ -491,15 +510,35 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 		bytesUsed += rowBytes
 	}
 
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return sqlExecutionResult{}, mapSQLExecutionError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return sqlExecutionResult{}, err
+	}
+	if truncated && !readOnly {
+		return sqlExecutionResult{}, ErrSQLWriteResultTruncated
+	}
+	commandTag := rows.CommandTag().String()
+	if !readOnly {
+		commitTimeout := e.commitTimeout
+		if commitTimeout <= 0 {
+			commitTimeout = defaultSQLExecutionCommitTimeout
+		}
+		commitCtx, cancel := context.WithTimeout(ctx, commitTimeout)
+		commitErr := tx.Commit(commitCtx)
+		cancel()
+		if commitErr != nil {
+			return sqlExecutionResult{}, classifySQLCommitError(commitErr)
+		}
 	}
 
 	result := sqlExecutionResult{
 		Branch:     branchName,
 		Database:   database,
 		ReadOnly:   readOnly,
-		CommandTag: rows.CommandTag().String(),
+		CommandTag: commandTag,
 		DurationMS: time.Since(started).Milliseconds(),
 		Truncated:  truncated,
 		MaxRows:    e.maxRows,
@@ -514,6 +553,14 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	}
 
 	return result, nil
+}
+
+func classifySQLCommitError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.Is(err, pgx.ErrTxCommitRollback) || errors.As(err, &pgErr) {
+		return fmt.Errorf("%w: %w", ErrSQLCommitFailed, err)
+	}
+	return fmt.Errorf("%w: %w; verify the write before retrying", ErrSQLCommitOutcomeUnknown, err)
 }
 
 func normalizeSQLResultValue(value any, maxCellBytes int) any {
@@ -566,7 +613,7 @@ func closeSQLConnection(conn *pgx.Conn) {
 	_ = conn.Close(cleanupCtx)
 }
 
-func rollbackSQLTx(tx pgx.Tx) {
+func rollbackSQLTx(tx sqlExecutionTransaction) {
 	if tx == nil {
 		return
 	}
