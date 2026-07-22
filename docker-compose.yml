@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile.controller
     image: neon-selfhost/controller:dev
     user: "65532:0"
+    group_add:
+      - "${CONTAINER_ENGINE_GID:-0}"
     environment:
       HTTP_HOST: 0.0.0.0
       PORT: "8080"
