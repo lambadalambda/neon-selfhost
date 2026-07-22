@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- An opt-in Compose storage override for binding all persistent Neon state to a dedicated filesystem through `NEON_DATA_ROOT`.
 - Safe native and Podman Compose controller database backup/restore tooling with exclusive data-directory locking, SQLite integrity validation, and automatic volume rollback.
 - HTTP basic auth support for controller API routes via `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD`.
 - Persistent branch store support via `CONTROLLER_DATA_DIR`, with branch state written to `branches.json`.

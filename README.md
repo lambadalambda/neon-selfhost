@@ -176,6 +176,16 @@ For a non-Podman Docker socket, set `CONTAINER_ENGINE_SOCKET=/var/run/docker.soc
 The single-node default uses one safekeeper; running multiple safekeepers on one disk increases write amplification without adding a separate failure domain.
 The compose controller runs with the internally named `PRIMARY_ENDPOINT_MODE=docker` compatibility mode, uses Podman's Docker-compatible API socket to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata. `PRIMARY_ENDPOINT_PASSWORD` is required and is applied before compute starts.
 
+For production-sized data, place Neon state on a dedicated filesystem with the storage override. Create `controller`, `compute`, `pageserver`, and `safekeeper1` directories under the selected root, assign the controller directories to UID `65532` and the storage directories to UID `1000`, then run:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.storage.yml \
+NEON_DATA_ROOT=/mnt/neon \
+PRIMARY_ENDPOINT_PASSWORD=replace-me \
+BASIC_AUTH_PASSWORD=change-me \
+podman compose --profile neon up -d --build
+```
+
 The controller process runs as UID `65532`, with supplementary socket-group access. Access to the Podman API socket still grants engine-level authority equivalent to the account running the Podman machine. Keep the controller bound to localhost, use strong auth, and do not treat the socket mount as a security boundary. The tested default is a rootful Podman machine; rootless Podman requires a `CONTAINER_ENGINE_SOCKET` override and compatible socket ownership and is not yet validated.
 
 Endpoint selection files contain live database passwords in plaintext on the shared `compute_state` volume so compute containers with a different UID can consume them. Treat access to that volume as credential access.

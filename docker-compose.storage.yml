@@ -1,0 +1,25 @@
+volumes:
+  controller_state:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/controller
+  compute_state:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/compute
+  pageserver_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/pageserver
+  safekeeper1_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/safekeeper1
