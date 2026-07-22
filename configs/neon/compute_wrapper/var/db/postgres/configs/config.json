@@ -19,7 +19,7 @@
       "settings": [
         {
           "name": "fsync",
-          "value": "off",
+          "value": "on",
           "vartype": "bool"
         },
         {

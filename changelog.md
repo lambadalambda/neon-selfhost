@@ -48,6 +48,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Compose compute now keeps PostgreSQL `fsync` enabled, and the controller's localhost host port can be overridden with `CONTROLLER_HOST_PORT` to avoid collisions.
 - Branch endpoint idle-timeout tests now synchronize their tracking engine and pass reliably under the Go race detector.
 - Operation audit persistence now fails closed before mutations, preserves running entries during retention trimming, reconciles terminal writes before later operations, and reports runtime degradation through health checks.
 - Podman Compose now requires and applies an explicit endpoint password, and the controller runs as non-root with Podman socket-group access.

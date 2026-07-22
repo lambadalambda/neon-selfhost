@@ -171,6 +171,7 @@ mise run stack:ps
 ```
 
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
+Set `CONTROLLER_HOST_PORT` to change the controller's localhost port when `8080` is already in use.
 The compose controller runs with the internally named `PRIMARY_ENDPOINT_MODE=docker` compatibility mode, uses Podman's Docker-compatible API socket to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata. `PRIMARY_ENDPOINT_PASSWORD` is required and is applied before compute starts.
 
 The controller process runs as UID `65532`, with supplementary socket-group access. Access to the Podman API socket still grants engine-level authority equivalent to the account running the Podman machine. Keep the controller bound to localhost, use strong auth, and do not treat the socket mount as a security boundary. The tested default is a rootful Podman machine; rootless Podman requires a `CONTAINER_ENGINE_SOCKET` override and compatible socket ownership and is not yet validated.
