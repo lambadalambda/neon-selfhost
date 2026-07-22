@@ -11,6 +11,12 @@ volumes:
       type: none
       o: bind
       device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/compute
+  compute_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${NEON_DATA_ROOT:?set NEON_DATA_ROOT}/compute-cache
   pageserver_data:
     driver: local
     driver_opts:

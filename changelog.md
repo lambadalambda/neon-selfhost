@@ -49,6 +49,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Compose compute now uses a dedicated 2 GiB local file cache and 128 MiB of shared buffers instead of issuing every nonresident page read directly to pageserver.
 - Compose can grant the non-root controller access to a non-default container-engine socket group through `CONTAINER_ENGINE_GID`.
 - Compose compute now keeps PostgreSQL `fsync` enabled, and the controller's localhost host port can be overridden with `CONTROLLER_HOST_PORT` to avoid collisions.
 - Branch endpoint idle-timeout tests now synchronize their tracking engine and pass reliably under the Go race detector.

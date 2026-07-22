@@ -44,7 +44,22 @@
         },
         {
           "name": "shared_buffers",
-          "value": "1MB",
+          "value": "128MB",
+          "vartype": "string"
+        },
+        {
+          "name": "neon.max_file_cache_size",
+          "value": "2GB",
+          "vartype": "string"
+        },
+        {
+          "name": "neon.file_cache_size_limit",
+          "value": "2GB",
+          "vartype": "string"
+        },
+        {
+          "name": "neon.file_cache_path",
+          "value": "/neon/cache/file.cache",
           "vartype": "string"
         },
         {

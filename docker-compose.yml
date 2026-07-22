@@ -96,6 +96,7 @@ services:
       PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD before running podman compose}
     volumes:
       - compute_state:/var/lib/neon/compute
+      - compute_cache:/neon/cache
       - ./configs/neon/compute_wrapper/var/db/postgres/configs:/var/db/postgres/configs:ro
       - ./configs/neon/compute_wrapper/shell:/shell:ro
     entrypoint:
@@ -111,6 +112,7 @@ services:
 volumes:
   controller_state:
   compute_state:
+  compute_cache:
   pageserver_data:
   safekeeper1_data:
 
