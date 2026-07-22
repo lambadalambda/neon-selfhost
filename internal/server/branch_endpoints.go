@@ -40,6 +40,7 @@ type BranchEndpointController interface {
 	Connection(branchName string) (branchEndpointState, error)
 	List() ([]branchEndpointState, error)
 	Refresh(branchName string, attachment BranchAttachment, password string) error
+	PreparePrimarySwitch(branchName string) error
 	Close() error
 }
 
@@ -69,8 +70,11 @@ type DockerBranchEndpointOptions struct {
 	PortStart      int
 	PortEnd        int
 
-	Database string
-	User     string
+	Database           string
+	User               string
+	PrimaryEndpoint    PrimaryEndpointController
+	PrimaryBackendHost string
+	PrimaryBackendPort int
 
 	ComputeImage   string
 	ComputeVolume  string
@@ -139,6 +143,10 @@ func (n noopBranchEndpointController) Refresh(_ string, _ BranchAttachment, _ st
 	return nil
 }
 
+func (n noopBranchEndpointController) PreparePrimarySwitch(_ string) error {
+	return nil
+}
+
 func (n noopBranchEndpointController) Close() error {
 	return nil
 }
@@ -162,6 +170,9 @@ type dockerBranchEndpointController struct {
 	portEnd              int
 	database             string
 	user                 string
+	primaryRouteProvider primaryEndpointRouteProvider
+	primaryBackendHost   string
+	primaryBackendPort   int
 	computeImage         string
 	computeVolume        string
 	computeNetwork       string
@@ -169,6 +180,7 @@ type dockerBranchEndpointController struct {
 	pgVersion            int
 	startupTimeout       time.Duration
 	idleTimeout          time.Duration
+	drainTimeout         time.Duration
 	maxActiveConnections int
 	logger               *slog.Logger
 
@@ -178,6 +190,13 @@ type dockerBranchEndpointController struct {
 	idleTimers       map[string]*time.Timer
 	lastErrors       map[string]string
 	branchStartLocks map[string]*sync.Mutex
+}
+
+type primaryBranchRoute struct {
+	Address  string
+	Database string
+	User     string
+	Password string
 }
 
 func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (BranchEndpointController, error) {
@@ -220,6 +239,19 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 	user := strings.TrimSpace(opts.User)
 	if user == "" {
 		user = defaultPrimaryEndpointUser
+	}
+	primaryBackendHost := strings.TrimSpace(opts.PrimaryBackendHost)
+	primaryBackendPort := opts.PrimaryBackendPort
+	if opts.PrimaryEndpoint != nil && (primaryBackendHost == "" || primaryBackendPort < 1 || primaryBackendPort > 65535) {
+		return nil, fmt.Errorf("%w: valid primary backend address is required", ErrPrimaryEndpointUnavailable)
+	}
+	var primaryRouteProvider primaryEndpointRouteProvider
+	if opts.PrimaryEndpoint != nil {
+		var ok bool
+		primaryRouteProvider, ok = opts.PrimaryEndpoint.(primaryEndpointRouteProvider)
+		if !ok {
+			return nil, fmt.Errorf("%w: primary endpoint does not expose applied route state", ErrPrimaryEndpointUnavailable)
+		}
 	}
 
 	computeImage := strings.TrimSpace(opts.ComputeImage)
@@ -277,6 +309,9 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		portEnd:              portEnd,
 		database:             database,
 		user:                 user,
+		primaryRouteProvider: primaryRouteProvider,
+		primaryBackendHost:   primaryBackendHost,
+		primaryBackendPort:   primaryBackendPort,
 		computeImage:         computeImage,
 		computeVolume:        computeVolume,
 		computeNetwork:       computeNetwork,
@@ -284,6 +319,7 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 		pgVersion:            pgVersion,
 		startupTimeout:       startupTimeout,
 		idleTimeout:          idleTimeout,
+		drainTimeout:         defaultBranchProxyDrainTimeout,
 		maxActiveConnections: maxActiveConns,
 		logger:               loggerOrDefault(opts.Logger),
 		listeners:            map[string]net.Listener{},
@@ -298,6 +334,71 @@ func NewDockerBranchEndpointController(opts DockerBranchEndpointOptions) (Branch
 	}
 
 	return controller, nil
+}
+
+func (c *dockerBranchEndpointController) resolvePrimaryBranchRoute(branchName string, attachment BranchAttachment) (primaryBranchRoute, bool, error) {
+	route, primaryBacked, release, err := c.acquirePrimaryBranchRoute(branchName, attachment)
+	release()
+	return route, primaryBacked, err
+}
+
+func (c *dockerBranchEndpointController) acquirePrimaryBranchRoute(branchName string, attachment BranchAttachment) (primaryBranchRoute, bool, func(), error) {
+	release := func() {}
+	if c.primaryRouteProvider == nil {
+		return primaryBranchRoute{}, false, release, nil
+	}
+
+	routeState, releaseRoute, err := c.primaryRouteProvider.AcquirePrimaryRouteState()
+	if err != nil {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: resolve applied primary branch route: %v", ErrPrimaryEndpointUnavailable, err)
+	}
+	release = releaseRoute
+	if routeState.Transitioning {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: primary attachment transition is in progress", ErrPrimaryEndpointUnavailable)
+	}
+	if routeState.Blocked {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: primary attachment state requires reconciliation", ErrPrimaryEndpointUnavailable)
+	}
+	for _, reservedBranch := range routeState.ReservedBranches {
+		if strings.EqualFold(strings.TrimSpace(reservedBranch), strings.TrimSpace(branchName)) {
+			return primaryBranchRoute{}, true, release, fmt.Errorf("%w: branch is reserved for a primary attachment transition", ErrPrimaryEndpointUnavailable)
+		}
+	}
+	if !routeState.Applied {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: applied primary attachment is unverified", ErrPrimaryEndpointUnavailable)
+	}
+	state := routeState.Connection
+	stateTenantID := strings.ToLower(strings.TrimSpace(state.TenantID))
+	stateTimelineID := strings.ToLower(strings.TrimSpace(state.TimelineID))
+	attachmentTenantID := strings.ToLower(strings.TrimSpace(attachment.TenantID))
+	attachmentTimelineID := strings.ToLower(strings.TrimSpace(attachment.TimelineID))
+	if stateTenantID == "" || stateTimelineID == "" {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: applied primary attachment is incomplete", ErrPrimaryEndpointUnavailable)
+	}
+
+	primaryBacked := stateTenantID == attachmentTenantID && stateTimelineID == attachmentTimelineID
+	if !primaryBacked {
+		if strings.EqualFold(strings.TrimSpace(state.Branch), strings.TrimSpace(branchName)) {
+			return primaryBranchRoute{}, true, release, fmt.Errorf("%w: selected primary branch attachment does not match", ErrPrimaryEndpointUnavailable)
+		}
+		return primaryBranchRoute{}, false, release, nil
+	}
+	if !state.Running || !state.Ready {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: selected primary compute is not ready", ErrPrimaryEndpointUnavailable)
+	}
+	database := strings.TrimSpace(state.Database)
+	user := strings.TrimSpace(state.User)
+	password := strings.TrimSpace(state.Password)
+	if database == "" || user == "" || password == "" {
+		return primaryBranchRoute{}, true, release, fmt.Errorf("%w: selected primary credentials are incomplete", ErrPrimaryEndpointUnavailable)
+	}
+
+	return primaryBranchRoute{
+		Address:  net.JoinHostPort(c.primaryBackendHost, strconv.Itoa(c.primaryBackendPort)),
+		Database: database,
+		User:     user,
+		Password: password,
+	}, true, release, nil
 }
 
 func (c *dockerBranchEndpointController) restorePublishedListeners() error {
@@ -443,6 +544,57 @@ func (c *dockerBranchEndpointController) Refresh(branchName string, attachment B
 	return err
 }
 
+func (c *dockerBranchEndpointController) PreparePrimarySwitch(branchName string) error {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return branch.ErrNotFound
+	}
+
+	drainTimeout := c.drainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = defaultBranchProxyDrainTimeout
+	}
+	deadline := time.Now().Add(drainTimeout)
+	for {
+		c.mu.Lock()
+		active := c.activeConns[branchName]
+		c.mu.Unlock()
+		if active == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: branch %q still has %d active connections", ErrPrimaryEndpointUnavailable, branchName, active)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	c.mu.Lock()
+	if timer, exists := c.idleTimers[branchName]; exists {
+		timer.Stop()
+		delete(c.idleTimers, branchName)
+	}
+	c.mu.Unlock()
+
+	containerName := c.containerName(branchName)
+	inspect, exists, err := c.engine.InspectContainerByName(containerName)
+	if err != nil {
+		return fmt.Errorf("inspect branch compute before primary switch: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	if inspect.State.Running {
+		if err := c.engine.StopContainer(inspect.ID); err != nil {
+			return fmt.Errorf("stop branch compute before primary switch: %w", err)
+		}
+	}
+	if err := c.engine.RemoveContainer(inspect.ID, true); err != nil {
+		return fmt.Errorf("remove branch compute before primary switch: %w", err)
+	}
+	c.log().Info("removed branch compute before primary switch", "branch", branchName, "container", containerName)
+	return nil
+}
+
 func (c *dockerBranchEndpointController) Connection(branchName string) (branchEndpointState, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
@@ -481,6 +633,23 @@ func (c *dockerBranchEndpointController) Connection(branchName string) (branchEn
 		state.Status = "error"
 		if strings.TrimSpace(state.LastError) == "" {
 			state.LastError = "listener unavailable"
+		}
+		return state, nil
+	}
+	primaryRoute, primaryBacked, routeErr := c.resolvePrimaryBranchRoute(branchName, BranchAttachment{TenantID: b.TenantID, TimelineID: b.TimelineID})
+	if routeErr != nil {
+		state.Status = "error"
+		state.LastError = routeErr.Error()
+		return state, nil
+	}
+	if primaryBacked {
+		state.Status = "running"
+		state.Database = primaryRoute.Database
+		state.User = primaryRoute.User
+		state.Password = primaryRoute.Password
+		state.LastError = ""
+		if state.ActiveConnections > 0 {
+			state.Status = "active"
 		}
 		return state, nil
 	}
@@ -659,14 +828,35 @@ func (c *dockerBranchEndpointController) handleClientConnection(branchName strin
 		return
 	}
 
-	backendAddress, err := c.ensureComputeRunning(branchName, BranchAttachment{TenantID: b.TenantID, TimelineID: b.TimelineID}, b.Password)
+	attachment := BranchAttachment{TenantID: b.TenantID, TimelineID: b.TimelineID}
+	startLock := c.branchLock(branchName)
+	startLock.Lock()
+	primaryRoute, primaryBacked, releaseRoute, err := c.acquirePrimaryBranchRoute(branchName, attachment)
 	if err != nil {
-		c.log().Warn("ensure branch compute running failed", "branch", branchName, "error", err)
+		releaseRoute()
+		startLock.Unlock()
+		c.log().Warn("resolve branch compute route failed", "branch", branchName, "error", err)
 		c.recordError(branchName, err)
 		return
 	}
+	backendAddress := primaryRoute.Address
+	if !primaryBacked {
+		backendAddress, err = c.ensureComputeRunningLocked(branchName, attachment, b.Password)
+		releaseRoute()
+		startLock.Unlock()
+		if err != nil {
+			c.log().Warn("ensure branch compute running failed", "branch", branchName, "error", err)
+			c.recordError(branchName, err)
+			return
+		}
+	} else {
+		startLock.Unlock()
+	}
 
 	backendConn, err := net.DialTimeout("tcp", backendAddress, 10*time.Second)
+	if primaryBacked {
+		releaseRoute()
+	}
 	if err != nil {
 		c.log().Warn("dial branch compute backend failed", "branch", branchName, "backend", backendAddress, "error", err)
 		c.recordError(branchName, fmt.Errorf("dial branch compute backend: %w", err))
@@ -724,7 +914,10 @@ func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string,
 	lock := c.branchLock(branchName)
 	lock.Lock()
 	defer lock.Unlock()
+	return c.ensureComputeRunningLocked(branchName, attachment, password)
+}
 
+func (c *dockerBranchEndpointController) ensureComputeRunningLocked(branchName string, attachment BranchAttachment, password string) (string, error) {
 	if err := c.writeSelection(branchName, attachment, password); err != nil {
 		return "", err
 	}
@@ -747,6 +940,7 @@ func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string,
 			Env: []string{
 				fmt.Sprintf("PG_VERSION=%d", c.pgVersion),
 				fmt.Sprintf("ENDPOINT_SELECTION_FILE=%s", c.selectionPath(branchName)),
+				fmt.Sprintf("ENDPOINT_APPLIED_FILE=%s", c.appliedSelectionPath(branchName)),
 				"TENANT_ID=",
 				"TIMELINE_ID=",
 			},
@@ -837,6 +1031,10 @@ func (c *dockerBranchEndpointController) writeSelection(branchName string, attac
 
 func (c *dockerBranchEndpointController) selectionPath(branchName string) string {
 	return filepath.Join(c.computeDataDir, "endpoints", endpointBranchIdentifier(branchName), "endpoint-selection.json")
+}
+
+func (c *dockerBranchEndpointController) appliedSelectionPath(branchName string) string {
+	return filepath.Join(c.computeDataDir, "applied", endpointBranchIdentifier(branchName)+".json")
 }
 
 func (c *dockerBranchEndpointController) containerName(branchName string) string {

@@ -29,5 +29,5 @@ Opening the branch SQL endpoint for the branch already served by the primary com
 ## Subissues
 
 - [Enforce one compute writer per timeline](enforce-one-compute-writer-per-timeline.md)
-- Route the selected primary branch endpoint through the primary compute instead of starting a branch container.
+- [Route the primary branch endpoint through primary compute](route-primary-branch-through-primary-compute.md)
 - Coordinate primary start/switch with branch compute lifecycle and reconcile stale containers.

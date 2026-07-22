@@ -51,6 +51,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Published endpoints for the selected primary attachment now proxy to the existing primary compute, verify generation-tagged applied state and health, and drain conflicting lazy computes before primary start or switch.
 - Compute startup now holds a shared tenant/timeline writer lease, preventing duplicate compute writers from reaching safekeeper.
 - Write-enabled SQL editor executions now commit successful transactions instead of reporting writes that are rolled back.
 - Wide SQL query results now keep readable columns and scroll horizontally instead of compressing text into stacked characters.

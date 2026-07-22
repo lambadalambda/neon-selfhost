@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPrimaryEndpointSwitchPreservesCurrentBranchOnRuntimeFailure(t *testing.T) {
@@ -66,11 +67,64 @@ func TestPrimaryEndpointSwitchStopsThenStartsRuntime(t *testing.T) {
 	}
 }
 
+func TestPrimaryEndpointSwitchWaitsForActiveRouteLease(t *testing.T) {
+	dir := t.TempDir()
+	selectionPath := filepath.Join(dir, "endpoint-selection.json")
+	mainSelection := endpointSelectionState{Branch: "main", TenantID: "tenant", TimelineID: "timeline-main", Password: "secret-main"}
+	if err := writeEndpointSelection(selectionPath, mainSelection); err != nil {
+		t.Fatalf("write desired selection: %v", err)
+	}
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), endpointSelectionState{Branch: "main", TenantID: "tenant", TimelineID: "timeline-main"}); err != nil {
+		t.Fatalf("write applied selection: %v", err)
+	}
+
+	runtime := &fakePrimaryEndpointRuntime{running: true}
+	runtime.startHook = func() {
+		selection, _, _ := loadEndpointSelection(selectionPath)
+		selection.Password = ""
+		_ = writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), selection)
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 55433, Database: "postgres", User: "cloud_admin", Password: "secret-main",
+	}, selectionPath)
+	manager.startupTimeout = time.Second
+	if err := manager.SetBranchAttachment("feature-a", "tenant", "timeline-feature"); err != nil {
+		t.Fatalf("set feature attachment: %v", err)
+	}
+
+	_, releaseRoute, err := manager.AcquirePrimaryRouteState()
+	if err != nil {
+		t.Fatalf("acquire primary route: %v", err)
+	}
+	switchDone := make(chan error, 1)
+	go func() {
+		_, switchErr := manager.SwitchToBranch("feature-a")
+		switchDone <- switchErr
+	}()
+
+	select {
+	case err := <-switchDone:
+		t.Fatalf("switch completed while route lease was active: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	releaseRoute()
+	select {
+	case err := <-switchDone:
+		if err != nil {
+			t.Fatalf("switch after route release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("switch did not continue after route lease release")
+	}
+}
+
 func TestPrimaryEndpointSwitchRestartsPreviousRuntimeWhenSelectionWriteFails(t *testing.T) {
 	runtime := &fakePrimaryEndpointRuntime{running: true}
 	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
 		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres",
 	}, t.TempDir())
+	manager.startupTimeout = time.Millisecond
 
 	_, err := manager.SwitchToBranch("feature-a")
 	if err == nil {
@@ -89,6 +143,9 @@ func TestPrimaryEndpointSwitchRestoresSelectionAndRuntimeWhenNewStartFails(t *te
 	previousSelection := endpointSelectionState{Branch: "main", TenantID: "tenant-main", TimelineID: "timeline-main", Password: "secret-main"}
 	if err := writeEndpointSelection(selectionPath, previousSelection); err != nil {
 		t.Fatalf("write previous selection: %v", err)
+	}
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), previousSelection); err != nil {
+		t.Fatalf("write previous applied selection: %v", err)
 	}
 
 	runtime := &fakePrimaryEndpointRuntime{running: true, startErrors: []error{errors.New("cannot start feature"), nil}}
@@ -122,10 +179,39 @@ func TestPrimaryEndpointSwitchRestoresSelectionAndRuntimeWhenNewStartFails(t *te
 	}
 }
 
+func TestPrimaryEndpointSwitchRestartsPreviouslyRestartingRuntimeOnFailure(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	previousSelection := endpointSelectionState{Branch: "main", TenantID: "tenant-main", TimelineID: "timeline-main", Password: "secret-main"}
+	if err := writeEndpointSelection(selectionPath, previousSelection); err != nil {
+		t.Fatalf("write previous selection: %v", err)
+	}
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), previousSelection); err != nil {
+		t.Fatalf("write previous applied selection: %v", err)
+	}
+	runtime := &fakePrimaryEndpointRuntime{runtimeState: "restarting", startErrors: []error{errors.New("cannot start feature"), nil}}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 5432, Database: "postgres", User: "postgres", Password: "secret-main",
+	}, selectionPath)
+	if err := manager.SetBranchAttachment("feature-a", "tenant-feature", "timeline-feature"); err != nil {
+		t.Fatalf("set feature attachment: %v", err)
+	}
+
+	if _, err := manager.SwitchToBranch("feature-a"); err == nil {
+		t.Fatal("expected switch error")
+	}
+	if runtime.startCalls != 2 || !runtime.running {
+		t.Fatalf("expected restarting primary rollback, start calls=%d running=%v", runtime.startCalls, runtime.running)
+	}
+}
+
 func TestPrimaryEndpointSwitchStopsPossiblyStartedRuntimeBeforeRollback(t *testing.T) {
 	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
-	if err := writeEndpointSelection(selectionPath, endpointSelectionState{Branch: "main", Password: "secret-main"}); err != nil {
+	previousSelection := endpointSelectionState{Branch: "main", Password: "secret-main"}
+	if err := writeEndpointSelection(selectionPath, previousSelection); err != nil {
 		t.Fatalf("write previous selection: %v", err)
+	}
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), previousSelection); err != nil {
+		t.Fatalf("write previous applied selection: %v", err)
 	}
 
 	runtime := &fakePrimaryEndpointRuntime{
@@ -225,6 +311,66 @@ func TestPrimaryEndpointStartReturnsEndpointUnavailableErrors(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "endpoint_unavailable")
+}
+
+func TestPrimaryEndpointStartStopsRuntimeWhenAppliedStateIsNotVerified(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	if err := writeEndpointSelection(selectionPath, endpointSelectionState{Branch: "main", TenantID: "tenant", TimelineID: "timeline-old", Password: "secret"}); err != nil {
+		t.Fatalf("write selection: %v", err)
+	}
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), endpointSelectionState{Branch: "main", TenantID: "tenant", TimelineID: "timeline-old"}); err != nil {
+		t.Fatalf("write applied selection: %v", err)
+	}
+	runtime := &fakePrimaryEndpointRuntime{}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{Host: "127.0.0.1", Port: 55433, Database: "postgres", User: "cloud_admin", Password: "secret"}, selectionPath)
+	manager.startupTimeout = time.Millisecond
+	if err := manager.SetBranchAttachment("main", "tenant", "timeline-new"); err != nil {
+		t.Fatalf("set attachment: %v", err)
+	}
+
+	if _, err := manager.Start(); err == nil {
+		t.Fatal("expected applied-state verification failure")
+	}
+	if runtime.stopCalls != 1 || runtime.running {
+		t.Fatalf("expected ambiguous runtime to be stopped, stop calls=%d running=%v", runtime.stopCalls, runtime.running)
+	}
+	if !manager.routeBlocked {
+		t.Fatal("expected failed start to require route reconciliation")
+	}
+}
+
+func TestPrimaryEndpointStartRestartsRunningComputeForNewCredentials(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	previous := endpointSelectionState{Generation: "old-generation", Branch: "main", TenantID: "tenant", TimelineID: "timeline", Password: "old-secret"}
+	if err := writeEndpointSelection(selectionPath, previous); err != nil {
+		t.Fatalf("write selection: %v", err)
+	}
+	applied := previous
+	applied.Password = ""
+	if err := writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), applied); err != nil {
+		t.Fatalf("write applied selection: %v", err)
+	}
+	runtime := &fakePrimaryEndpointRuntime{running: true}
+	runtime.startHook = func() {
+		selection, _, _ := loadEndpointSelection(selectionPath)
+		selection.Password = ""
+		_ = writeEndpointSelection(endpointAppliedSelectionPath(selectionPath), selection)
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(runtime, primaryEndpointConnectionInfo{Host: "127.0.0.1", Port: 55433, Database: "postgres", User: "cloud_admin", Password: "old-secret"}, selectionPath)
+	if err := manager.SetBranchPassword("main", "new-secret"); err != nil {
+		t.Fatalf("set password: %v", err)
+	}
+
+	state, err := manager.Start()
+	if err != nil {
+		t.Fatalf("restart primary: %v", err)
+	}
+	if runtime.stopCalls != 1 || runtime.startCalls != 1 {
+		t.Fatalf("expected running compute restart, stops=%d starts=%d", runtime.stopCalls, runtime.startCalls)
+	}
+	if state.Password != "new-secret" || !state.Ready {
+		t.Fatalf("expected newly applied credentials, got %#v", state)
+	}
 }
 
 type fakePrimaryEndpointRuntime struct {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -114,6 +115,225 @@ func TestSelectionPathUsesCollisionSafeBranchIdentifier(t *testing.T) {
 	}
 }
 
+func TestResolvePrimaryBranchRoute(t *testing.T) {
+	primary := &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{Applied: true, Connection: primaryEndpointState{
+		Running: true, Ready: true, RuntimeState: "running", Branch: "main",
+		Database: "postgres", User: "cloud_admin", Password: "primary-secret",
+		TenantID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TimelineID: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+	}}}
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.primaryRouteProvider = primary
+	controller.primaryBackendHost = "compute"
+	controller.primaryBackendPort = 55433
+
+	route, primaryBacked, err := controller.resolvePrimaryBranchRoute("main", BranchAttachment{
+		TenantID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TimelineID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	})
+	if err != nil {
+		t.Fatalf("resolve primary route: %v", err)
+	}
+	if !primaryBacked || route.Address != "compute:55433" || route.Password != "primary-secret" {
+		t.Fatalf("unexpected primary route: backed=%v route=%#v", primaryBacked, route)
+	}
+
+	_, aliasBacked, err := controller.resolvePrimaryBranchRoute("primary-alias", BranchAttachment{
+		TenantID: primary.state.Connection.TenantID, TimelineID: primary.state.Connection.TimelineID,
+	})
+	if err != nil || !aliasBacked {
+		t.Fatalf("expected attachment alias to remain primary-backed, backed=%v err=%v", aliasBacked, err)
+	}
+
+	_, childBacked, err := controller.resolvePrimaryBranchRoute("feature-a", BranchAttachment{
+		TenantID: primary.state.Connection.TenantID, TimelineID: "cccccccccccccccccccccccccccccccc",
+	})
+	if err != nil || childBacked {
+		t.Fatalf("expected distinct child to use lazy compute, backed=%v err=%v", childBacked, err)
+	}
+}
+
+func TestResolvePrimaryBranchRouteFailsClosed(t *testing.T) {
+	tests := []struct {
+		name  string
+		state primaryEndpointState
+	}{
+		{name: "stopped", state: primaryEndpointState{Branch: "main", TenantID: "tenant", TimelineID: "timeline"}},
+		{name: "starting", state: primaryEndpointState{Running: true, Branch: "main", TenantID: "tenant", TimelineID: "timeline"}},
+		{name: "attachment mismatch", state: primaryEndpointState{Running: true, Ready: true, Branch: "main", TenantID: "other", TimelineID: "timeline"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+			controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{Applied: true, Connection: tt.state}}
+			controller.primaryBackendHost = "compute"
+			controller.primaryBackendPort = 55433
+
+			_, primaryBacked, err := controller.resolvePrimaryBranchRoute("main", BranchAttachment{TenantID: "tenant", TimelineID: "timeline"})
+			if err == nil || !primaryBacked {
+				t.Fatalf("expected primary reservation to fail closed, backed=%v err=%v", primaryBacked, err)
+			}
+		})
+	}
+}
+
+func TestResolvePrimaryBranchRouteFailsClosedDuringTransition(t *testing.T) {
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{
+		Applied:       true,
+		Transitioning: true,
+		Connection: primaryEndpointState{
+			Running: true, Ready: true, Branch: "main", TenantID: "tenant", TimelineID: "timeline-main",
+		},
+	}}
+	controller.primaryBackendHost = "compute"
+	controller.primaryBackendPort = 55433
+
+	_, primaryBacked, err := controller.resolvePrimaryBranchRoute("feature-a", BranchAttachment{TenantID: "tenant", TimelineID: "timeline-feature"})
+	if err == nil || !primaryBacked {
+		t.Fatalf("expected all routes to fail closed during transition, backed=%v err=%v", primaryBacked, err)
+	}
+}
+
+func TestResolvePrimaryBranchRouteFailsClosedForReservedTarget(t *testing.T) {
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{
+		Applied:          true,
+		ReservedBranches: []string{"feature-a"},
+		Connection: primaryEndpointState{
+			Running: true, Ready: true, Branch: "main", TenantID: "tenant", TimelineID: "timeline-main",
+		},
+	}}
+	controller.primaryBackendHost = "compute"
+	controller.primaryBackendPort = 55433
+
+	_, primaryBacked, err := controller.resolvePrimaryBranchRoute("feature-a", BranchAttachment{TenantID: "tenant", TimelineID: "timeline-feature"})
+	if err == nil || !primaryBacked {
+		t.Fatalf("expected reserved switch target to fail closed, backed=%v err=%v", primaryBacked, err)
+	}
+}
+
+func TestResolvePrimaryBranchRouteFailsClosedWithoutAppliedSelection(t *testing.T) {
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{Connection: primaryEndpointState{
+		Running: true, Ready: true, Branch: "main", TenantID: "tenant", TimelineID: "timeline",
+	}}}
+	controller.primaryBackendHost = "compute"
+	controller.primaryBackendPort = 55433
+
+	_, primaryBacked, err := controller.resolvePrimaryBranchRoute("feature-a", BranchAttachment{TenantID: "tenant", TimelineID: "timeline-feature"})
+	if err == nil || !primaryBacked {
+		t.Fatalf("expected unverified applied state to fail closed, backed=%v err=%v", primaryBacked, err)
+	}
+}
+
+func TestPrimaryBackedConnectionUsesPrimaryCredentialsWithoutContainerInspect(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.SetAttachment("main", "tenant", "timeline"); err != nil {
+		t.Fatalf("set main attachment: %v", err)
+	}
+	if _, err := store.SetPassword("main", "branch-secret"); err != nil {
+		t.Fatalf("set main password: %v", err)
+	}
+	port := freeTCPPort(t)
+	if _, err := store.SetEndpoint("main", true, port); err != nil {
+		t.Fatalf("publish main: %v", err)
+	}
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), port, port)
+	controller.engine = engine
+	controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{Applied: true, Connection: primaryEndpointState{
+		Running: true, Ready: true, RuntimeState: "running", Branch: "main",
+		Database: "postgres", User: "primary_user", Password: "primary-secret", TenantID: "tenant", TimelineID: "timeline",
+	}}}
+	controller.primaryBackendHost = "compute"
+	controller.primaryBackendPort = 55433
+	if err := controller.startListener("main", port); err != nil {
+		t.Fatalf("start listener: %v", err)
+	}
+	defer controller.Close()
+
+	state, err := controller.Connection("main")
+	if err != nil {
+		t.Fatalf("main connection: %v", err)
+	}
+	if state.Status != "running" || state.User != "primary_user" || state.Password != "primary-secret" {
+		t.Fatalf("unexpected primary-backed connection: %#v", state)
+	}
+	if engine.inspectCount() != 0 {
+		t.Fatalf("expected no branch container inspection, got %d", engine.inspectCount())
+	}
+}
+
+func TestPrimaryBackedListenerProxiesWithoutBranchContainer(t *testing.T) {
+	backend, backendPort := listenRandomPort(t)
+	defer backend.Close()
+	backendDone := make(chan error, 1)
+	go func() {
+		conn, err := backend.Accept()
+		if err != nil {
+			backendDone <- err
+			return
+		}
+		defer conn.Close()
+		request := make([]byte, 4)
+		if _, err := io.ReadFull(conn, request); err != nil {
+			backendDone <- err
+			return
+		}
+		if string(request) != "ping" {
+			backendDone <- errors.New("unexpected proxy request")
+			return
+		}
+		_, err = conn.Write([]byte("pong"))
+		backendDone <- err
+	}()
+
+	store := branch.NewStore()
+	if _, err := store.SetAttachment("main", "tenant", "timeline"); err != nil {
+		t.Fatalf("set main attachment: %v", err)
+	}
+	if _, err := store.SetPassword("main", "branch-secret"); err != nil {
+		t.Fatalf("set main password: %v", err)
+	}
+	branchPort := freeTCPPort(t)
+	if _, err := store.SetEndpoint("main", true, branchPort); err != nil {
+		t.Fatalf("publish main: %v", err)
+	}
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), branchPort, branchPort)
+	controller.engine = engine
+	controller.primaryRouteProvider = &staticPrimaryEndpointRouteProvider{state: primaryEndpointRouteState{Applied: true, Connection: primaryEndpointState{
+		Running: true, Ready: true, Branch: "main", Database: "postgres", User: "cloud_admin", Password: "primary-secret", TenantID: "tenant", TimelineID: "timeline",
+	}}}
+	controller.primaryBackendHost = "127.0.0.1"
+	controller.primaryBackendPort = backendPort
+	if err := controller.startListener("main", branchPort); err != nil {
+		t.Fatalf("start listener: %v", err)
+	}
+	defer controller.Close()
+
+	client, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(branchPort)), time.Second)
+	if err != nil {
+		t.Fatalf("dial branch listener: %v", err)
+	}
+	defer client.Close()
+	if _, err := client.Write([]byte("ping")); err != nil {
+		t.Fatalf("write proxy request: %v", err)
+	}
+	response := make([]byte, 4)
+	if _, err := io.ReadFull(client, response); err != nil {
+		t.Fatalf("read proxy response: %v", err)
+	}
+	if string(response) != "pong" {
+		t.Fatalf("unexpected proxy response %q", response)
+	}
+	if err := <-backendDone; err != nil {
+		t.Fatalf("backend proxy: %v", err)
+	}
+	if engine.inspectCount() != 0 || engine.createCount() != 0 {
+		t.Fatalf("expected no branch container lifecycle, inspects=%d creates=%d", engine.inspectCount(), engine.createCount())
+	}
+}
+
 func TestCloseStopsListenersAndPublishedContainers(t *testing.T) {
 	store := branch.NewStore()
 	if _, err := store.CreateWithAttachmentAndPassword("feature-a", "main", "tenant-a", "timeline-a", "secret-1"); err != nil {
@@ -157,6 +377,52 @@ func TestCloseStopsListenersAndPublishedContainers(t *testing.T) {
 
 	if len(removeCalls) != 1 || removeCalls[0] != "container-feature-a" {
 		t.Fatalf("expected remove call for published container, got %v", removeCalls)
+	}
+}
+
+func TestPreparePrimarySwitchStopsAndRemovesTargetCompute(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithAttachmentAndPassword("feature-a", "main", "tenant", "timeline", "secret"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), 56000, 56000)
+	controller.engine = engine
+	containerName := controller.containerName("feature-a")
+	inspect := dockerContainerInspect{ID: "feature-container", Name: containerName}
+	inspect.State.Running = true
+	engine.setContainer(containerName, inspect)
+
+	if err := controller.PreparePrimarySwitch("feature-a"); err != nil {
+		t.Fatalf("prepare primary switch: %v", err)
+	}
+	stopCalls, removeCalls := engine.calls()
+	if len(stopCalls) != 1 || stopCalls[0] != "feature-container" || len(removeCalls) != 1 || removeCalls[0] != "feature-container" {
+		t.Fatalf("expected target compute stop/remove, stops=%v removes=%v", stopCalls, removeCalls)
+	}
+}
+
+func TestPreparePrimarySwitchFailsWithoutStoppingActiveTarget(t *testing.T) {
+	store := branch.NewStore()
+	if _, err := store.CreateWithAttachmentAndPassword("feature-a", "main", "tenant", "timeline", "secret"); err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(store, t.TempDir(), 56000, 56000)
+	controller.engine = engine
+	controller.drainTimeout = 20 * time.Millisecond
+	controller.activeConns["feature-a"] = 1
+	containerName := controller.containerName("feature-a")
+	inspect := dockerContainerInspect{ID: "feature-container", Name: containerName}
+	inspect.State.Running = true
+	engine.setContainer(containerName, inspect)
+
+	if err := controller.PreparePrimarySwitch("feature-a"); err == nil {
+		t.Fatal("expected active target drain timeout")
+	}
+	stopCalls, removeCalls := engine.calls()
+	if len(stopCalls) != 0 || len(removeCalls) != 0 {
+		t.Fatalf("expected active target to remain running, stops=%v removes=%v", stopCalls, removeCalls)
 	}
 }
 
@@ -339,6 +605,7 @@ func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir s
 		pgVersion:            16,
 		startupTimeout:       500 * time.Millisecond,
 		idleTimeout:          50 * time.Millisecond,
+		drainTimeout:         50 * time.Millisecond,
 		maxActiveConnections: 32,
 		listeners:            map[string]net.Listener{},
 		activeConns:          map[string]int{},
@@ -388,6 +655,15 @@ func TestReconcileBranchComputeImageRejectsRunningStaleContainer(t *testing.T) {
 
 type fakeDockerBranchEndpointEngine struct{}
 
+type staticPrimaryEndpointRouteProvider struct {
+	state primaryEndpointRouteState
+	err   error
+}
+
+func (p *staticPrimaryEndpointRouteProvider) AcquirePrimaryRouteState() (primaryEndpointRouteState, func(), error) {
+	return p.state, func() {}, p.err
+}
+
 func (fakeDockerBranchEndpointEngine) InspectContainerByName(_ string) (dockerContainerInspect, bool, error) {
 	return dockerContainerInspect{}, false, nil
 }
@@ -409,21 +685,39 @@ func (fakeDockerBranchEndpointEngine) RemoveContainer(_ string, _ bool) error {
 }
 
 type trackingBranchEndpointEngine struct {
-	mu          sync.Mutex
-	containers  map[string]dockerContainerInspect
-	stopCalls   []string
-	removeCalls []string
-	stopCh      chan string
+	mu           sync.Mutex
+	containers   map[string]dockerContainerInspect
+	stopCalls    []string
+	removeCalls  []string
+	stopCh       chan string
+	inspectCalls int
+	createCalls  int
 }
 
 func (e *trackingBranchEndpointEngine) InspectContainerByName(name string) (dockerContainerInspect, bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.inspectCalls++
 	inspect, exists := e.containers[name]
 	return inspect, exists, nil
 }
 
+func (e *trackingBranchEndpointEngine) inspectCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.inspectCalls
+}
+
+func (e *trackingBranchEndpointEngine) createCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.createCalls
+}
+
 func (e *trackingBranchEndpointEngine) CreateContainer(_ dockerCreateContainerRequest) (string, error) {
+	e.mu.Lock()
+	e.createCalls++
+	e.mu.Unlock()
 	return "", nil
 }
 

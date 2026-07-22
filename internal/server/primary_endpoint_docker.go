@@ -114,7 +114,7 @@ func (r *dockerPrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, e
 		state = "unknown"
 	}
 	running := state == "running"
-	ready := running
+	ready := false
 	message := ""
 
 	statusSummary := strings.TrimSpace(container.Status)
@@ -133,8 +133,12 @@ func (r *dockerPrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, e
 			} else {
 				message = statusSummary
 			}
-		default:
+		case strings.Contains(statusLower, "health: healthy"), strings.Contains(statusLower, "(healthy)"):
+			ready = true
 			state = "running"
+		default:
+			state = "starting"
+			message = "container health status is unavailable"
 		}
 	} else {
 		ready = false
@@ -175,7 +179,8 @@ func (r *dockerPrimaryEndpointRuntime) Stop() error {
 		return err
 	}
 
-	if container.State != "running" {
+	state := strings.ToLower(strings.TrimSpace(container.State))
+	if state == "created" || state == "exited" || state == "dead" || state == "removing" {
 		return nil
 	}
 

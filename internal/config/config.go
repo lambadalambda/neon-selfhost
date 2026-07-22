@@ -46,13 +46,15 @@ type Config struct {
 	ControllerDataDir string
 	ComputeDataDir    string
 
-	PrimaryEndpointMode     string
-	PrimaryEndpointService  string
-	PrimaryEndpointHost     string
-	PrimaryEndpointPort     int
-	PrimaryEndpointDatabase string
-	PrimaryEndpointUser     string
-	PrimaryEndpointPassword string
+	PrimaryEndpointMode        string
+	PrimaryEndpointService     string
+	PrimaryEndpointHost        string
+	PrimaryEndpointPort        int
+	PrimaryEndpointDatabase    string
+	PrimaryEndpointUser        string
+	PrimaryEndpointPassword    string
+	PrimaryEndpointBackendHost string
+	PrimaryEndpointBackendPort int
 
 	DockerSocketPath     string
 	DockerComposeProject string
@@ -142,6 +144,18 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("PRIMARY_ENDPOINT_PASSWORD is required when PRIMARY_ENDPOINT_MODE=docker")
 		}
 		primaryEndpointPassword = primaryEndpointUser
+	}
+	primaryEndpointBackendHost := strings.TrimSpace(os.Getenv("PRIMARY_ENDPOINT_BACKEND_HOST"))
+	if primaryEndpointBackendHost == "" {
+		primaryEndpointBackendHost = primaryEndpointService
+	}
+	primaryEndpointBackendPort := primaryEndpointPort
+	if rawBackendPort, exists := os.LookupEnv("PRIMARY_ENDPOINT_BACKEND_PORT"); exists && rawBackendPort != "" {
+		parsedBackendPort, err := strconv.Atoi(rawBackendPort)
+		if err != nil || parsedBackendPort < 1 || parsedBackendPort > 65535 {
+			return Config{}, fmt.Errorf("invalid PRIMARY_ENDPOINT_BACKEND_PORT %q", rawBackendPort)
+		}
+		primaryEndpointBackendPort = parsedBackendPort
 	}
 
 	dockerSocketPath := strings.TrimSpace(os.Getenv("DOCKER_SOCKET_PATH"))
@@ -245,13 +259,15 @@ func Load() (Config, error) {
 		ControllerDataDir: controllerDataDir,
 		ComputeDataDir:    computeDataDir,
 
-		PrimaryEndpointMode:     primaryEndpointMode,
-		PrimaryEndpointService:  primaryEndpointService,
-		PrimaryEndpointHost:     primaryEndpointHost,
-		PrimaryEndpointPort:     primaryEndpointPort,
-		PrimaryEndpointDatabase: primaryEndpointDatabase,
-		PrimaryEndpointUser:     primaryEndpointUser,
-		PrimaryEndpointPassword: primaryEndpointPassword,
+		PrimaryEndpointMode:        primaryEndpointMode,
+		PrimaryEndpointService:     primaryEndpointService,
+		PrimaryEndpointHost:        primaryEndpointHost,
+		PrimaryEndpointPort:        primaryEndpointPort,
+		PrimaryEndpointDatabase:    primaryEndpointDatabase,
+		PrimaryEndpointUser:        primaryEndpointUser,
+		PrimaryEndpointPassword:    primaryEndpointPassword,
+		PrimaryEndpointBackendHost: primaryEndpointBackendHost,
+		PrimaryEndpointBackendPort: primaryEndpointBackendPort,
 
 		DockerSocketPath:     dockerSocketPath,
 		DockerComposeProject: dockerComposeProject,

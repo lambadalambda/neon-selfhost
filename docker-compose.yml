@@ -22,6 +22,8 @@ services:
         mkdir -p /var/lib/neon/compute/writer-leases
         chown 65532:65532 /var/lib/neon/compute/writer-leases
         chmod 01777 /var/lib/neon/compute/writer-leases
+        mkdir -p /var/lib/neon/compute/applied
+        chmod 01777 /var/lib/neon/compute/applied
     volumes:
       - compute_state:/var/lib/neon/compute
 
@@ -48,6 +50,8 @@ services:
       PRIMARY_ENDPOINT_DATABASE: postgres
       PRIMARY_ENDPOINT_USER: cloud_admin
       PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD before running podman compose}
+      PRIMARY_ENDPOINT_BACKEND_HOST: ${PRIMARY_ENDPOINT_BACKEND_HOST:-compute}
+      PRIMARY_ENDPOINT_BACKEND_PORT: ${PRIMARY_ENDPOINT_BACKEND_PORT:-55433}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       DOCKER_COMPOSE_PROJECT: neon-selfhost
       PAGESERVER_API: http://pageserver:9898
@@ -128,6 +132,7 @@ services:
       TENANT_ID: ${TENANT_ID:-}
       TIMELINE_ID: ${TIMELINE_ID:-}
       PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD before running podman compose}
+      ENDPOINT_APPLIED_FILE: /var/lib/neon/compute/applied/primary.json
     volumes:
       - compute_state:/var/lib/neon/compute
       - compute_cache:/neon/cache
@@ -135,6 +140,12 @@ services:
       - ./configs/neon/compute_wrapper/shell:/shell:ro
     entrypoint:
       - /shell/compute.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 55433 -U cloud_admin -d postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
     ports:
       - "127.0.0.1:55433:55433"
     depends_on:

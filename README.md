@@ -193,6 +193,8 @@ Endpoint selection files contain live database passwords in plaintext on the sha
 
 Compose also exposes a localhost branch endpoint range (`56000-56049` by default). Tune this via `BRANCH_ENDPOINT_BIND_HOST`, `BRANCH_ENDPOINT_PORT_START`, and `BRANCH_ENDPOINT_PORT_END`.
 
+The selected primary branch endpoint proxies internally to the existing primary compute rather than starting another writer. Compose defaults this route to `compute:55433`; non-Compose deployments must set `PRIMARY_ENDPOINT_BACKEND_HOST` and `PRIMARY_ENDPOINT_BACKEND_PORT` to an address reachable from the controller. The route fails closed unless the compute is healthy and its non-secret applied-selection marker matches controller state. Primary start and switch operations reserve the target route, drain active branch sessions, and remove any lazy target compute before starting the primary writer.
+
 ## Smoke Testing
 
 Run the API smoke test against an already-running stack:

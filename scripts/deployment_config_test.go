@@ -105,3 +105,36 @@ func TestComputeRequiresAttachmentWriterLease(t *testing.T) {
 		}
 	}
 }
+
+func TestPrimaryComputePublishesAppliedSelectionAndHealth(t *testing.T) {
+	composeContent, err := os.ReadFile("../docker-compose.yml")
+	if err != nil {
+		t.Fatalf("read compose config: %v", err)
+	}
+	compose := string(composeContent)
+	for _, expected := range []string{
+		`PRIMARY_ENDPOINT_BACKEND_HOST: ${PRIMARY_ENDPOINT_BACKEND_HOST:-compute}`,
+		`PRIMARY_ENDPOINT_BACKEND_PORT: ${PRIMARY_ENDPOINT_BACKEND_PORT:-55433}`,
+		`test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 55433 -U cloud_admin -d postgres"]`,
+		`chmod 01777 /var/lib/neon/compute/applied`,
+	} {
+		if !strings.Contains(compose, expected) {
+			t.Fatalf("expected primary route Compose config to contain %q", expected)
+		}
+	}
+
+	computeScript, err := os.ReadFile("../configs/neon/compute_wrapper/shell/compute.sh")
+	if err != nil {
+		t.Fatalf("read compute script: %v", err)
+	}
+	compute := string(computeScript)
+	for _, expected := range []string{
+		`ENDPOINT_APPLIED_FILE=`,
+		`rm -f "${ENDPOINT_APPLIED_FILE}"`,
+		`mv "${applied_selection_tmp}" "${ENDPOINT_APPLIED_FILE}"`,
+	} {
+		if !strings.Contains(compute, expected) {
+			t.Fatalf("expected compute applied-state marker to contain %q", expected)
+		}
+	}
+}

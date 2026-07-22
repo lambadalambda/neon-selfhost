@@ -374,7 +374,7 @@ func New(cfg Config) http.Handler {
 		state, err := primaryEndpoint.Connection()
 		if err != nil {
 			primaryStatus = "error"
-		} else if state.Running && !state.Ready {
+		} else if (state.Running && !state.Ready) || strings.EqualFold(state.RuntimeState, "unverified") || strings.EqualFold(state.RuntimeState, "switching") || strings.EqualFold(state.RuntimeState, "restarting") {
 			primaryStatus = "degraded"
 		}
 
@@ -721,6 +721,8 @@ func New(cfg Config) http.Handler {
 			if currentErr != nil {
 				return currentErr
 			}
+			releaseRoute := reservePrimaryRoute(primaryEndpoint, current.Branch)
+			defer releaseRoute()
 
 			securedBranch, passwordErr := ensureBranchPassword(store, current.Branch)
 			if passwordErr != nil {
@@ -740,6 +742,9 @@ func New(cfg Config) http.Handler {
 				if attachErr := primaryEndpoint.SetBranchAttachment(current.Branch, attachment.TenantID, attachment.TimelineID); attachErr != nil {
 					return attachErr
 				}
+			}
+			if prepareErr := branchEndpoints.PreparePrimarySwitch(current.Branch); prepareErr != nil {
+				return prepareErr
 			}
 
 			var startErr error
@@ -809,6 +814,8 @@ func New(cfg Config) http.Handler {
 			if _, getErr := store.GetActive(targetBranch); getErr != nil {
 				return branch.ErrParentMissing
 			}
+			releaseRoute := reservePrimaryRoute(primaryEndpoint, targetBranch)
+			defer releaseRoute()
 
 			securedBranch, passwordErr := ensureBranchPassword(store, targetBranch)
 			if passwordErr != nil {
@@ -828,6 +835,9 @@ func New(cfg Config) http.Handler {
 				if attachErr := primaryEndpoint.SetBranchAttachment(targetBranch, attachment.TenantID, attachment.TimelineID); attachErr != nil {
 					return attachErr
 				}
+			}
+			if prepareErr := branchEndpoints.PreparePrimarySwitch(targetBranch); prepareErr != nil {
+				return prepareErr
 			}
 
 			var switchErr error
@@ -1048,6 +1058,11 @@ func New(cfg Config) http.Handler {
 				return connectionErr
 			}
 			wasPrimaryBranch := originalConnectionState.Branch == branchName
+			releaseRoute := func() {}
+			if wasPrimaryBranch {
+				releaseRoute = reservePrimaryRoute(primaryEndpoint, branchName)
+			}
+			defer releaseRoute()
 
 			attachment, resolveErr := attachmentResolver.ResolveReset(branchName)
 			if resolveErr != nil {
@@ -1092,6 +1107,9 @@ func New(cfg Config) http.Handler {
 
 			if !wasPrimaryBranch {
 				return nil
+			}
+			if prepareErr := branchEndpoints.PreparePrimarySwitch(branchName); prepareErr != nil {
+				return rollbackReset(prepareErr)
 			}
 
 			_, switchErr := primaryEndpoint.SwitchToBranch(branchName)
@@ -1173,6 +1191,15 @@ func New(cfg Config) http.Handler {
 	}
 
 	return closeableHandler{Handler: handler, closer: operations}
+}
+
+func reservePrimaryRoute(endpoint PrimaryEndpointController, branchName string) func() {
+	coordinator, ok := endpoint.(primaryEndpointRouteCoordinator)
+	if !ok {
+		return func() {}
+	}
+	coordinator.ReservePrimaryRoute(branchName)
+	return func() { coordinator.ReleasePrimaryRoute(branchName) }
 }
 
 func isKnownOperationStatus(status string) bool {

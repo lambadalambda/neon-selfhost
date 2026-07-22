@@ -64,6 +64,22 @@ func TestDockerPrimaryEndpointRuntimeStatusStartingHealthCheck(t *testing.T) {
 	}
 }
 
+func TestDockerPrimaryEndpointRuntimeStatusRequiresExplicitHealth(t *testing.T) {
+	runtime := &dockerPrimaryEndpointRuntime{
+		engine:  fakeDockerEngine{container: dockerContainerSummary{ID: "container-1", State: "running", Status: "Up 12 seconds"}},
+		project: "neon-selfhost",
+		service: "compute",
+	}
+
+	status, err := runtime.Status()
+	if err != nil {
+		t.Fatalf("runtime status: %v", err)
+	}
+	if status.Ready || status.State != "starting" {
+		t.Fatalf("expected missing health metadata to remain unready, got %#v", status)
+	}
+}
+
 func TestDockerPrimaryEndpointRuntimeStatusStoppedContainer(t *testing.T) {
 	runtime := &dockerPrimaryEndpointRuntime{
 		engine: fakeDockerEngine{container: dockerContainerSummary{
@@ -130,11 +146,41 @@ func TestDockerPrimaryEndpointRuntimeStatusUnhealthyContainer(t *testing.T) {
 	}
 }
 
+func TestDockerPrimaryEndpointRuntimeStopsRestartingContainer(t *testing.T) {
+	engine := &recordingDockerEngine{container: dockerContainerSummary{ID: "container-1", State: "restarting"}}
+	runtime := &dockerPrimaryEndpointRuntime{engine: engine, project: "neon-selfhost", service: "compute"}
+
+	if err := runtime.Stop(); err != nil {
+		t.Fatalf("stop restarting runtime: %v", err)
+	}
+	if engine.stoppedID != "container-1" {
+		t.Fatalf("expected restarting container to be stopped, got %q", engine.stoppedID)
+	}
+}
+
 type fakeDockerEngine struct {
 	container dockerContainerSummary
 	findErr   error
 	startErr  error
 	stopErr   error
+}
+
+type recordingDockerEngine struct {
+	container dockerContainerSummary
+	stoppedID string
+}
+
+func (e *recordingDockerEngine) FindComposeContainer(_ string, _ string) (dockerContainerSummary, error) {
+	return e.container, nil
+}
+
+func (e *recordingDockerEngine) StartContainer(_ string) error {
+	return nil
+}
+
+func (e *recordingDockerEngine) StopContainer(containerID string) error {
+	e.stoppedID = containerID
+	return nil
 }
 
 func (f fakeDockerEngine) FindComposeContainer(_ string, _ string) (dockerContainerSummary, error) {

@@ -10,6 +10,11 @@ generate_id() {
 
 PG_VERSION=${PG_VERSION:-16}
 ENDPOINT_SELECTION_FILE=${ENDPOINT_SELECTION_FILE:-/var/lib/neon/compute/endpoint-selection.json}
+ENDPOINT_APPLIED_FILE=${ENDPOINT_APPLIED_FILE:-/var/lib/neon/compute/applied/primary.json}
+selected_branch=main
+selection_generation=
+
+rm -f "${ENDPOINT_APPLIED_FILE}"
 
 readonly CONFIG_FILE_ORG=/var/db/postgres/configs/config.json
 readonly CONFIG_FILE=/tmp/config.json
@@ -43,6 +48,8 @@ md5_role_password() {
 }
 
 if [[ -f "${ENDPOINT_SELECTION_FILE}" ]]; then
+  selection_generation="$(jq -r '.generation // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
+  selected_branch="$(jq -r '.branch // "main"' "${ENDPOINT_SELECTION_FILE}" || true)"
   selected_tenant_id="$(jq -r '.tenant_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
   selected_timeline_id="$(jq -r '.timeline_id // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
   selection_password="$(jq -r '.password // empty' "${ENDPOINT_SELECTION_FILE}" || true)"
@@ -113,6 +120,17 @@ sed -i "s|TIMELINE_ID|${timeline_id}|" "${CONFIG_FILE}"
 
 # Clear stale Unix socket files that can survive container restarts.
 rm -f /tmp/.s.PGSQL.55433 /tmp/.s.PGSQL.55433.lock
+
+mkdir -p "$(dirname "${ENDPOINT_APPLIED_FILE}")"
+applied_selection_tmp="$(mktemp "${ENDPOINT_APPLIED_FILE}.XXXXXX")"
+jq -n \
+  --arg generation "${selection_generation}" \
+  --arg branch "${selected_branch:-main}" \
+  --arg tenant_id "${tenant_id}" \
+  --arg timeline_id "${timeline_id}" \
+  '{generation: $generation, branch: $branch, tenant_id: $tenant_id, timeline_id: $timeline_id}' >"${applied_selection_tmp}"
+chmod 0644 "${applied_selection_tmp}"
+mv "${applied_selection_tmp}" "${ENDPOINT_APPLIED_FILE}"
 
 echo "Starting compute node"
 exec /usr/local/bin/compute_ctl \

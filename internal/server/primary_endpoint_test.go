@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
 )
 
@@ -80,6 +81,19 @@ func TestPrimaryEndpointStartThenStop(t *testing.T) {
 
 	if stopped.Connection.Ready {
 		t.Fatal("expected stopped endpoint to report ready=false")
+	}
+}
+
+func TestPrimaryEndpointStartPreparesSelectedBranchCompute(t *testing.T) {
+	branchEndpoints := &fakeBranchEndpointController{}
+	handler := New(Config{Version: "test-version", BranchEndpoints: branchEndpoints})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/endpoints/primary/start", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+	if len(branchEndpoints.prepareCalls) != 1 || branchEndpoints.prepareCalls[0] != "main" {
+		t.Fatalf("expected selected branch preparation, got %v", branchEndpoints.prepareCalls)
 	}
 }
 
@@ -282,6 +296,25 @@ func TestPrimaryConnectionIncludesConfiguredPassword(t *testing.T) {
 
 	if payload.Connection.Password != "super-secret" {
 		t.Fatalf("expected configured password %q, got %q", "super-secret", payload.Connection.Password)
+	}
+}
+
+func TestPrimaryConnectionIsNotReadyWithoutAppliedSelection(t *testing.T) {
+	selectionPath := filepath.Join(t.TempDir(), "endpoint-selection.json")
+	selection := endpointSelectionState{Branch: "main", TenantID: "tenant", TimelineID: "timeline", Password: "secret"}
+	if err := writeEndpointSelection(selectionPath, selection); err != nil {
+		t.Fatalf("write desired selection: %v", err)
+	}
+	manager := newPrimaryEndpointManagerWithRuntime(&fakePrimaryEndpointRuntime{running: true}, primaryEndpointConnectionInfo{
+		Host: "127.0.0.1", Port: 55433, Database: "postgres", User: "cloud_admin", Password: "secret",
+	}, selectionPath)
+
+	state, err := manager.Connection()
+	if err != nil {
+		t.Fatalf("primary connection: %v", err)
+	}
+	if state.Ready || state.RuntimeState != "unverified" {
+		t.Fatalf("expected missing applied selection to report unverified, got %#v", state)
 	}
 }
 

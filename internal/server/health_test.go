@@ -203,3 +203,19 @@ func TestHealthEndpointReportsDegradedWhenPrimaryEndpointStarting(t *testing.T) 
 		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
 	}
 }
+
+func TestHealthEndpointReportsDegradedWhenPrimaryRouteNeedsReconciliation(t *testing.T) {
+	manager := newPrimaryEndpointManager()
+	manager.routeBlocked = true
+	handler := New(Config{Version: "test-version", PrimaryEndpoint: manager})
+
+	res := performRequest(t, handler, http.MethodGet, "/api/v1/health", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+	var payload healthEndpointResponse
+	decodeJSON(t, res, &payload)
+	if payload.Status != "degraded" {
+		t.Fatalf("expected health status %q, got %q", "degraded", payload.Status)
+	}
+}

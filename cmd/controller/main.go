@@ -132,21 +132,24 @@ func main() {
 		branchAttachmentResolver = pageserverResolver
 
 		dockerBranchEndpoints, err := server.NewDockerBranchEndpointController(server.DockerBranchEndpointOptions{
-			Store:          branchStore,
-			SocketPath:     cfg.DockerSocketPath,
-			ComposeProject: cfg.DockerComposeProject,
-			AdvertisedHost: cfg.PrimaryEndpointHost,
-			BindHost:       cfg.BranchEndpointBindHost,
-			PortStart:      cfg.BranchEndpointPortStart,
-			PortEnd:        cfg.BranchEndpointPortEnd,
-			Database:       cfg.PrimaryEndpointDatabase,
-			User:           cfg.PrimaryEndpointUser,
-			ComputeImage:   cfg.BranchEndpointComputeImage,
-			ComputeDataDir: cfg.ComputeDataDir,
-			PGVersion:      cfg.PageserverPGVersion,
-			IdleTimeout:    cfg.BranchEndpointIdleStop,
-			MaxActiveConns: cfg.BranchEndpointMaxConns,
-			Logger:         logger.With("component", "branch_endpoints"),
+			Store:              branchStore,
+			SocketPath:         cfg.DockerSocketPath,
+			ComposeProject:     cfg.DockerComposeProject,
+			AdvertisedHost:     cfg.PrimaryEndpointHost,
+			BindHost:           cfg.BranchEndpointBindHost,
+			PortStart:          cfg.BranchEndpointPortStart,
+			PortEnd:            cfg.BranchEndpointPortEnd,
+			Database:           cfg.PrimaryEndpointDatabase,
+			User:               cfg.PrimaryEndpointUser,
+			PrimaryEndpoint:    primaryEndpoint,
+			PrimaryBackendHost: cfg.PrimaryEndpointBackendHost,
+			PrimaryBackendPort: cfg.PrimaryEndpointBackendPort,
+			ComputeImage:       cfg.BranchEndpointComputeImage,
+			ComputeDataDir:     cfg.ComputeDataDir,
+			PGVersion:          cfg.PageserverPGVersion,
+			IdleTimeout:        cfg.BranchEndpointIdleStop,
+			MaxActiveConns:     cfg.BranchEndpointMaxConns,
+			Logger:             logger.With("component", "branch_endpoints"),
 		})
 		if err != nil {
 			logger.Error("init docker branch endpoint controller", "error", err)
@@ -182,7 +185,7 @@ func main() {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 	}
 

@@ -192,12 +192,14 @@ type fakeBranchEndpointController struct {
 	publishCalls   []string
 	unpublishCalls []string
 	refreshCalls   []string
+	prepareCalls   []string
 
 	publishErr    error
 	unpublishErr  error
 	connectionErr error
 	listErr       error
 	refreshErr    error
+	prepareErr    error
 }
 
 func (f *fakeBranchEndpointController) Publish(branchName string, attachment BranchAttachment, password string) (branchEndpointState, error) {
@@ -277,6 +279,14 @@ func (f *fakeBranchEndpointController) Refresh(branchName string, _ BranchAttach
 		return f.refreshErr
 	}
 	f.refreshCalls = append(f.refreshCalls, branchName)
+	return nil
+}
+
+func (f *fakeBranchEndpointController) PreparePrimarySwitch(branchName string) error {
+	if f.prepareErr != nil {
+		return f.prepareErr
+	}
+	f.prepareCalls = append(f.prepareCalls, branchName)
 	return nil
 }
 
