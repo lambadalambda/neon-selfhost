@@ -43,7 +43,7 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - `internal/config` contains environment-based config loading, including basic auth credentials.
 - `internal/branch` contains the single-tenant branch model/store with optional on-disk persistence.
 - `internal/server` contains the HTTP router, web console UI (`GET /`), status/health endpoints, branch and restore endpoints, endpoint lifecycle endpoints, SQL execution endpoint, and operation log endpoint for MVP slice 1.
-- `docker-compose.yml` wires controller + storage broker/pageserver/safekeepers/compute under the `neon` profile.
+- `docker-compose.yml` wires controller + storage broker/pageserver/safekeeper/compute under the `neon` profile.
 - `configs/neon/pageserver` contains the pageserver config mounted into the Neon container runtime.
 - `configs/neon/compute_wrapper` contains the compute wrapper image/build files used by compose for local compute startup.
 - `Dockerfile.controller` builds a minimal controller image.
@@ -173,6 +173,7 @@ mise run stack:ps
 Override `NEON_IMAGE`, `NEON_COMPUTE_IMAGE`, or `NEON_COMPUTE_TAG` if you need specific image tags.
 Set `CONTROLLER_HOST_PORT` to change the controller's localhost port when `8080` is already in use.
 For a non-Podman Docker socket, set `CONTAINER_ENGINE_SOCKET=/var/run/docker.sock` and `CONTAINER_ENGINE_GID` to the socket's numeric group ID.
+The single-node default uses one safekeeper; running multiple safekeepers on one disk increases write amplification without adding a separate failure domain.
 The compose controller runs with the internally named `PRIMARY_ENDPOINT_MODE=docker` compatibility mode, uses Podman's Docker-compatible API socket to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata. `PRIMARY_ENDPOINT_PASSWORD` is required and is applied before compute starts.
 
 The controller process runs as UID `65532`, with supplementary socket-group access. Access to the Podman API socket still grants engine-level authority equivalent to the account running the Podman machine. Keep the controller bound to localhost, use strong auth, and do not treat the socket mount as a security boundary. The tested default is a rootful Podman machine; rootless Podman requires a `CONTAINER_ENGINE_SOCKET` override and compatible socket ownership and is not yet validated.

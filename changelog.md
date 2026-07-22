@@ -71,6 +71,7 @@
 - Branch endpoint runtime IDs (selection paths/container names) now include a deterministic branch-name hash suffix to avoid slug-collision cross-branch routing.
 
 ### Changed
+- The single-node Compose stack now uses one safekeeper instead of three colocated replicas, avoiding unnecessary WAL amplification without claiming same-disk redundancy.
 - Controller startup now uses the persistent branch store when a controller data directory is configured.
 - Compose controller service now requires explicit basic auth password configuration.
 - Documentation now reflects implemented auth, persistence, and operation logging behavior.

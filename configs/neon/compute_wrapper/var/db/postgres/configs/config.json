@@ -99,7 +99,7 @@
         },
         {
           "name": "neon.safekeepers",
-          "value": "safekeeper1:5454,safekeeper2:5454,safekeeper3:5454",
+          "value": "safekeeper1:5454",
           "vartype": "string"
         },
         {
