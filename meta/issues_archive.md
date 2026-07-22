@@ -7,3 +7,4 @@
 - [x] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
 - [x] [Make the race test suite pass](issues/make-race-test-suite-pass.md)
 - [x] [Migrate fediffusion.art to Neon](issues/migrate-fediffusion-to-neon.md)
+- [x] [Select the SQL editor database](issues/select-sql-editor-database.md)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -27,11 +28,13 @@ const (
 )
 
 type SQLQueryExecutor interface {
-	Execute(ctx context.Context, branchName string, query string, readOnly bool) (sqlExecutionResult, error)
+	Execute(ctx context.Context, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error)
+	Databases(ctx context.Context, branchName string) (sqlDatabaseList, error)
 }
 
 type sqlExecutionResult struct {
 	Branch     string
+	Database   string
 	ReadOnly   bool
 	CommandTag string
 	DurationMS int64
@@ -41,6 +44,11 @@ type sqlExecutionResult struct {
 	Columns    []sqlExecutionColumn
 	Rows       [][]any
 	RowCount   int
+}
+
+type sqlDatabaseList struct {
+	Names   []string
+	Default string
 }
 
 type sqlExecutionColumn struct {
@@ -82,8 +90,12 @@ func NewNoopSQLQueryExecutor() SQLQueryExecutor {
 	return noopSQLQueryExecutor{}
 }
 
-func (noopSQLQueryExecutor) Execute(_ context.Context, _ string, _ string, _ bool) (sqlExecutionResult, error) {
+func (noopSQLQueryExecutor) Execute(_ context.Context, _ string, _ string, _ string, _ bool) (sqlExecutionResult, error) {
 	return sqlExecutionResult{}, fmt.Errorf("%w: sql execution requires docker mode", ErrPrimaryEndpointUnavailable)
+}
+
+func (noopSQLQueryExecutor) Databases(_ context.Context, _ string) (sqlDatabaseList, error) {
+	return sqlDatabaseList{}, fmt.Errorf("%w: database listing requires docker mode", ErrPrimaryEndpointUnavailable)
 }
 
 type branchEndpointSQLQueryExecutor struct {
@@ -135,6 +147,24 @@ func validateSingleStatementQuery(query string) error {
 		return errors.New("only one SQL statement is allowed per execution")
 	}
 
+	return nil
+}
+
+func validateSQLDatabaseName(database string) error {
+	if database == "" {
+		return nil
+	}
+	if len(database) > 63 {
+		return errors.New("database name exceeds 63 bytes")
+	}
+	if !utf8.ValidString(database) {
+		return errors.New("database name must be valid UTF-8")
+	}
+	for _, value := range database {
+		if value == 0 || unicode.IsControl(value) {
+			return errors.New("database name contains invalid control characters")
+		}
+	}
 	return nil
 }
 
@@ -283,27 +313,30 @@ func parseDollarDelimiter(value string) string {
 	return ""
 }
 
-func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName string, query string, readOnly bool) (sqlExecutionResult, error) {
+func (e *branchEndpointSQLQueryExecutor) connect(ctx context.Context, branchName string, requestedDatabase string) (*pgx.Conn, string, error) {
 	branchName = strings.TrimSpace(branchName)
 	if branchName == "" {
-		return sqlExecutionResult{}, branch.ErrNotFound
+		return nil, "", branch.ErrNotFound
 	}
-
-	if err := validateSingleStatementQuery(query); err != nil {
-		return sqlExecutionResult{}, err
+	if err := validateSQLDatabaseName(requestedDatabase); err != nil {
+		return nil, "", err
 	}
 
 	connection, err := e.branchEndpoints.Connection(branchName)
 	if err != nil {
-		return sqlExecutionResult{}, err
+		return nil, "", err
 	}
 
 	if !connection.Published || connection.Port <= 0 {
-		return sqlExecutionResult{}, fmt.Errorf("%w: branch endpoint is not published", ErrPrimaryEndpointUnavailable)
+		return nil, "", fmt.Errorf("%w: branch endpoint is not published", ErrPrimaryEndpointUnavailable)
 	}
 
 	if strings.TrimSpace(connection.Password) == "" || strings.TrimSpace(connection.User) == "" || strings.TrimSpace(connection.Database) == "" {
-		return sqlExecutionResult{}, fmt.Errorf("%w: branch endpoint credentials are incomplete", ErrPrimaryEndpointUnavailable)
+		return nil, "", fmt.Errorf("%w: branch endpoint credentials are incomplete", ErrPrimaryEndpointUnavailable)
+	}
+	database := requestedDatabase
+	if database == "" {
+		database = connection.Database
 	}
 
 	host := strings.TrimSpace(connection.Host)
@@ -311,17 +344,9 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 		host = defaultBranchEndpointHost
 	}
 
-	connectionURI := (&url.URL{
-		Scheme:   "postgresql",
-		User:     url.UserPassword(connection.User, connection.Password),
-		Host:     fmt.Sprintf("%s:%d", host, connection.Port),
-		Path:     "/" + url.PathEscape(connection.Database),
-		RawQuery: "sslmode=disable",
-	}).String()
-
-	config, err := pgx.ParseConfig(connectionURI)
+	config, err := parseSQLConnectionConfig(connection, host, database)
 	if err != nil {
-		return sqlExecutionResult{}, fmt.Errorf("%w: parse branch endpoint connection: %v", ErrPrimaryEndpointUnavailable, err)
+		return nil, "", fmt.Errorf("%w: parse branch endpoint connection: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
 	config.ConnectTimeout = e.connectTimeout
@@ -333,7 +358,81 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
-		return sqlExecutionResult{}, fmt.Errorf("%w: connect to branch endpoint: %v", ErrPrimaryEndpointUnavailable, err)
+		return nil, "", classifySQLConnectError(err)
+	}
+	return conn, database, nil
+}
+
+func classifySQLConnectError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "3D000" || pgErr.Code == "42501") {
+		return mapSQLExecutionError(err)
+	}
+	return fmt.Errorf("%w: connect to branch endpoint: %w", ErrPrimaryEndpointUnavailable, err)
+}
+
+func parseSQLConnectionConfig(connection branchEndpointState, host string, database string) (*pgx.ConnConfig, error) {
+	connectionURI := (&url.URL{
+		Scheme:   "postgresql",
+		User:     url.UserPassword(connection.User, connection.Password),
+		Host:     fmt.Sprintf("%s:%d", host, connection.Port),
+		Path:     "/" + connection.Database,
+		RawQuery: "sslmode=disable",
+	}).String()
+
+	config, err := pgx.ParseConfig(connectionURI)
+	if err != nil {
+		return nil, err
+	}
+	config.Database = database
+	return config, nil
+}
+
+func (e *branchEndpointSQLQueryExecutor) Databases(ctx context.Context, branchName string) (sqlDatabaseList, error) {
+	conn, defaultDatabase, err := e.connect(ctx, branchName, "")
+	if err != nil {
+		return sqlDatabaseList{}, err
+	}
+	defer closeSQLConnection(conn)
+
+	rows, err := conn.Query(ctx, "SELECT datname FROM pg_catalog.pg_database WHERE datallowconn AND NOT datistemplate AND has_database_privilege(datname, 'CONNECT') ORDER BY datname")
+	if err != nil {
+		return sqlDatabaseList{}, mapSQLExecutionError(err)
+	}
+	defer rows.Close()
+
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return sqlDatabaseList{}, mapSQLExecutionError(err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return sqlDatabaseList{}, mapSQLExecutionError(err)
+	}
+	return sqlDatabaseList{Names: names, Default: defaultDatabase}, nil
+}
+
+func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error) {
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" {
+		return sqlExecutionResult{}, branch.ErrNotFound
+	}
+	if err := validateSingleStatementQuery(query); err != nil {
+		return sqlExecutionResult{}, err
+	}
+	if err := validateSQLDatabaseName(database); err != nil {
+		return sqlExecutionResult{}, err
+	}
+
+	conn, database, err := e.connect(ctx, branchName, database)
+	if err != nil {
+		return sqlExecutionResult{}, err
 	}
 	defer closeSQLConnection(conn)
 
@@ -398,6 +497,7 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 
 	result := sqlExecutionResult{
 		Branch:     branchName,
+		Database:   database,
 		ReadOnly:   readOnly,
 		CommandTag: rows.CommandTag().String(),
 		DurationMS: time.Since(started).Milliseconds(),

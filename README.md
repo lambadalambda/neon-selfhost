@@ -58,6 +58,7 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - `POST /api/v1/branches/{name}/publish`
 - `POST /api/v1/branches/{name}/unpublish`
 - `GET /api/v1/branches/{name}/connection`
+- `GET /api/v1/branches/{name}/databases`
 - `POST /api/v1/branches/{name}/sql/execute`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
@@ -96,7 +97,7 @@ Connection `dsn` is returned only when `ready=true`.
 
 The web console now uses branch-first flows: branch selection in the left sidebar drives the Branch overview and SQL Editor pages, and connection helpers are branch-scoped.
 
-SQL execution is read-only by default, with optional write mode when `allow_writes=true` is passed to `POST /api/v1/branches/{name}/sql/execute` (the SQL Editor exposes this as an explicit "Enable write queries" toggle).
+SQL execution is read-only by default, with optional write mode when `allow_writes=true` is passed to `POST /api/v1/branches/{name}/sql/execute` (the SQL Editor exposes this as an explicit "Enable write queries" toggle). `GET /api/v1/branches/{name}/databases` returns `{"databases":[...],"default":"..."}` for connectable, non-template databases. The optional SQL execution `database` field selects one of them; omitting it preserves the branch endpoint's default database.
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 

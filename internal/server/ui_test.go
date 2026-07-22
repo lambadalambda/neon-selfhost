@@ -138,6 +138,18 @@ func TestRootServesConsoleUI(t *testing.T) {
 	if !strings.Contains(body, "data-role=\"sql-history-list\"") {
 		t.Fatal("expected sql history list in UI response")
 	}
+	if !strings.Contains(body, "data-role=\"sql-database-select\"") {
+		t.Fatal("expected sql database selector in UI response")
+	}
+	if !strings.Contains(body, "/databases") {
+		t.Fatal("expected UI script to call per-branch databases API")
+	}
+	if !strings.Contains(body, "database: selectedDatabase") {
+		t.Fatal("expected SQL execution to include the selected database")
+	}
+	if !strings.Contains(body, "data-role=\"sql-editor-status\" aria-live=\"polite\"") {
+		t.Fatal("expected SQL status updates to be announced accessibly")
+	}
 
 	if strings.Contains(body, "Restore To Timestamp") {
 		t.Fatal("did not expect restore panel in UI response")
@@ -181,4 +193,34 @@ func TestRootRequiresAuthWhenBasicAuthEnabled(t *testing.T) {
 	}
 
 	assertAPIErrorCode(t, res, "unauthorized")
+}
+
+func TestConsoleSQLDatabaseSelectionFailsClosed(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	body := res.Body.String()
+	checks := []struct {
+		name string
+		code string
+	}{
+		{name: "connection request captures branch", code: "const branchName = state.selectedBranch;"},
+		{name: "stale response is discarded", code: "if (state.selectedBranch !== branchName)"},
+		{name: "connection branch is validated", code: "connection.branch !== branchName"},
+		{name: "mismatched connection is cleared before loading", code: "state.selectedBranchConnection && state.selectedBranchConnection.branch !== branchName"},
+		{name: "unavailable selection requires confirmation", code: "selectionRequired: true"},
+		{name: "history selection cannot silently fall back", code: "entry.selectionRequired || (remembered && !names.includes(remembered))"},
+		{name: "write mode reset helper", code: "function clearSQLWriteMode()"},
+	}
+	for _, check := range checks {
+		if !strings.Contains(body, check.code) {
+			t.Errorf("expected %s safety check in UI response", check.name)
+		}
+	}
+	if calls := strings.Count(body, "clearSQLWriteMode();"); calls < 3 {
+		t.Errorf("expected database transitions to clear write mode, got %d reset calls", calls)
+	}
 }

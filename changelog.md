@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- A branch-scoped database selector in the SQL editor, backed by database discovery and per-query database selection APIs.
 - A fail-closed pageserver generation-validation upcall for standalone deployments, configured with `PAGESERVER_VALID_TENANT_GENERATIONS`, so remote layer garbage collection can proceed without a storage controller.
 - An opt-in Compose storage override for binding all persistent Neon state to a dedicated filesystem through `NEON_DATA_ROOT`.
 - Safe native and Podman Compose controller database backup/restore tooling with exclusive data-directory locking, SQLite integrity validation, and automatic volume rollback.

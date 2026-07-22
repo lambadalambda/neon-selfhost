@@ -110,6 +110,7 @@ type switchPrimaryEndpointRequest struct {
 
 type sqlExecuteRequest struct {
 	SQL         string `json:"sql"`
+	Database    string `json:"database"`
 	AllowWrites bool   `json:"allow_writes"`
 }
 
@@ -190,6 +191,7 @@ type sqlExecuteEnvelope struct {
 
 type sqlExecutePayload struct {
 	Branch     string                    `json:"branch"`
+	Database   string                    `json:"database"`
 	ReadOnly   bool                      `json:"read_only"`
 	CommandTag string                    `json:"command_tag"`
 	DurationMS int64                     `json:"duration_ms"`
@@ -198,6 +200,11 @@ type sqlExecutePayload struct {
 	Columns    []sqlExecuteColumnPayload `json:"columns,omitempty"`
 	Rows       [][]any                   `json:"rows,omitempty"`
 	RowCount   int                       `json:"row_count"`
+}
+
+type sqlDatabasesEnvelope struct {
+	Databases []string `json:"databases"`
+	Default   string   `json:"default"`
 }
 
 type sqlExecuteLimitsPayload struct {
@@ -607,6 +614,39 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, branchEndpointConnectionEnvelope{Connection: makeBranchEndpointPayload(state)})
 	})
 
+	mux.HandleFunc("GET /api/v1/branches/{name}/databases", func(w http.ResponseWriter, r *http.Request) {
+		branchName := strings.TrimSpace(r.PathValue("name"))
+		if branchName == "" {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", "branch name is required")
+			return
+		}
+		if _, err := store.GetActive(branchName); err != nil {
+			if errors.Is(err, branch.ErrNotFound) {
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+				return
+			}
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+
+		databases, err := sqlExecutor.Databases(r.Context(), branchName)
+		if err != nil {
+			logger.Warn("database listing failed", "branch", branchName, "error", err)
+			switch {
+			case errors.Is(err, branch.ErrNotFound):
+				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
+			case isPrimaryEndpointUnavailable(err):
+				writeJSONError(w, http.StatusServiceUnavailable, "endpoint_unavailable", err.Error())
+			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+				writeJSONError(w, http.StatusRequestTimeout, "timeout", "database listing timed out")
+			default:
+				writeJSONError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, sqlDatabasesEnvelope{Databases: databases.Names, Default: databases.Default})
+	})
+
 	mux.HandleFunc("POST /api/v1/branches/{name}/sql/execute", func(w http.ResponseWriter, r *http.Request) {
 		branchName := strings.TrimSpace(r.PathValue("name"))
 		if branchName == "" {
@@ -634,10 +674,14 @@ func New(cfg Config) http.Handler {
 			writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
+		if err := validateSQLDatabaseName(req.Database); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
 
-		result, err := sqlExecutor.Execute(r.Context(), branchName, req.SQL, !req.AllowWrites)
+		result, err := sqlExecutor.Execute(r.Context(), branchName, req.Database, req.SQL, !req.AllowWrites)
 		if err != nil {
-			logger.Warn("sql execution failed", "branch", branchName, "read_only", !req.AllowWrites, "error", err)
+			logger.Warn("sql execution failed", "branch", branchName, "database", req.Database, "read_only", !req.AllowWrites, "error", err)
 			switch {
 			case errors.Is(err, branch.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
@@ -659,7 +703,7 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
-		logger.Info("sql execution succeeded", "branch", branchName, "read_only", result.ReadOnly, "command_tag", result.CommandTag, "duration_ms", result.DurationMS, "row_count", result.RowCount, "truncated", result.Truncated)
+		logger.Info("sql execution succeeded", "branch", branchName, "database", result.Database, "read_only", result.ReadOnly, "command_tag", result.CommandTag, "duration_ms", result.DurationMS, "row_count", result.RowCount, "truncated", result.Truncated)
 
 		writeJSON(w, http.StatusOK, sqlExecuteEnvelope{Result: makeSQLExecutePayload(result)})
 	})
@@ -1282,6 +1326,7 @@ func makeSQLExecutePayload(result sqlExecutionResult) sqlExecutePayload {
 
 	return sqlExecutePayload{
 		Branch:     result.Branch,
+		Database:   result.Database,
 		ReadOnly:   result.ReadOnly,
 		CommandTag: result.CommandTag,
 		DurationMS: result.DurationMS,

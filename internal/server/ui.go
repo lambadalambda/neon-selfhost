@@ -733,8 +733,14 @@ const consoleHTML = `<!doctype html>
       padding: 10px;
       display: grid;
       gap: 8px;
-      grid-template-columns: 1.2fr auto auto;
+      grid-template-columns: 1.2fr auto minmax(150px, 210px) auto;
       align-items: center;
+    }
+
+    .sql-database-select {
+      width: 100%;
+      min-width: 0;
+      font-weight: 600;
     }
 
     .sql-toolbar .sql-tag {
@@ -1284,6 +1290,9 @@ const consoleHTML = `<!doctype html>
             <div class="sql-toolbar">
               <input data-role="sql-query-title" value="Untitled" aria-label="Query title">
               <button class="btn-ghost" data-action="save-sql">Save</button>
+              <select class="sql-database-select" data-role="sql-database-select" aria-label="Database" disabled>
+                <option value="">Select a branch first</option>
+              </select>
               <span class="sql-tag" data-role="sql-editor-branch-pill">main · endpoint unknown</span>
             </div>
 
@@ -1293,7 +1302,7 @@ const consoleHTML = `<!doctype html>
             </div>
 
             <div class="sql-status">
-              <span data-role="sql-editor-status">Ready to connect</span>
+              <span data-role="sql-editor-status" aria-live="polite">Ready to connect</span>
               <span class="sql-mode-indicator" data-role="sql-mode-indicator">Read-only</span>
               <button class="btn-ghost" data-action="copy-overview-dsn">Copy branch DSN</button>
             </div>
@@ -1358,6 +1367,8 @@ const consoleHTML = `<!doctype html>
       endpoints: [],
       selectedBranch: 'main',
       selectedBranchConnection: null,
+      databasesByBranch: {},
+      selectedDatabaseByBranch: {},
       sqlTab: 'saved',
       sqlHistory: [
         {
@@ -1399,6 +1410,7 @@ const consoleHTML = `<!doctype html>
       branchOverviewPassword: document.querySelector('[data-role="branch-overview-password"]'),
       sqlEditorBranchLabel: document.querySelector('[data-role="sql-editor-branch-label"]'),
       sqlEditorBranchPill: document.querySelector('[data-role="sql-editor-branch-pill"]'),
+      sqlDatabaseSelect: document.querySelector('[data-role="sql-database-select"]'),
       sqlHistoryList: document.querySelector('[data-role="sql-history-list"]'),
       sqlQueryTitle: document.querySelector('[data-role="sql-query-title"]'),
       sqlEditorInput: document.querySelector('[data-role="sql-editor-input"]'),
@@ -1776,7 +1788,7 @@ const consoleHTML = `<!doctype html>
       }
 
       const connection = state.selectedBranchConnection;
-      if (!connection || !connection.published || !connection.port) {
+      if (!connection || connection.branch !== selectedBranch.name || !connection.published || !connection.port) {
         refs.branchOverviewDSN.value = 'Endpoint is not published';
         refs.branchOverviewPSQL.value = 'Endpoint is not published';
         refs.branchOverviewPassword.value = 'Endpoint is not published';
@@ -1789,17 +1801,38 @@ const consoleHTML = `<!doctype html>
     }
 
     async function refreshSelectedBranchConnection(silent) {
-      if (!state.selectedBranch) {
+      const branchName = state.selectedBranch;
+      if (!branchName) {
         state.selectedBranchConnection = null;
         renderBranchOverview();
         renderSQLEditorContext();
         return;
       }
 
+      if (state.selectedBranchConnection && state.selectedBranchConnection.branch !== branchName) {
+        state.selectedBranchConnection = null;
+        clearSQLWriteMode();
+        renderBranchOverview();
+        renderSQLEditorContext();
+      }
+
       try {
-        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(state.selectedBranch) + '/connection');
-        state.selectedBranchConnection = response.connection || null;
+        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branchName) + '/connection');
+        if (state.selectedBranch !== branchName) {
+          return;
+        }
+        const connection = response.connection || null;
+        if (connection && connection.branch !== branchName) {
+          throw new Error('connection response did not match the selected branch');
+        }
+        if (!state.selectedBranchConnection || state.selectedBranchConnection.branch !== branchName) {
+          clearSQLWriteMode();
+        }
+        state.selectedBranchConnection = connection;
       } catch (err) {
+        if (state.selectedBranch !== branchName) {
+          return;
+        }
         state.selectedBranchConnection = null;
         if (!silent) {
           showMessage('Failed loading branch overview connection: ' + err.message, 'err');
@@ -1807,6 +1840,123 @@ const consoleHTML = `<!doctype html>
       }
 
       renderBranchOverview();
+      renderSQLEditorContext();
+    }
+
+    function selectedSQLDatabase(branchName) {
+      const entry = state.databasesByBranch[branchName];
+      if (entry && entry.selectionRequired) {
+        return '';
+      }
+      const selected = state.selectedDatabaseByBranch[branchName];
+      if (selected) {
+        return selected;
+      }
+      if (entry && entry.default) {
+        return entry.default;
+      }
+      const connection = state.selectedBranchConnection;
+      return connection && connection.database ? connection.database : '';
+    }
+
+    function renderSQLDatabaseSelector() {
+      const branchName = state.selectedBranch;
+      const connection = state.selectedBranchConnection;
+      if (!branchName || !connection || connection.branch !== branchName || !connection.published || !connection.port) {
+        refs.sqlDatabaseSelect.innerHTML = '<option value="">No database available</option>';
+        refs.sqlDatabaseSelect.disabled = true;
+        return;
+      }
+
+      const fallback = connection.database || 'postgres';
+      const entry = state.databasesByBranch[branchName];
+      if (entry && entry.loading) {
+        refs.sqlDatabaseSelect.innerHTML = '<option value="">Loading databases...</option>';
+        refs.sqlDatabaseSelect.disabled = true;
+        return;
+      }
+
+      const names = entry && Array.isArray(entry.names) && entry.names.length ? entry.names : [fallback];
+      const remembered = state.selectedDatabaseByBranch[branchName];
+      const selectionRequired = Boolean(entry && (entry.selectionRequired || (remembered && !names.includes(remembered))));
+      if (selectionRequired) {
+        entry.selectionRequired = true;
+      }
+      const selected = selectedSQLDatabase(branchName) || fallback;
+      const options = names
+        .map((name) => '<option value="' + escapeHTML(name) + '">' + escapeHTML(name) + '</option>')
+        .join('');
+      refs.sqlDatabaseSelect.innerHTML = selectionRequired
+        ? '<option value="">Select a database</option>' + options
+        : options;
+      refs.sqlDatabaseSelect.value = selectionRequired ? '' : (names.includes(selected) ? selected : names[0]);
+      if (!selectionRequired && (!entry || !entry.error)) {
+        state.selectedDatabaseByBranch[branchName] = refs.sqlDatabaseSelect.value;
+      }
+      refs.sqlDatabaseSelect.disabled = false;
+    }
+
+    async function refreshSelectedBranchDatabases(silent) {
+      const branchName = state.selectedBranch;
+      const connection = state.selectedBranchConnection;
+      if (!branchName || !connection || connection.branch !== branchName || !connection.published || !connection.port) {
+        renderSQLDatabaseSelector();
+        return;
+      }
+
+      const previous = state.databasesByBranch[branchName];
+      state.databasesByBranch[branchName] = {
+        names: previous && Array.isArray(previous.names) ? previous.names.slice() : [],
+        default: connection.database || 'postgres',
+        loading: true,
+        error: '',
+        selectionRequired: Boolean(previous && previous.selectionRequired),
+      };
+      renderSQLEditorContext();
+
+      try {
+        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branchName) + '/databases');
+        const names = Array.isArray(response.databases)
+          ? response.databases.filter((name) => typeof name === 'string' && name.length > 0)
+          : [];
+        const fallback = response.default || connection.database || 'postgres';
+        if (state.selectedBranch !== branchName || state.selectedBranchConnection !== connection) {
+          return;
+        }
+        const current = state.selectedDatabaseByBranch[branchName];
+        if (current && !names.includes(current)) {
+          state.databasesByBranch[branchName] = { names, default: fallback, loading: false, error: '', selectionRequired: true };
+        } else {
+          state.databasesByBranch[branchName] = { names, default: fallback, loading: false, error: '', selectionRequired: false };
+        }
+        if (!current) {
+          state.selectedDatabaseByBranch[branchName] = names.includes(fallback) ? fallback : (names[0] || fallback);
+        }
+      } catch (err) {
+        if (state.selectedBranch !== branchName || state.selectedBranchConnection !== connection) {
+          return;
+        }
+        const remembered = state.selectedDatabaseByBranch[branchName];
+        const fallback = connection.database || 'postgres';
+        const names = previous && Array.isArray(previous.names) ? previous.names.slice() : [];
+        if (remembered && !names.includes(remembered)) {
+          names.push(remembered);
+        }
+        if (!names.length) {
+          names.push(fallback);
+        }
+        state.databasesByBranch[branchName] = {
+          names,
+          default: fallback,
+          loading: false,
+          error: err.message || 'database list unavailable',
+          selectionRequired: Boolean(previous && previous.selectionRequired),
+        };
+        if (!silent) {
+          showMessage('Failed loading databases: ' + err.message, 'err');
+        }
+      }
+
       renderSQLEditorContext();
     }
 
@@ -1865,9 +2015,10 @@ const consoleHTML = `<!doctype html>
         .slice(0, 24)
         .map((entry) => {
           const statusSuffix = entry.status ? (' · ' + entry.status) : '';
+          const databaseSuffix = entry.database ? (' · ' + entry.database) : '';
           return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '" role="button" tabindex="0">'
             + '<strong>' + escapeHTML(entry.title) + '</strong>'
-            + '<small>' + escapeHTML((entry.branch || selectedBranch) + ' · ' + formatSQLHistoryTime(entry.timestamp) + statusSuffix) + '</small>'
+            + '<small>' + escapeHTML((entry.branch || selectedBranch) + databaseSuffix + ' · ' + formatSQLHistoryTime(entry.timestamp) + statusSuffix) + '</small>'
             + '</li>';
         })
         .join('');
@@ -1897,6 +2048,11 @@ const consoleHTML = `<!doctype html>
       refs.sqlModeIndicator.textContent = writeEnabled ? 'Write mode' : 'Read-only';
     }
 
+    function clearSQLWriteMode() {
+      refs.sqlAllowWrites.checked = false;
+      applySQLModeVisualState();
+    }
+
     function setSQLTab(tabName) {
       state.sqlTab = tabName === 'history' ? 'history' : 'saved';
       document.querySelectorAll('[data-action="sql-tab"]').forEach((node) => {
@@ -1914,6 +2070,7 @@ const consoleHTML = `<!doctype html>
         refs.sqlRunButton.disabled = true;
         refs.sqlAllowWrites.disabled = true;
         refs.sqlAllowWrites.checked = false;
+        renderSQLDatabaseSelector();
         applySQLModeVisualState();
         return;
       }
@@ -1922,31 +2079,55 @@ const consoleHTML = `<!doctype html>
 
       const endpoint = endpointByBranch(selectedBranch.name);
       const endpointStatus = endpoint && endpoint.published ? (endpoint.status || 'published') : 'unpublished';
-      refs.sqlEditorBranchPill.textContent = selectedBranch.name + ' · ' + endpointStatus;
 
       const connection = state.selectedBranchConnection;
-      if (!connection || !connection.published || !connection.port) {
+      if (!connection || connection.branch !== selectedBranch.name || !connection.published || !connection.port) {
+        refs.sqlEditorBranchPill.textContent = selectedBranch.name + ' · ' + endpointStatus;
         refs.sqlEditorStatus.textContent = 'Endpoint is not published for this branch yet';
         refs.sqlRunButton.disabled = true;
         refs.sqlAllowWrites.disabled = true;
         refs.sqlAllowWrites.checked = false;
+        renderSQLDatabaseSelector();
         applySQLModeVisualState();
         return;
       }
 
-      refs.sqlEditorStatus.textContent = 'Ready to connect · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
+      renderSQLDatabaseSelector();
+      const database = selectedSQLDatabase(selectedBranch.name) || connection.database || 'postgres';
+      const databaseState = state.databasesByBranch[selectedBranch.name];
+      refs.sqlEditorBranchPill.textContent = selectedBranch.name + ' · ' + database + ' · ' + endpointStatus;
+      if (databaseState && databaseState.loading) {
+        refs.sqlEditorStatus.textContent = 'Loading databases for ' + selectedBranch.name + '...';
+        refs.sqlRunButton.disabled = true;
+        refs.sqlAllowWrites.disabled = true;
+        clearSQLWriteMode();
+        return;
+      }
+      if (databaseState && databaseState.selectionRequired) {
+        refs.sqlEditorStatus.textContent = 'Previously selected database is unavailable · select a database';
+        refs.sqlRunButton.disabled = true;
+        refs.sqlAllowWrites.disabled = true;
+        clearSQLWriteMode();
+        return;
+      }
+      if (databaseState && databaseState.error) {
+        refs.sqlEditorStatus.textContent = 'Database list unavailable · using ' + database;
+      } else {
+        refs.sqlEditorStatus.textContent = 'Ready to connect · ' + database + ' · ' + (connection.host || '127.0.0.1') + ':' + String(connection.port);
+      }
       refs.sqlRunButton.disabled = false;
       refs.sqlAllowWrites.disabled = false;
       applySQLModeVisualState();
     }
 
-    function appendSQLHistoryEntry(title, query, branchName, saved, status) {
+    function appendSQLHistoryEntry(title, query, branchName, database, saved, status) {
       state.sqlHistory.unshift({
         id: (saved ? 'saved-' : 'run-') + Date.now() + '-' + Math.floor(Math.random() * 1000),
         title,
         query,
         saved,
         branch: branchName,
+        database,
         status,
         timestamp: new Date().toISOString(),
       });
@@ -2163,6 +2344,9 @@ const consoleHTML = `<!doctype html>
 
         renderBranchSelectors();
         await refreshSelectedBranchConnection(true);
+        if (state.currentPage === 'sql-editor') {
+          await refreshSelectedBranchDatabases(true);
+        }
 
         setPage(state.currentPage);
         renderStats();
@@ -2208,7 +2392,11 @@ const consoleHTML = `<!doctype html>
 
       try {
         if (action === 'navigate') {
-          setPage(actionTarget.getAttribute('data-page'));
+          const pageName = actionTarget.getAttribute('data-page');
+          setPage(pageName);
+          if (pageName === 'sql-editor') {
+            await refreshSelectedBranchDatabases(false);
+          }
           return;
         }
 
@@ -2234,6 +2422,11 @@ const consoleHTML = `<!doctype html>
 
           refs.sqlQueryTitle.value = entry.title;
           refs.sqlEditorInput.value = entry.query;
+          if (entry.database) {
+            state.selectedDatabaseByBranch[state.selectedBranch || 'main'] = entry.database;
+            clearSQLWriteMode();
+            renderSQLEditorContext();
+          }
           renderSQLEditorLineNumbers();
           setPage('sql-editor');
           showMessage('Loaded query from ' + state.sqlTab + ' list.', 'ok');
@@ -2244,7 +2437,8 @@ const consoleHTML = `<!doctype html>
           const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
           const query = refs.sqlEditorInput.value;
           const branchName = state.selectedBranch || 'main';
-          appendSQLHistoryEntry(title, query, branchName, true, 'saved');
+          const database = selectedSQLDatabase(branchName);
+          appendSQLHistoryEntry(title, query, branchName, database, true, 'saved');
           setSQLTab('saved');
           showMessage('Query saved locally for ' + branchName + '.', 'ok');
           return;
@@ -2253,7 +2447,7 @@ const consoleHTML = `<!doctype html>
         if (action === 'run-sql') {
           const branchName = state.selectedBranch || 'main';
           const connection = state.selectedBranchConnection;
-          if (!connection || !connection.published || !connection.port) {
+          if (!connection || connection.branch !== branchName || !connection.published || !connection.port) {
             throw new Error('branch endpoint is not published');
           }
 
@@ -2263,26 +2457,32 @@ const consoleHTML = `<!doctype html>
           }
 
           const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
+          const selectedDatabase = selectedSQLDatabase(branchName);
+          if (!selectedDatabase) {
+            throw new Error('database is not selected');
+          }
           const allowWrites = Boolean(refs.sqlAllowWrites.checked);
           refs.sqlRunButton.disabled = true;
           refs.sqlAllowWrites.disabled = true;
-          refs.sqlEditorStatus.textContent = 'Running query on ' + branchName + '...';
+          refs.sqlDatabaseSelect.disabled = true;
+          refs.sqlEditorStatus.textContent = 'Running query on ' + branchName + ' · ' + selectedDatabase + '...';
           refs.sqlEditorResult.textContent = 'Running query...';
 
           try {
             const response = await api('POST', '/api/v1/branches/' + encodeURIComponent(branchName) + '/sql/execute', {
               sql: query,
+              database: selectedDatabase,
               allow_writes: allowWrites,
             });
             const result = response.result || {};
             renderSQLResultSuccess(result);
-            appendSQLHistoryEntry(title, query, branchName, false, 'ok');
+            appendSQLHistoryEntry(title, query, branchName, selectedDatabase, false, 'ok');
             const modeLabel = result.read_only ? 'read-only' : 'write-enabled';
             refs.sqlEditorStatus.textContent = 'Last run: ' + (result.command_tag || 'QUERY') + ' · ' + String(result.duration_ms || 0) + ' ms · ' + modeLabel;
-            showMessage('Query executed on ' + branchName + '.', 'ok');
+            showMessage('Query executed on ' + branchName + ' · ' + selectedDatabase + '.', 'ok');
           } catch (runErr) {
             renderSQLResultError(runErr.message || 'sql execution failed');
-            appendSQLHistoryEntry(title, query, branchName, false, 'error');
+            appendSQLHistoryEntry(title, query, branchName, selectedDatabase, false, 'error');
             refs.sqlEditorStatus.textContent = 'Execution failed';
             showMessage('SQL execution failed: ' + runErr.message, 'err');
           } finally {
@@ -2295,6 +2495,7 @@ const consoleHTML = `<!doctype html>
         if (action === 'copy-branch-dsn') {
           if (branch && branch !== state.selectedBranch) {
             state.selectedBranch = branch;
+            clearSQLWriteMode();
             renderBranchSelectors();
             await refreshSelectedBranchConnection(true);
             renderBranches();
@@ -2365,6 +2566,7 @@ const consoleHTML = `<!doctype html>
 
     async function onSidebarBranchSelectChange(event) {
       state.selectedBranch = event.target.value.trim();
+      clearSQLWriteMode();
       renderSQLHistory();
       setPage('branch-overview');
       renderBranches();
@@ -2391,6 +2593,16 @@ const consoleHTML = `<!doctype html>
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
     refs.sidebarBranchSelect.addEventListener('change', onSidebarBranchSelectChange);
     refs.sqlAllowWrites.addEventListener('change', renderSQLEditorContext);
+    refs.sqlDatabaseSelect.addEventListener('change', function onSQLDatabaseSelectChange(event) {
+      const branchName = state.selectedBranch || 'main';
+      state.selectedDatabaseByBranch[branchName] = event.target.value;
+      const entry = state.databasesByBranch[branchName];
+      if (entry) {
+        entry.selectionRequired = false;
+      }
+      clearSQLWriteMode();
+      renderSQLEditorContext();
+    });
     refs.sqlEditorInput.addEventListener('input', renderSQLEditorLineNumbers);
     refs.sqlEditorInput.addEventListener('scroll', function onSQLEditorScroll() {
       refs.sqlEditorLines.scrollTop = refs.sqlEditorInput.scrollTop;
