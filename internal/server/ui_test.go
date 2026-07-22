@@ -224,3 +224,32 @@ func TestConsoleSQLDatabaseSelectionFailsClosed(t *testing.T) {
 		t.Errorf("expected database transitions to clear write mode, got %d reset calls", calls)
 	}
 }
+
+func TestConsoleSQLResultTableKeepsWideResultsReadable(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	body := res.Body.String()
+	for _, rule := range []string{
+		"grid-template-columns: 270px minmax(0, 1fr);",
+		"grid-template-columns: minmax(0, 1fr);",
+		"width: max-content;",
+		".sql-result-cell {",
+		"min-width: 8rem;",
+		"max-width: 32rem;",
+		"word-break: normal;",
+		`role="region" aria-label="SQL query results" tabindex="0"`,
+		`<th scope="col"><span class="sql-result-cell">`,
+		`<td><span class="sql-result-cell">`,
+	} {
+		if !strings.Contains(body, rule) {
+			t.Errorf("expected SQL result layout rule %q", rule)
+		}
+	}
+	if strings.Contains(body, ".sql-result-table {\n      width: max-content;\n      min-width: 100%;") {
+		t.Error("did not expect result tables to force narrow result sets to fill the pane")
+	}
+}

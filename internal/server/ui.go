@@ -355,7 +355,8 @@ const consoleHTML = `<!doctype html>
     select:focus-visible,
     textarea:focus-visible,
     .nav-list li[data-action]:focus-visible,
-    .sql-history-item:focus-visible {
+    .sql-history-item:focus-visible,
+    .sql-result-table-wrap:focus-visible {
       outline: 2px solid var(--focus-ring);
       outline-offset: 2px;
     }
@@ -635,7 +636,7 @@ const consoleHTML = `<!doctype html>
       background: #fff;
       overflow: hidden;
       display: grid;
-      grid-template-columns: 270px 1fr;
+      grid-template-columns: 270px minmax(0, 1fr);
       min-height: 520px;
     }
 
@@ -724,7 +725,9 @@ const consoleHTML = `<!doctype html>
 
     .sql-workspace {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto 1fr auto auto;
+      min-width: 0;
       min-height: 520px;
     }
 
@@ -871,6 +874,7 @@ const consoleHTML = `<!doctype html>
       background: #fcfcfd;
       color: #2d3442;
       font-size: 0.86rem;
+      min-width: 0;
       min-height: 54px;
     }
 
@@ -892,7 +896,7 @@ const consoleHTML = `<!doctype html>
     }
 
     .sql-result-table {
-      width: 100%;
+      width: max-content;
       border-collapse: collapse;
       font-size: 0.82rem;
     }
@@ -904,8 +908,15 @@ const consoleHTML = `<!doctype html>
       padding: 7px 8px;
       text-align: left;
       vertical-align: top;
+    }
+
+    .sql-result-cell {
+      display: block;
+      min-width: 8rem;
+      max-width: 32rem;
       white-space: pre-wrap;
-      word-break: break-word;
+      overflow-wrap: anywhere;
+      word-break: normal;
     }
 
     .sql-result-table th:last-child,
@@ -2167,7 +2178,7 @@ const consoleHTML = `<!doctype html>
       }
 
       const header = columns
-        .map((column) => '<th>' + escapeHTML(column.name) + '<br><small>' + escapeHTML(column.type || '') + '</small></th>')
+        .map((column) => '<th scope="col"><span class="sql-result-cell">' + escapeHTML(column.name) + '<br><small>' + escapeHTML(column.type || '') + '</small></span></th>')
         .join('');
 
       const bodyRows = rows
@@ -2175,7 +2186,7 @@ const consoleHTML = `<!doctype html>
           const cells = columns
             .map((_, index) => {
               const value = index < row.length ? row[index] : null;
-              return '<td>' + formatSQLResultCell(value) + '</td>';
+              return '<td><span class="sql-result-cell">' + formatSQLResultCell(value) + '</span></td>';
             })
             .join('');
 
@@ -2184,7 +2195,7 @@ const consoleHTML = `<!doctype html>
         .join('');
 
       refs.sqlEditorResult.innerHTML = meta
-        + '<div class="sql-result-table-wrap">'
+        + '<div class="sql-result-table-wrap" role="region" aria-label="SQL query results" tabindex="0">'
         + '<table class="sql-result-table">'
         + '<thead><tr>' + header + '</tr></thead>'
         + '<tbody>' + bodyRows + '</tbody>'

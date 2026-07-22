@@ -1,0 +1,1 @@
+- [ ] [Keep wide SQL results readable](issues/keep-wide-sql-results-readable.md)
