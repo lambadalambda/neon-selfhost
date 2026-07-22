@@ -25,3 +25,4 @@ Successful SQL executions with write mode enabled currently return success but a
 - Truncated writes, read-only writes, query failures, and pre-commit cancellation roll back without committing.
 - Definitive commit rollback and unknown commit outcome errors have distinct API responses.
 - Unit, API, integration, race, vet, and Compose checks pass.
+- Deployed API verification remains blocked by [Prevent concurrent writers on branch timelines](prevent-concurrent-branch-writers.md); direct PostgreSQL integration verification passed, but the active-primary branch endpoint now fails closed until safe primary routing lands.

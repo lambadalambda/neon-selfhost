@@ -26,3 +26,4 @@ Add a data-plane lease that prevents two compute processes sharing the compute-s
 - Primary, init, and dynamic branch computes use the same configured wrapper image; stopped stale branch containers are recreated and running stale containers fail closed.
 - Linux behavioral tests cover lease inheritance across `exec`, contention, distinct timelines, invalid IDs, and release.
 - Go, race, shell syntax, and plain/profile Compose checks pass.
+- In production, a duplicate `main` branch compute exited with code `75` before contacting safekeeper; the primary container ID and PostgreSQL start time were unchanged, with Pleroma and controller health remaining healthy.
