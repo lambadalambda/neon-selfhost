@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 const defaultHTTPPort = 8080
 const defaultHTTPHost = "127.0.0.1"
 const allowInsecureHTTPBindEnv = "ALLOW_INSECURE_HTTP_BIND"
+const pageserverValidTenantGenerationsEnv = "PAGESERVER_VALID_TENANT_GENERATIONS"
+
+var tenantShardIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{32}(?:-[0-9a-fA-F]{4})?$`)
 
 const (
 	defaultPrimaryEndpointMode     = "memory"
@@ -52,8 +56,9 @@ type Config struct {
 	DockerSocketPath     string
 	DockerComposeProject string
 
-	PageserverAPI       string
-	PageserverPGVersion int
+	PageserverAPI              string
+	PageserverPGVersion        int
+	PageserverValidGenerations map[string]uint32
 
 	BranchEndpointBindHost  string
 	BranchEndpointPortStart int
@@ -162,6 +167,11 @@ func Load() (Config, error) {
 		pageserverPGVersion = parsedPageserverPGVersion
 	}
 
+	pageserverValidGenerations, err := parsePageserverValidGenerations(os.Getenv(pageserverValidTenantGenerationsEnv))
+	if err != nil {
+		return Config{}, err
+	}
+
 	branchEndpointBindHost := strings.TrimSpace(os.Getenv("BRANCH_ENDPOINT_BIND_HOST"))
 	if branchEndpointBindHost == "" {
 		branchEndpointBindHost = defaultBranchEndpointBindHost
@@ -240,8 +250,9 @@ func Load() (Config, error) {
 		DockerSocketPath:     dockerSocketPath,
 		DockerComposeProject: dockerComposeProject,
 
-		PageserverAPI:       pageserverAPI,
-		PageserverPGVersion: pageserverPGVersion,
+		PageserverAPI:              pageserverAPI,
+		PageserverPGVersion:        pageserverPGVersion,
+		PageserverValidGenerations: pageserverValidGenerations,
 
 		BranchEndpointBindHost:  branchEndpointBindHost,
 		BranchEndpointPortStart: branchEndpointPortStart,
@@ -249,6 +260,35 @@ func Load() (Config, error) {
 		BranchEndpointIdleStop:  branchEndpointIdleStop,
 		BranchEndpointMaxConns:  branchEndpointMaxConns,
 	}, nil
+}
+
+func parsePageserverValidGenerations(raw string) (map[string]uint32, error) {
+	result := make(map[string]uint32)
+	if strings.TrimSpace(raw) == "" {
+		return result, nil
+	}
+
+	for _, rawEntry := range strings.Split(raw, ",") {
+		entry := strings.TrimSpace(rawEntry)
+		tenantID, rawGeneration, ok := strings.Cut(entry, ":")
+		tenantID = strings.ToLower(strings.TrimSpace(tenantID))
+		rawGeneration = strings.TrimSpace(rawGeneration)
+		if !ok || strings.Contains(rawGeneration, ":") || !tenantShardIDPattern.MatchString(tenantID) {
+			return nil, fmt.Errorf("invalid %s entry %q", pageserverValidTenantGenerationsEnv, rawEntry)
+		}
+
+		generation, err := strconv.ParseUint(rawGeneration, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s generation in %q", pageserverValidTenantGenerationsEnv, rawEntry)
+		}
+		if _, exists := result[tenantID]; exists {
+			return nil, fmt.Errorf("duplicate tenant %q in %s", tenantID, pageserverValidTenantGenerationsEnv)
+		}
+
+		result[tenantID] = uint32(generation)
+	}
+
+	return result, nil
 }
 
 func (c Config) Addr() string {

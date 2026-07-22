@@ -54,9 +54,10 @@ type Config struct {
 	BranchDBPath             string
 	BranchSchemaVersion      int
 
-	BasicAuthUser     string
-	BasicAuthPassword string
-	Logger            *slog.Logger
+	BasicAuthUser              string
+	BasicAuthPassword          string
+	PageserverValidGenerations map[string]uint32
+	Logger                     *slog.Logger
 }
 
 type statusResponse struct {
@@ -110,6 +111,24 @@ type switchPrimaryEndpointRequest struct {
 type sqlExecuteRequest struct {
 	SQL         string `json:"sql"`
 	AllowWrites bool   `json:"allow_writes"`
+}
+
+type pageserverValidateRequest struct {
+	Tenants []pageserverValidateTenantRequest `json:"tenants"`
+}
+
+type pageserverValidateTenantRequest struct {
+	ID         string `json:"id"`
+	Generation uint32 `json:"gen"`
+}
+
+type pageserverValidateResponse struct {
+	Tenants []pageserverValidateTenantResponse `json:"tenants"`
+}
+
+type pageserverValidateTenantResponse struct {
+	ID    string `json:"id"`
+	Valid bool   `json:"valid"`
 }
 
 type apiErrorResponse struct {
@@ -296,6 +315,32 @@ func New(cfg Config) http.Handler {
 	operations := newOperationManager(nil, defaultOperationLogLimit, logger, opStore)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /validate", func(w http.ResponseWriter, r *http.Request) {
+		var request pageserverValidateRequest
+		if err := decodeJSONRequest(r, &request, defaultJSONRequestBodyMaxBytes); err != nil {
+			writeJSONDecodeError(w, err, defaultJSONRequestBodyMaxBytes)
+			return
+		}
+		if len(cfg.PageserverValidGenerations) == 0 {
+			writeJSONError(w, http.StatusServiceUnavailable, "validation_unavailable", "pageserver tenant generations are not configured")
+			return
+		}
+
+		validated := make([]pageserverValidateTenantResponse, 0, len(request.Tenants))
+		for _, tenant := range request.Tenants {
+			expectedGeneration, known := cfg.PageserverValidGenerations[strings.ToLower(tenant.ID)]
+			if !known {
+				writeJSONError(w, http.StatusServiceUnavailable, "validation_unavailable", "pageserver tenant generation is not configured")
+				return
+			}
+			validated = append(validated, pageserverValidateTenantResponse{
+				ID:    tenant.ID,
+				Valid: tenant.Generation == expectedGeneration,
+			})
+		}
+
+		writeJSON(w, http.StatusOK, pageserverValidateResponse{Tenants: validated})
+	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		writeConsoleUI(w, version)
 	})
@@ -1091,6 +1136,11 @@ func isKnownOperationStatus(status string) bool {
 
 func withBasicAuth(next http.Handler, expectedUser string, expectedPassword string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/validate" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		providedUser, providedPassword, ok := r.BasicAuth()
 		if !ok || !secureEqual(providedUser, expectedUser) || !secureEqual(providedPassword, expectedPassword) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="neon-selfhost"`)

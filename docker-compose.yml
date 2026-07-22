@@ -6,6 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.controller
     image: neon-selfhost/controller:dev
+    restart: unless-stopped
     user: "65532:0"
     group_add:
       - "${CONTAINER_ENGINE_GID:-0}"
@@ -27,6 +28,7 @@ services:
       DOCKER_COMPOSE_PROJECT: neon-selfhost
       PAGESERVER_API: http://pageserver:9898
       PAGESERVER_PG_VERSION: "16"
+      PAGESERVER_VALID_TENANT_GENERATIONS: ${PAGESERVER_VALID_TENANT_GENERATIONS:-}
       BRANCH_ENDPOINT_BIND_HOST: 0.0.0.0
       BRANCH_ENDPOINT_PORT_START: "56000"
       BRANCH_ENDPOINT_PORT_END: "56049"
@@ -42,6 +44,7 @@ services:
 
   storage_broker:
     image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
+    restart: unless-stopped
     profiles: ["neon"]
     command:
       - storage_broker
@@ -51,6 +54,7 @@ services:
 
   pageserver:
     image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
+    restart: unless-stopped
     profiles: ["neon"]
     volumes:
       - pageserver_data:/data
@@ -63,6 +67,7 @@ services:
 
   safekeeper1:
     image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
+    restart: unless-stopped
     profiles: ["neon"]
     command:
       - safekeeper
@@ -88,6 +93,7 @@ services:
         COMPUTE_IMAGE: ${NEON_COMPUTE_IMAGE:-compute-node-v16}
         TAG: ${NEON_COMPUTE_TAG:-latest}
     image: ${NEON_COMPUTE_WRAPPER_IMAGE:-neon-selfhost/compute:dev}
+    restart: unless-stopped
     profiles: ["neon"]
     environment:
       PG_VERSION: ${PG_VERSION:-16}

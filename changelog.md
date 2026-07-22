@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- A fail-closed pageserver generation-validation upcall for standalone deployments, configured with `PAGESERVER_VALID_TENANT_GENERATIONS`, so remote layer garbage collection can proceed without a storage controller.
 - An opt-in Compose storage override for binding all persistent Neon state to a dedicated filesystem through `NEON_DATA_ROOT`.
 - Safe native and Podman Compose controller database backup/restore tooling with exclusive data-directory locking, SQLite integrity validation, and automatic volume rollback.
 - HTTP basic auth support for controller API routes via `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD`.
@@ -49,6 +50,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Compose services now restart automatically after an unexpected process exit or host reboot unless an operator explicitly stops them.
 - Compose compute now uses a dedicated 2 GiB local file cache and 128 MiB of shared buffers instead of issuing every nonresident page read directly to pageserver.
 - Compose can grant the non-root controller access to a non-default container-engine socket group through `CONTAINER_ENGINE_GID`.
 - Compose compute now keeps PostgreSQL `fsync` enabled, and the controller's localhost host port can be overridden with `CONTROLLER_HOST_PORT` to avoid collisions.

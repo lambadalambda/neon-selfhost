@@ -32,6 +32,9 @@ func main() {
 		logger.Error("load config", "error", err)
 		os.Exit(1)
 	}
+	if len(cfg.PageserverValidGenerations) == 0 {
+		logger.Warn("pageserver generation validation is unconfigured; remote deletions will retry")
+	}
 
 	if err := preflight.CheckControllerDataDir(cfg.ControllerDataDir); err != nil {
 		logger.Error("startup preflight", "error", err)
@@ -149,19 +152,20 @@ func main() {
 	}
 
 	handler := server.New(server.Config{
-		Version:                  version,
-		BranchStore:              branchStore,
-		BranchAttachmentResolver: branchAttachmentResolver,
-		PrimaryEndpoint:          primaryEndpoint,
-		BranchEndpoints:          branchEndpoints,
-		BasicAuthUser:            cfg.BasicAuthUser,
-		BasicAuthPassword:        cfg.BasicAuthPassword,
-		OperationDBPath:          operationDBPath,
-		LegacyOperationLogPath:   legacyOperationLogPath,
-		BranchStoreMode:          branchStoreMode,
-		BranchDBPath:             branchDBPath,
-		BranchSchemaVersion:      branchSchemaVersion,
-		Logger:                   logger.With("component", "http_api"),
+		Version:                    version,
+		BranchStore:                branchStore,
+		BranchAttachmentResolver:   branchAttachmentResolver,
+		PrimaryEndpoint:            primaryEndpoint,
+		BranchEndpoints:            branchEndpoints,
+		BasicAuthUser:              cfg.BasicAuthUser,
+		BasicAuthPassword:          cfg.BasicAuthPassword,
+		PageserverValidGenerations: cfg.PageserverValidGenerations,
+		OperationDBPath:            operationDBPath,
+		LegacyOperationLogPath:     legacyOperationLogPath,
+		BranchStoreMode:            branchStoreMode,
+		BranchDBPath:               branchDBPath,
+		BranchSchemaVersion:        branchSchemaVersion,
+		Logger:                     logger.With("component", "http_api"),
 	})
 	var handlerCloser io.Closer
 	if closer, ok := handler.(io.Closer); ok {

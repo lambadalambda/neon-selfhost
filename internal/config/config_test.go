@@ -83,6 +83,38 @@ func TestLoadWithPortAndBasicAuth(t *testing.T) {
 
 }
 
+func TestLoadPageserverValidTenantGenerations(t *testing.T) {
+	t.Setenv("PAGESERVER_VALID_TENANT_GENERATIONS", "b3574abe9145331a4f254f6fd2168628:1, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0102:42")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if got := cfg.PageserverValidGenerations["b3574abe9145331a4f254f6fd2168628"]; got != 1 {
+		t.Fatalf("expected generation 1, got %d", got)
+	}
+	if got := cfg.PageserverValidGenerations["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0102"]; got != 42 {
+		t.Fatalf("expected generation 42, got %d", got)
+	}
+}
+
+func TestLoadRejectsInvalidPageserverValidTenantGenerations(t *testing.T) {
+	for _, value := range []string{
+		"not-a-tenant:1",
+		"b3574abe9145331a4f254f6fd2168628:not-a-generation",
+		"b3574abe9145331a4f254f6fd2168628:4294967296",
+		"b3574abe9145331a4f254f6fd2168628:1,b3574abe9145331a4f254f6fd2168628:2",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("PAGESERVER_VALID_TENANT_GENERATIONS", value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected %q to be rejected", value)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsMissingBasicAuthPassword(t *testing.T) {
 	t.Setenv("BASIC_AUTH_USER", "admin")
 	t.Setenv("BASIC_AUTH_PASSWORD", "")
