@@ -6,3 +6,4 @@
 - [x] [Harden Podman access and database credentials](issues/harden-docker-access-and-database-credentials.md)
 - [x] [Preserve operation history under failure](issues/preserve-operation-history-under-failure.md)
 - [x] [Make the race test suite pass](issues/make-race-test-suite-pass.md)
+- [x] [Migrate fediffusion.art to Neon](issues/migrate-fediffusion-to-neon.md)
