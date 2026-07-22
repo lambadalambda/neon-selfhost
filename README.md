@@ -177,7 +177,7 @@ For a non-Podman Docker socket, set `CONTAINER_ENGINE_SOCKET=/var/run/docker.soc
 The single-node default uses one safekeeper; running multiple safekeepers on one disk increases write amplification without adding a separate failure domain.
 The compose controller runs with the internally named `PRIMARY_ENDPOINT_MODE=docker` compatibility mode, uses Podman's Docker-compatible API socket to orchestrate primary and branch compute lifecycle, and uses `PAGESERVER_API` to resolve branch attachment metadata. `PRIMARY_ENDPOINT_PASSWORD` is required and is applied before compute starts.
 
-For production-sized data, place Neon state on a dedicated filesystem with the storage override. Create `controller`, `compute`, `compute-cache`, `pageserver`, and `safekeeper1` directories under the selected root, assign the controller directories to UID `65532` and the storage/cache directories to UID `1000`, then run:
+For production-sized data, place Neon state on a dedicated filesystem with the storage override. Create `controller`, `compute`, `compute-cache`, `pageserver`, and `safekeeper1` directories under the selected root. Assign `controller` and `compute` to UID `65532`, and assign `compute-cache`, `pageserver`, and `safekeeper1` to UID `1000`. A root initialization service verifies the shared compute-state layout and creates a sticky writer-lease directory before either the controller or compute starts. Then run:
 
 ```bash
 COMPOSE_FILE=docker-compose.yml:docker-compose.storage.yml \

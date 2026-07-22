@@ -1,6 +1,30 @@
 name: neon-selfhost
 
 services:
+  compute_state_init:
+    build:
+      context: ./configs/neon/compute_wrapper
+      dockerfile: Dockerfile
+      args:
+        REPOSITORY: ${NEON_REPOSITORY:-ghcr.io/neondatabase}
+        COMPUTE_IMAGE: ${NEON_COMPUTE_IMAGE:-compute-node-v16}
+        TAG: ${NEON_COMPUTE_TAG:-latest}
+    image: ${NEON_COMPUTE_WRAPPER_IMAGE:-neon-selfhost/compute:dev}
+    restart: "no"
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        chown 65532:65532 /var/lib/neon/compute
+        chmod 0755 /var/lib/neon/compute
+        mkdir -p /var/lib/neon/compute/writer-leases
+        chown 65532:65532 /var/lib/neon/compute/writer-leases
+        chmod 01777 /var/lib/neon/compute/writer-leases
+    volumes:
+      - compute_state:/var/lib/neon/compute
+
   controller:
     build:
       context: .
@@ -32,6 +56,7 @@ services:
       BRANCH_ENDPOINT_BIND_HOST: 0.0.0.0
       BRANCH_ENDPOINT_PORT_START: "56000"
       BRANCH_ENDPOINT_PORT_END: "56049"
+      BRANCH_ENDPOINT_COMPUTE_IMAGE: ${NEON_COMPUTE_WRAPPER_IMAGE:-neon-selfhost/compute:dev}
     ports:
       - "127.0.0.1:${CONTROLLER_HOST_PORT:-8080}:8080"
       - "127.0.0.1:56000-56049:56000-56049"
@@ -41,6 +66,9 @@ services:
       - ${CONTAINER_ENGINE_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock
     networks:
       - neon_internal
+    depends_on:
+      compute_state_init:
+        condition: service_completed_successfully
 
   storage_broker:
     image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
@@ -110,8 +138,12 @@ services:
     ports:
       - "127.0.0.1:55433:55433"
     depends_on:
-      - pageserver
-      - safekeeper1
+      compute_state_init:
+        condition: service_completed_successfully
+      pageserver:
+        condition: service_started
+      safekeeper1:
+        condition: service_started
     networks:
       - neon_internal
 

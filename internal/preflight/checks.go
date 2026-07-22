@@ -54,6 +54,22 @@ func CheckControllerDataDir(path string) error {
 	return nil
 }
 
+func PrepareComputeWriterLeaseDir(computeDataDir string) (string, error) {
+	computeDataDir = strings.TrimSpace(computeDataDir)
+	if computeDataDir == "" {
+		return "", nil
+	}
+
+	leaseDir := filepath.Join(computeDataDir, "writer-leases")
+	if err := os.MkdirAll(leaseDir, 0o777|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("%w: prepare compute writer lease directory: %v", ErrDataDirNotWritable, err)
+	}
+	if err := os.Chmod(leaseDir, 0o777|os.ModeSticky); err != nil {
+		return "", fmt.Errorf("%w: set compute writer lease permissions: %v", ErrDataDirNotWritable, err)
+	}
+	return leaseDir, nil
+}
+
 func StateFilePath(dataDir string) string {
 	return filepath.Join(dataDir, "branches.json")
 }

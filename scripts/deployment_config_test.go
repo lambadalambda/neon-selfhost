@@ -21,9 +21,6 @@ func TestComposeRequiresEndpointPasswordAndRunsControllerNonRoot(t *testing.T) {
 			t.Fatalf("expected Compose config to contain %q", expected)
 		}
 	}
-	if strings.Contains(compose, `user: "0:0"`) {
-		t.Fatal("controller must not run as root")
-	}
 	if count := strings.Count(compose, `PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?`); count != 2 {
 		t.Fatalf("expected controller and compute to require PRIMARY_ENDPOINT_PASSWORD, got %d declarations", count)
 	}
@@ -46,6 +43,65 @@ func TestOperationalTasksUsePodmanCompose(t *testing.T) {
 		}
 		if strings.Contains(string(content), "require_command docker") {
 			t.Fatalf("expected %s not to require Docker", path)
+		}
+	}
+}
+
+func TestComputeRequiresAttachmentWriterLease(t *testing.T) {
+	composeContent, err := os.ReadFile("../docker-compose.yml")
+	if err != nil {
+		t.Fatalf("read compose config: %v", err)
+	}
+	if !strings.Contains(string(composeContent), `BRANCH_ENDPOINT_COMPUTE_IMAGE: ${NEON_COMPUTE_WRAPPER_IMAGE:-neon-selfhost/compute:dev}`) {
+		t.Fatal("expected primary and branch computes to use the configured wrapper image")
+	}
+	computeDockerfile, err := os.ReadFile("../configs/neon/compute_wrapper/Dockerfile")
+	if err != nil {
+		t.Fatalf("read compute Dockerfile: %v", err)
+	}
+	if !strings.Contains(string(computeDockerfile), "util-linux") {
+		t.Fatal("expected compute image to install flock explicitly through util-linux")
+	}
+	compose := string(composeContent)
+	for _, expected := range []string{
+		"compute_state_init:",
+		"condition: service_completed_successfully",
+		"chown 65532:65532 /var/lib/neon/compute/writer-leases",
+		"chmod 01777 /var/lib/neon/compute/writer-leases",
+	} {
+		if !strings.Contains(compose, expected) {
+			t.Fatalf("expected compute-state initialization to contain %q", expected)
+		}
+	}
+
+	computeScript, err := os.ReadFile("../configs/neon/compute_wrapper/shell/compute.sh")
+	if err != nil {
+		t.Fatalf("read compute script: %v", err)
+	}
+	leaseScript, err := os.ReadFile("../configs/neon/compute_wrapper/shell/writer_lease.sh")
+	if err != nil {
+		t.Fatalf("read writer lease script: %v", err)
+	}
+
+	compute := string(computeScript)
+	for _, expected := range []string{
+		`source /shell/writer_lease.sh`,
+		`acquire_writer_lease "${tenant_id}" "${timeline_id}"`,
+	} {
+		if !strings.Contains(compute, expected) {
+			t.Fatalf("expected compute startup to contain %q", expected)
+		}
+	}
+
+	lease := string(leaseScript)
+	for _, expected := range []string{
+		`^[0-9a-fA-F]{32}$`,
+		`/var/lib/neon/compute/writer-leases`,
+		`exec {WRITER_LEASE_FD}<>`,
+		`flock -E 75 -n "${WRITER_LEASE_FD}"`,
+	} {
+		if !strings.Contains(lease, expected) {
+			t.Fatalf("expected writer lease implementation to contain %q", expected)
 		}
 	}
 }

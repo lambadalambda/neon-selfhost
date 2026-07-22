@@ -35,6 +35,7 @@ const (
 	defaultBranchEndpointPortEnd   = 56049
 	defaultBranchEndpointIdleStop  = 10 * time.Minute
 	defaultBranchEndpointMaxConns  = 32
+	defaultBranchEndpointImage     = "neon-selfhost/compute:dev"
 )
 
 type Config struct {
@@ -60,11 +61,12 @@ type Config struct {
 	PageserverPGVersion        int
 	PageserverValidGenerations map[string]uint32
 
-	BranchEndpointBindHost  string
-	BranchEndpointPortStart int
-	BranchEndpointPortEnd   int
-	BranchEndpointIdleStop  time.Duration
-	BranchEndpointMaxConns  int
+	BranchEndpointBindHost     string
+	BranchEndpointPortStart    int
+	BranchEndpointPortEnd      int
+	BranchEndpointIdleStop     time.Duration
+	BranchEndpointMaxConns     int
+	BranchEndpointComputeImage string
 }
 
 func Load() (Config, error) {
@@ -218,6 +220,10 @@ func Load() (Config, error) {
 
 		branchEndpointMaxConns = parsedMaxConns
 	}
+	branchEndpointComputeImage := strings.TrimSpace(os.Getenv("BRANCH_ENDPOINT_COMPUTE_IMAGE"))
+	if branchEndpointComputeImage == "" {
+		branchEndpointComputeImage = defaultBranchEndpointImage
+	}
 
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
@@ -254,11 +260,12 @@ func Load() (Config, error) {
 		PageserverPGVersion:        pageserverPGVersion,
 		PageserverValidGenerations: pageserverValidGenerations,
 
-		BranchEndpointBindHost:  branchEndpointBindHost,
-		BranchEndpointPortStart: branchEndpointPortStart,
-		BranchEndpointPortEnd:   branchEndpointPortEnd,
-		BranchEndpointIdleStop:  branchEndpointIdleStop,
-		BranchEndpointMaxConns:  branchEndpointMaxConns,
+		BranchEndpointBindHost:     branchEndpointBindHost,
+		BranchEndpointPortStart:    branchEndpointPortStart,
+		BranchEndpointPortEnd:      branchEndpointPortEnd,
+		BranchEndpointIdleStop:     branchEndpointIdleStop,
+		BranchEndpointMaxConns:     branchEndpointMaxConns,
+		BranchEndpointComputeImage: branchEndpointComputeImage,
 	}, nil
 }
 

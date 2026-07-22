@@ -235,6 +235,7 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 	t.Setenv("BRANCH_ENDPOINT_PORT_END", "56199")
 	t.Setenv("BRANCH_ENDPOINT_IDLE_TIMEOUT", "45s")
 	t.Setenv("BRANCH_ENDPOINT_MAX_CONNECTIONS", "48")
+	t.Setenv("BRANCH_ENDPOINT_COMPUTE_IMAGE", "registry.example/neon-compute@sha256:abc")
 
 	cfg, err := Load()
 	if err != nil {
@@ -303,6 +304,9 @@ func TestLoadPrimaryEndpointDockerSettings(t *testing.T) {
 
 	if cfg.BranchEndpointMaxConns != 48 {
 		t.Fatalf("expected branch endpoint max conns %d, got %d", 48, cfg.BranchEndpointMaxConns)
+	}
+	if cfg.BranchEndpointComputeImage != "registry.example/neon-compute@sha256:abc" {
+		t.Fatalf("expected branch compute image override, got %q", cfg.BranchEndpointComputeImage)
 	}
 }
 

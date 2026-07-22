@@ -44,6 +44,10 @@ func main() {
 		logger.Error("compute data preflight", "error", err)
 		os.Exit(1)
 	}
+	if _, err := preflight.PrepareComputeWriterLeaseDir(cfg.ComputeDataDir); err != nil {
+		logger.Error("compute writer lease preflight", "error", err)
+		os.Exit(1)
+	}
 	var controllerDataLock *controllerdb.Lock
 	if cfg.ControllerDataDir != "" {
 		controllerDataLock, err = controllerdb.AcquireLock(cfg.ControllerDataDir)
@@ -137,6 +141,7 @@ func main() {
 			PortEnd:        cfg.BranchEndpointPortEnd,
 			Database:       cfg.PrimaryEndpointDatabase,
 			User:           cfg.PrimaryEndpointUser,
+			ComputeImage:   cfg.BranchEndpointComputeImage,
 			ComputeDataDir: cfg.ComputeDataDir,
 			PGVersion:      cfg.PageserverPGVersion,
 			IdleTimeout:    cfg.BranchEndpointIdleStop,

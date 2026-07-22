@@ -59,3 +59,28 @@ func TestCheckControllerDataDirDetectsNotWritableDirectory(t *testing.T) {
 		t.Fatalf("expected %v, got %v", ErrDataDirNotWritable, err)
 	}
 }
+
+func TestPrepareComputeWriterLeaseDirCreatesStickySharedDirectory(t *testing.T) {
+	computeDir := t.TempDir()
+	leaseDir, err := PrepareComputeWriterLeaseDir(computeDir)
+	if err != nil {
+		t.Fatalf("prepare writer lease dir: %v", err)
+	}
+	if leaseDir != filepath.Join(computeDir, "writer-leases") {
+		t.Fatalf("unexpected lease dir %q", leaseDir)
+	}
+	info, err := os.Stat(leaseDir)
+	if err != nil {
+		t.Fatalf("stat writer lease dir: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o777 || info.Mode()&os.ModeSticky == 0 {
+		t.Fatalf("expected sticky mode 01777, got %v", info.Mode())
+	}
+}
+
+func TestPrepareComputeWriterLeaseDirNoopWhenUnset(t *testing.T) {
+	leaseDir, err := PrepareComputeWriterLeaseDir("")
+	if err != nil || leaseDir != "" {
+		t.Fatalf("expected empty path no-op, got path=%q err=%v", leaseDir, err)
+	}
+}

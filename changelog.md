@@ -51,6 +51,7 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Compute startup now holds a shared tenant/timeline writer lease, preventing duplicate compute writers from reaching safekeeper.
 - Write-enabled SQL editor executions now commit successful transactions instead of reporting writes that are rolled back.
 - Wide SQL query results now keep readable columns and scroll horizontally instead of compressing text into stacked characters.
 - Compose services now restart automatically after an unexpected process exit or host reboot unless an operator explicitly stops them.

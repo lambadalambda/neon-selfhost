@@ -348,6 +348,44 @@ func newTestDockerBranchEndpointController(store *branch.Store, computeDataDir s
 	}
 }
 
+func TestReconcileBranchComputeImageRemovesStoppedStaleContainer(t *testing.T) {
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.engine = engine
+	inspect := dockerContainerInspect{ID: "stale-container"}
+	inspect.Config.Image = "neon-selfhost/compute:old"
+
+	exists, err := controller.reconcileComputeImage(inspect, true)
+	if err != nil {
+		t.Fatalf("reconcile stale image: %v", err)
+	}
+	if exists {
+		t.Fatal("expected stopped stale container to be removed")
+	}
+	_, removeCalls := engine.calls()
+	if len(removeCalls) != 1 || removeCalls[0] != "stale-container" {
+		t.Fatalf("expected stale container removal, got %#v", removeCalls)
+	}
+}
+
+func TestReconcileBranchComputeImageRejectsRunningStaleContainer(t *testing.T) {
+	engine := &trackingBranchEndpointEngine{containers: map[string]dockerContainerInspect{}}
+	controller := newTestDockerBranchEndpointController(branch.NewStore(), t.TempDir(), 56000, 56000)
+	controller.engine = engine
+	inspect := dockerContainerInspect{ID: "running-stale-container"}
+	inspect.Config.Image = "neon-selfhost/compute:old"
+	inspect.State.Running = true
+
+	_, err := controller.reconcileComputeImage(inspect, true)
+	if err == nil {
+		t.Fatal("expected running stale compute to fail closed")
+	}
+	stopCalls, removeCalls := engine.calls()
+	if len(stopCalls) != 0 || len(removeCalls) != 0 {
+		t.Fatalf("expected active stale compute to remain untouched, stops=%#v removes=%#v", stopCalls, removeCalls)
+	}
+}
+
 type fakeDockerBranchEndpointEngine struct{}
 
 func (fakeDockerBranchEndpointEngine) InspectContainerByName(_ string) (dockerContainerInspect, bool, error) {

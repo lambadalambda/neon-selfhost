@@ -734,6 +734,10 @@ func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string,
 	if err != nil {
 		return "", err
 	}
+	exists, err = c.reconcileComputeImage(inspect, exists)
+	if err != nil {
+		return "", err
+	}
 
 	if !exists {
 		createReq := dockerCreateContainerRequest{
@@ -779,6 +783,19 @@ func (c *dockerBranchEndpointController) ensureComputeRunning(branchName string,
 	}
 
 	return c.waitForBackend(containerName)
+}
+
+func (c *dockerBranchEndpointController) reconcileComputeImage(inspect dockerContainerInspect, exists bool) (bool, error) {
+	if !exists || strings.TrimSpace(inspect.Config.Image) == strings.TrimSpace(c.computeImage) {
+		return exists, nil
+	}
+	if inspect.State.Running {
+		return true, fmt.Errorf("%w: running branch compute uses stale image %q; drain it before upgrading to %q", ErrPrimaryEndpointUnavailable, inspect.Config.Image, c.computeImage)
+	}
+	if err := c.engine.RemoveContainer(inspect.ID, true); err != nil {
+		return true, fmt.Errorf("remove stale branch compute image %q: %w", inspect.Config.Image, err)
+	}
+	return false, nil
 }
 
 func (c *dockerBranchEndpointController) waitForBackend(containerName string) (string, error) {

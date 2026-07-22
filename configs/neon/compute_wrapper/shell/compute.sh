@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source /shell/writer_lease.sh
+
 generate_id() {
   local -n resvar=${1}
   printf -v resvar '%08x%08x%08x%08x' ${SRANDOM} ${SRANDOM} ${SRANDOM} ${SRANDOM}
@@ -95,6 +97,8 @@ else
       "http://pageserver:9898/v1/tenant/${tenant_id}/timeline/" >/dev/null
   fi
 fi
+
+acquire_writer_lease "${tenant_id}" "${timeline_id}"
 
 if [[ ${PG_VERSION} -ge 17 ]]; then
   ulid_extension=pgx_ulid
