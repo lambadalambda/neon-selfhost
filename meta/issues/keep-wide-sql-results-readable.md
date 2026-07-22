@@ -26,3 +26,4 @@ Prevent wide SQL query results from compressing columns into vertically stacked 
 - The named results region supports keyboard scrolling and preserves semantic column headers.
 - An opt-in Chromium regression covers desktop and mobile containment, both-axis overflow, long values, and keyboard scrolling.
 - Standard tests, race tests, vet, browser tests, and Compose validation pass.
+- The production fediffusion console renders `SELECT * FROM users LIMIT 1` with readable bounded columns, internal horizontal scrolling, keyboard scrolling, and no desktop or mobile page overflow.
