@@ -2,6 +2,7 @@
 
 ## 2026-07-23
 
+- Reframed the README as a current product overview, captured sanitized screenshots from the live Docker-mode controller, and moved development and verification workflows into `docs/development.md`. Screenshot capture must use a fresh tunnel to remote port `18080`; an existing local controller can otherwise look identical while running in no-op mode.
 - Added and visually verified the responsive Tables/schema browser: fixed read-only catalog queries, bounded search/detail APIs, desktop three-pane inspection, mobile drill-down, and non-executing SQL Editor handoff.
 - Replaced the SQL Editor's browser-local sample library with controller-backed saved-query CRUD and execution history in `controller.db`; browser coverage verifies reload persistence, context/project scopes, context switching, and history refresh.
 - Protected SQL writes now require a two-step keyboard-accessible confirmation and reset to read-only whenever branch, database, or connection context changes.

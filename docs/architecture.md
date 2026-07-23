@@ -2,11 +2,11 @@
 
 ## Overview
 
-`neon-selfhost` is planned as a Podman-first, operator-friendly setup around open-source Neon with a minimal web console.
+`neon-selfhost` is a Podman-first, operator-friendly control plane around open-source Neon with an embedded web console.
 
-Current maturity: pre-alpha. The current implementation includes a runnable controller with status/health, branch-management, restore, and endpoint lifecycle endpoints backed by a single-tenant SQLite branch store, plus compose wiring for storage broker/pageserver/safekeepers/compute and Podman-backed primary/branch compute lifecycle orchestration through its Docker-compatible API.
+Current maturity: experimental. The implementation includes branch and endpoint lifecycle orchestration, point-in-time restore, guarded SQL execution, a persistent SQL library, schema browsing, health/status APIs, and SQLite controller state. The included Compose stack wires the controller to the storage broker, pageserver, safekeeper, primary compute, and on-demand branch computes through Podman's Docker-compatible API.
 
-Design target:
+Supported topology:
 
 - One admin user.
 - One tenant.
@@ -18,13 +18,13 @@ Design target:
 - Branch: user-facing name for a Neon timeline.
 - Timeline ID: canonical internal identifier backing a branch.
 - Endpoint: a compute instance serving PostgreSQL traffic.
-- Tenant: Neon storage namespace; MVP assumes a single tenant.
+- Tenant: Neon storage namespace; the supported topology uses a single tenant.
 
 ## High-Level Components
 
 1. Controller (Go web service + web UI)
    - Public entrypoint for all admin actions.
-   - Owns configuration, operation logs, and orchestration jobs.
+   - Owns configuration, persistent operation logs, and orchestration jobs.
    - Exposes a small HTTP API consumed by the UI.
 
 2. Neon data-plane services
@@ -34,9 +34,9 @@ Design target:
    - Broker if required by the selected Neon runtime wiring (Neon internal coordination service used by some control/runtime paths).
 
 3. Persistent storage
-   - Named Podman volumes for pageserver, safekeepers, compute state, and controller state.
+   - Named Podman volumes by default, with a bind-backed storage override for pageserver, safekeeper, compute, and controller state.
 
-## Podman Topology (MVP)
+## Podman Topology
 
 - Exposed ports (bind to localhost by default):
   - `8080` -> Controller UI/API
@@ -80,11 +80,12 @@ Design target:
 
 ## Controller API
 
-Implemented in MVP slice 1:
+Implemented routes:
 
 - `GET /` (controller web console)
 - `GET /api/v1/status`
 - `GET /api/v1/health`
+- `POST /validate` (internal pageserver generation-validation upcall)
 - `GET /api/v1/branches`
 - `POST /api/v1/branches`
 - `POST /api/v1/branches/{name}/reset`
@@ -107,14 +108,10 @@ Implemented in MVP slice 1:
 - `GET /api/v1/endpoints` (published branch endpoint list)
 - `GET /api/v1/operations`
 
-Planned for later slices:
-
-- Deeper endpoint readiness and startup diagnostics sourced directly from Neon runtime APIs.
-
 Current API behavior notes:
 
 - Branch operations are backed by a single-process store; when `CONTROLLER_DATA_DIR` is set, branch state persists to SQLite.
-- `GET /` serves a single-page controller console for branch, restore, endpoint, and operation-log workflows.
+- `GET /` serves a single-page controller console with Dashboard, Branches, branch Overview, SQL Editor, Tables, and Backup & Restore views. Primary lifecycle controls, explicit publish/unpublish, and operation details remain API-driven.
 - `DELETE /api/v1/branches/{name}` marks branches as deleted; it does not remove storage.
 - `POST /api/v1/restore` validates RFC3339 timestamps, rejects future timestamps, and rejects timestamps before source-branch history.
 - `POST /api/v1/restore` resolves timestamp-to-LSN via pageserver APIs and creates a restore timeline using `ancestor_start_lsn`.
@@ -127,12 +124,12 @@ Current API behavior notes:
 - `GET /api/v1/endpoints/primary/connection` reflects compute runtime state plus controller-held branch selection and connection metadata.
 - Endpoint start/switch resolve branch tenant/timeline attachment via pageserver APIs, persist endpoint selection in compute data dir, and restart compute against that selection.
 - Branch reset refreshes published branch endpoint selection metadata; branch delete unpublishes branch endpoint state before soft-delete.
-- Switch-time branching attaches at parent timeline head; restore-time branching attaches at the timestamp-resolved LSN.
+- Branch creation and reset attach at a parent timeline head; restore attaches at the timestamp-resolved LSN; primary switch reattaches compute to the selected branch's existing timeline.
 - Endpoint connection responses include readiness diagnostics (`ready`, `runtime_state`, `runtime_message`) sourced from container runtime state, report `status=starting` during health-check warmup, and `status=unhealthy` when runtime is running but unhealthy.
 - Endpoint connection responses include endpoint credential metadata (`user`, `password`) alongside runtime diagnostics.
 - Branch credentials are branch-specific and controller-managed; create/restore operations assign random passwords persisted with branch state.
 - Endpoint connection DSN is emitted only when `ready=true`.
-- The web console exposes one-click connection helpers (`psql` command copy, DSN copy, password copy, and `DATABASE_URL` snippet copy) for the current primary branch endpoint.
+- The web console exposes one-click connection helpers for branch DSNs, `psql` commands, and passwords.
 - Saved SQL queries and bounded execution history are stored in `controller.db`, filterable by branch/database or project-wide. Operator-entered SQL is stored verbatim; result data and controller-managed endpoint credentials/DSNs are never stored, so operators must not embed secrets in SQL they save or execute through the editor.
 - Schema browsing uses fixed parameterized catalog queries in explicit read-only transactions, pages relations before size calculation, caps all list/detail collections, and applies a five-second statement timeout.
 - `SQL_HISTORY_RETENTION_LIMIT` controls physical execution-history retention and defaults to `200`.
@@ -140,8 +137,8 @@ Current API behavior notes:
 - `GET /api/v1/health` reports controller component health checks for branch storage, SQL query storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
-- When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, the web console and API routes require HTTP basic auth.
-- State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in an in-memory operation log exposed at `GET /api/v1/operations`.
+- When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, the web console and `/api/v1/*` routes require HTTP basic auth. The internal `POST /validate` pageserver upcall is deliberately unauthenticated and fails closed unless its configured tenant-generation allowlist validates the request.
+- State-changing branch operations are serialized through a controller operation lock; each attempt is recorded in the persistent SQLite operation log exposed at `GET /api/v1/operations`.
 
 ## Safety Principles
 
@@ -157,16 +154,6 @@ Current API behavior notes:
 - Named Podman volumes improve persistence but are not a backup strategy.
 - Off-host backups are required for meaningful disaster recovery.
 - PITR/branch retention and branch fan-out increase disk usage; in Phase 1, fail safely with clear errors/logs on disk pressure, with proactive warning/guardrail automation planned for Phase 2.
-- Soft-deleted branches may continue consuming storage until cleanup/GC conditions are met.
+- Soft-delete and reset do not delete the previous pageserver timelines. They may consume storage indefinitely until an operator performs and verifies explicit timeline cleanup.
 
-## Non-Goals (MVP)
-
-- Multi-tenant UX.
-- Multi-node orchestration.
-- Full parity with Neon cloud control-plane features.
-
-## Evolution Path
-
-- Phase 1: Single-node MVP with reliable branch/restore/switch flow.
-- Phase 2: Hardening (backup automation, better health checks, safer upgrades).
-- Phase 3: Optional advanced features (preview endpoints, richer policies).
+See the [MVP roadmap](mvp-roadmap.md) for implemented baseline work and remaining hardening priorities.

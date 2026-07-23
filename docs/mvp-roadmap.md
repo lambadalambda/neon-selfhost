@@ -2,24 +2,24 @@
 
 ## Phase 1 - Single-Node Baseline
 
-Goal: `podman compose up` and complete snapshot/restore/switch workflows from UI.
+Goal: `podman compose --profile neon up` with complete branch, restore, inspection, and API-driven primary handoff workflows.
 
 - Compose stack for controller + Neon services; controller/storage/compute wiring is implemented for local compose runtime.
-- Controller web console route (`GET /`) is implemented with branch list/create/delete/switch, restore, endpoint controls, and one-click connection helpers (`psql`, DSN, password, `.env` snippet).
+- Controller web console route (`GET /`) is implemented with Dashboard, Branches, branch Overview, SQL Editor, Tables, and point-in-time restore views, plus one-click branch connection helpers (`psql`, DSN, and password).
 - Basic auth for one admin user.
 - Branch list/create/delete (soft delete) plus reset-from-parent (`POST /api/v1/branches/{name}/reset`).
 - Branch-scoped random passwords managed by controller and surfaced via connection API/console helpers.
 - Restore to timestamp (timestamp -> LSN -> branch); implemented via pageserver timestamp-to-LSN lookup and restore timeline creation with persisted branch attachment.
 - Primary endpoint start/stop/switch actions; compose compute lifecycle orchestration plus branch attachment resolution is implemented, with runtime readiness diagnostics and unhealthy-state reporting exposed through the primary connection API.
 - Branch endpoint publish/unpublish/connection/list APIs are implemented with per-branch port allocation and lazy branch-compute startup in container-engine mode.
-- Operation log with clear failure messages.
+- Guarded branch/database-scoped SQL execution, persistent saved queries and history, and read-only schema browsing are implemented.
+- Persistent operation log with clear failure messages.
 - Fail-safe behavior on disk pressure (clear errors, no silent corruption or implicit destructive cleanup); storage-error API handling is implemented, proactive warning/guardrail automation remains.
 
 ## Phase 2 - Hardening
 
 Goal: safer operations and recovery.
 
-- Default 3 safekeepers (even on one host) where feasible, to reduce single-process durability risk (not host-level HA).
 - Backup automation and documented off-host backup path.
 - Health checks and startup preflight checks; controller-level `GET /api/v1/health` and data-dir preflight checks are implemented, deeper Neon-service health integration remains.
 - Upgrade flow with mandatory pre-upgrade snapshot.
