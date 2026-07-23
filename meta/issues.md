@@ -1,6 +1,4 @@
 - [ ] [Prevent concurrent writers on branch timelines](issues/prevent-concurrent-branch-writers.md)
-- [ ] [Route the primary branch endpoint through primary compute](issues/route-primary-branch-through-primary-compute.md)
-- [ ] [Commit write-enabled SQL executions](issues/commit-write-enabled-sql-executions.md)
 - [ ] [Add point-in-time restore console](issues/add-point-in-time-restore-console.md)
 - [ ] [Warn before writes to protected branches](issues/warn-before-protected-branch-writes.md)
 - [ ] [Persist the SQL query library](issues/persist-sql-query-library.md)

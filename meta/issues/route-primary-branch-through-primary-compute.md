@@ -20,3 +20,10 @@ The published endpoint for the branch selected as primary must proxy to the exis
 - Stopped, starting, unhealthy, mismatched, or unavailable primary state fails closed.
 - A different child branch still starts a distinct lazy compute.
 - Unit, API, race, Compose, and production smoke tests pass.
+
+## Outcome
+
+- Primary routing uses a generation-tagged applied-selection marker plus explicit compute health instead of desired controller metadata.
+- Route admission is synchronized with primary transitions, and start/switch operations drain and remove a conflicting lazy target compute before proceeding.
+- Production read and committed-write probes on `2026-07-23` created no branch compute container and left compute identity, PostgreSQL start time, and restart count unchanged.
+- Controller health and the public fediffusion.art instance API remained healthy after deployment.

@@ -28,6 +28,6 @@ Opening the branch SQL endpoint for the branch already served by the primary com
 
 ## Subissues
 
-- [Enforce one compute writer per timeline](enforce-one-compute-writer-per-timeline.md)
-- [Route the primary branch endpoint through primary compute](route-primary-branch-through-primary-compute.md)
-- Coordinate primary start/switch with branch compute lifecycle and reconcile stale containers.
+- [x] [Enforce one compute writer per timeline](enforce-one-compute-writer-per-timeline.md)
+- [x] [Route the primary branch endpoint through primary compute](route-primary-branch-through-primary-compute.md)
+- [ ] Coordinate primary start/switch with branch compute lifecycle and reconcile stale containers.

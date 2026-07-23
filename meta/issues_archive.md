@@ -10,3 +10,5 @@
 - [x] [Select the SQL editor database](issues/select-sql-editor-database.md)
 - [x] [Keep wide SQL results readable](issues/keep-wide-sql-results-readable.md)
 - [x] [Enforce one compute writer per timeline](issues/enforce-one-compute-writer-per-timeline.md)
+- [x] [Route the primary branch endpoint through primary compute](issues/route-primary-branch-through-primary-compute.md)
+- [x] [Commit write-enabled SQL executions](issues/commit-write-enabled-sql-executions.md)
