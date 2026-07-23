@@ -254,7 +254,7 @@ func TestConsoleSQLDatabaseSelectionFailsClosed(t *testing.T) {
 		code string
 	}{
 		{name: "connection request captures branch", code: "const branchName = state.selectedBranch;"},
-		{name: "stale response is discarded", code: "if (state.selectedBranch !== branchName)"},
+		{name: "stale response is discarded", code: "state.connectionRequestEpoch !== requestEpoch || state.selectedBranch !== branchName"},
 		{name: "connection branch is validated", code: "connection.branch !== branchName"},
 		{name: "mismatched connection is cleared before loading", code: "state.selectedBranchConnection && state.selectedBranchConnection.branch !== branchName"},
 		{name: "unavailable selection requires confirmation", code: "selectionRequired: true"},
@@ -268,6 +268,48 @@ func TestConsoleSQLDatabaseSelectionFailsClosed(t *testing.T) {
 	}
 	if calls := strings.Count(body, "clearSQLWriteMode();"); calls < 3 {
 		t.Errorf("expected database transitions to clear write mode, got %d reset calls", calls)
+	}
+}
+
+func TestConsoleProtectedBranchWritesRequireConfirmation(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	body := res.Body.String()
+	for _, expected := range []string{
+		`data-role="sql-protected-warning" role="note"`,
+		`data-role="sql-confirm-protected-writes"`,
+		`data-role="sql-protected-confirmation"`,
+		`function isProtectedBranch(branch)`,
+		`branch.name === 'main'`,
+		`branch.protected === true`,
+		`refs.sqlConfirmProtectedWrites.checked = false;`,
+		`allowWrites && isProtectedBranch(selectedBranch) && !refs.sqlConfirmProtectedWrites.checked`,
+		`confirm_protected_writes: confirmProtectedWrites`,
+		`const selectedBranch = branchByName(state.selectedBranch);`,
+		`const requestEpoch = state.connectionRequestEpoch + 1;`,
+		`state.connectionRequestEpoch !== requestEpoch`,
+		`state.refreshEpoch !== refreshEpoch`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("expected protected-write safety marker %q", expected)
+		}
+	}
+
+	runStart := strings.Index(body, "if (action === 'run-sql')")
+	if runStart == -1 {
+		t.Fatal("expected SQL run action handler")
+	}
+	runEnd := strings.Index(body[runStart:], "if (action === 'copy-branch-dsn')")
+	if runEnd == -1 {
+		t.Fatal("expected SQL run action handler")
+	}
+	runHandler := body[runStart : runStart+runEnd]
+	if strings.Contains(runHandler, "state.selectedBranch || 'main'") {
+		t.Fatal("protected SQL execution must not silently fall back to main")
 	}
 }
 

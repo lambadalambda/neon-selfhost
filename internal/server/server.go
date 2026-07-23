@@ -109,9 +109,10 @@ type switchPrimaryEndpointRequest struct {
 }
 
 type sqlExecuteRequest struct {
-	SQL         string `json:"sql"`
-	Database    string `json:"database"`
-	AllowWrites bool   `json:"allow_writes"`
+	SQL                    string `json:"sql"`
+	Database               string `json:"database"`
+	AllowWrites            bool   `json:"allow_writes"`
+	ConfirmProtectedWrites bool   `json:"confirm_protected_writes"`
 }
 
 type pageserverValidateRequest struct {
@@ -147,6 +148,7 @@ type branchPayload struct {
 	CreatedAt string  `json:"created_at"`
 	Deleted   bool    `json:"deleted"`
 	DeletedAt *string `json:"deleted_at,omitempty"`
+	Protected bool    `json:"protected"`
 }
 
 type operationPayload struct {
@@ -654,7 +656,8 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
-		if _, err := store.GetActive(branchName); err != nil {
+		activeBranch, err := store.GetActive(branchName)
+		if err != nil {
 			if errors.Is(err, branch.ErrNotFound) {
 				writeJSONError(w, http.StatusNotFound, "not_found", err.Error())
 				return
@@ -676,6 +679,10 @@ func New(cfg Config) http.Handler {
 		}
 		if err := validateSQLDatabaseName(req.Database); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		if req.AllowWrites && branchIsProtected(activeBranch) && !req.ConfirmProtectedWrites {
+			writeJSONError(w, http.StatusConflict, "protected_confirmation_required", "protected branch writes require explicit confirmation")
 			return
 		}
 
@@ -1279,6 +1286,7 @@ func makeBranchPayload(b branch.Branch) branchPayload {
 		Parent:    b.Parent,
 		CreatedAt: b.CreatedAt.UTC().Format(time.RFC3339),
 		Deleted:   b.Deleted,
+		Protected: branchIsProtected(b),
 	}
 
 	if b.DeletedAt != nil {
@@ -1287,6 +1295,10 @@ func makeBranchPayload(b branch.Branch) branchPayload {
 	}
 
 	return payload
+}
+
+func branchIsProtected(b branch.Branch) bool {
+	return b.Name == "main"
 }
 
 func makeOperationPayload(op operationEntry) operationPayload {

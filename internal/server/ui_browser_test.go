@@ -54,6 +54,276 @@ type restoreBrowserState struct {
 	RestoreRequests  int     `json:"restoreRequests"`
 }
 
+type protectedWriteBrowserState struct {
+	SelectedBranch       string `json:"selectedBranch"`
+	WarningHidden        bool   `json:"warningHidden"`
+	WarningText          string `json:"warningText"`
+	ConfirmationHidden   bool   `json:"confirmationHidden"`
+	ConfirmationText     string `json:"confirmationText"`
+	AllowWrites          bool   `json:"allowWrites"`
+	Confirmed            bool   `json:"confirmed"`
+	RunDisabled          bool   `json:"runDisabled"`
+	Mode                 string `json:"mode"`
+	RequestCount         int    `json:"requestCount"`
+	LastAllowWrites      bool   `json:"lastAllowWrites"`
+	LastConfirmation     bool   `json:"lastConfirmation"`
+	MessageText          string `json:"messageText"`
+	AllowDisabled        bool   `json:"allowDisabled"`
+	ConfirmationDisabled bool   `json:"confirmationDisabled"`
+	ConnectionPort       int    `json:"connectionPort"`
+	RefreshInFlight      bool   `json:"refreshInFlight"`
+}
+
+func TestConsoleProtectedBranchWritesInBrowser(t *testing.T) {
+	if _, err := exec.LookPath("agent-browser"); err != nil {
+		t.Skip("agent-browser is required for protected write tests")
+	}
+
+	server := httptest.NewServer(New(Config{Version: "browser-test"}))
+	defer server.Close()
+
+	session := fmt.Sprintf("protected-writes-%d", os.Getpid())
+	defer closeAgentBrowser(session)
+	runAgentBrowser(t, session, "open", server.URL)
+
+	evalProtectedWriteState(t, session, `(() => {
+  const connection = (branch, port) => ({branch, published: true, status: 'running', host: '127.0.0.1', port, database: 'postgres', user: 'cloud_admin', password: 'test'});
+  window.sqlConnections = {
+    main: connection('main', 56000),
+    preview: connection('preview', 56001),
+    guarded: connection('guarded', 56002),
+  };
+  state.branches = [
+    {name: 'main', parent: '', created_at: new Date().toISOString()},
+    {name: 'preview', parent: 'main', protected: false, created_at: new Date().toISOString()},
+    {name: 'guarded', parent: 'main', protected: true, created_at: new Date().toISOString()},
+  ];
+  state.endpoints = Object.values(window.sqlConnections).map((item) => ({branch: item.branch, published: true, status: 'running', host: item.host, port: item.port}));
+  state.selectedBranch = 'main';
+  state.selectedBranchConnection = window.sqlConnections.main;
+  state.databasesByBranch = {
+    main: {names: ['postgres', 'pleroma'], default: 'postgres'},
+    preview: {names: ['postgres'], default: 'postgres'},
+    guarded: {names: ['postgres'], default: 'postgres'},
+  };
+  state.selectedDatabaseByBranch = {main: 'postgres', preview: 'postgres', guarded: 'postgres'};
+  window.sqlRequests = [];
+  window.originalProtectedWriteAPI = api;
+  api = async function(method, path, payload) {
+    if (method === 'POST' && path.includes('/sql/execute')) {
+      window.sqlRequests.push(payload);
+      return {result: {branch: state.selectedBranch, database: payload.database, read_only: !payload.allow_writes, command_tag: 'SELECT 1', duration_ms: 1, truncated: false, limits: {max_rows: 200, max_bytes: 1048576}, columns: [], rows: [], row_count: 0}};
+    }
+    if (method === 'GET' && path.endsWith('/connection')) {
+      const branch = decodeURIComponent(path.split('/')[4]);
+      const responseConnection = window.sqlConnections[branch];
+      if (window.deferConnectionResponse) {
+        window.connectionRequestStarted = true;
+        await new Promise((resolve) => { window.releaseConnectionResponse = resolve; });
+      }
+      return {connection: responseConnection};
+    }
+    if (method === 'GET' && path === '/api/v1/status') {
+      if (window.failFullRefresh) {
+        throw new Error('injected refresh failure');
+      }
+      if (window.deferFullRefresh) {
+        window.fullRefreshStarted = true;
+        await new Promise((resolve) => { window.releaseFullRefresh = resolve; });
+      }
+      return {version: 'browser-test'};
+    }
+    if (method === 'GET' && path === '/api/v1/health') {
+      return {status: 'ok'};
+    }
+    if (method === 'GET' && path === '/api/v1/branches') {
+      return {branches: state.branches.slice()};
+    }
+    if (method === 'GET' && path === '/api/v1/endpoints') {
+      return {endpoints: state.endpoints.slice()};
+    }
+    return window.originalProtectedWriteAPI(method, path, payload);
+  };
+  window.protectedWriteSnapshot = function() {
+    return {
+      selectedBranch: state.selectedBranch,
+      warningHidden: refs.sqlProtectedWarning.classList.contains('is-hidden'),
+      warningText: refs.sqlProtectedWarning.textContent,
+      confirmationHidden: refs.sqlProtectedConfirmation.classList.contains('is-hidden'),
+      confirmationText: refs.sqlProtectedConfirmation.textContent,
+      allowWrites: refs.sqlAllowWrites.checked,
+      confirmed: refs.sqlConfirmProtectedWrites.checked,
+      runDisabled: refs.sqlRunButton.disabled,
+      mode: refs.sqlModeIndicator.textContent,
+      requestCount: window.sqlRequests.length,
+      lastAllowWrites: window.sqlRequests.length ? Boolean(window.sqlRequests[window.sqlRequests.length - 1].allow_writes) : false,
+      lastConfirmation: window.sqlRequests.length ? Boolean(window.sqlRequests[window.sqlRequests.length - 1].confirm_protected_writes) : false,
+      messageText: refs.message.textContent,
+      allowDisabled: refs.sqlAllowWrites.disabled,
+      confirmationDisabled: refs.sqlConfirmProtectedWrites.disabled,
+      connectionPort: state.selectedBranchConnection ? Number(state.selectedBranchConnection.port || 0) : 0,
+      refreshInFlight: state.refreshInFlight,
+    };
+  };
+  renderBranchSelectors();
+  renderBranches();
+  setPage('sql-editor');
+  renderSQLEditorContext();
+  return protectedWriteSnapshot();
+})()`)
+
+	initial := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if initial.SelectedBranch != "main" || initial.WarningHidden || initial.ConfirmationHidden == false || initial.RunDisabled || initial.AllowWrites {
+		t.Fatalf("expected low-friction read-only main context with persistent warning, got %#v", initial)
+	}
+
+	runAgentBrowser(t, session, "click", `[data-action="run-sql"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.sqlRequests.length === 1")
+	readOnly := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if readOnly.RequestCount != 1 || readOnly.LastAllowWrites {
+		t.Fatalf("expected read-only query without confirmation, got %#v", readOnly)
+	}
+
+	runAgentBrowser(t, session, "focus", `[data-role="sql-allow-writes"]`)
+	runAgentBrowser(t, session, "press", "Space")
+	needsConfirmation := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if !needsConfirmation.AllowWrites || needsConfirmation.ConfirmationHidden || !needsConfirmation.RunDisabled || needsConfirmation.Mode != "Confirm writes" {
+		t.Fatalf("expected protected writes to require a second confirmation, got %#v", needsConfirmation)
+	}
+
+	runAgentBrowser(t, session, "focus", `[data-role="sql-confirm-protected-writes"]`)
+	runAgentBrowser(t, session, "press", "Space")
+	confirmed := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if !confirmed.Confirmed || confirmed.RunDisabled || confirmed.Mode != "Write mode" {
+		t.Fatalf("expected deliberate protected-write confirmation, got %#v", confirmed)
+	}
+	runAgentBrowser(t, session, "click", `[data-action="run-sql"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.sqlRequests.length === 2")
+	protectedWrite := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if !protectedWrite.LastAllowWrites || !protectedWrite.LastConfirmation {
+		t.Fatalf("expected protected write request to carry both confirmations, got %#v", protectedWrite)
+	}
+
+	bypassed := evalProtectedWriteState(t, session, `(() => {
+  refs.sqlConfirmProtectedWrites.checked = false;
+  refs.sqlRunButton.disabled = false;
+  refs.sqlRunButton.click();
+  return protectedWriteSnapshot();
+})()`)
+	if bypassed.RequestCount != 2 || !strings.Contains(bypassed.MessageText, "confirm protected branch writes") {
+		t.Fatalf("expected Run boundary to reject a confirmation bypass, got %#v", bypassed)
+	}
+
+	runAgentBrowser(t, session, "select", `[data-role="sidebar-branch-select"]`, "preview")
+	runAgentBrowser(t, session, "wait", "--fn", "state.selectedBranch === 'preview'")
+	preview := evalProtectedWriteState(t, session, `(() => { setPage('sql-editor'); renderSQLEditorContext(); return protectedWriteSnapshot(); })()`)
+	if preview.AllowWrites || preview.Confirmed || !preview.WarningHidden {
+		t.Fatalf("expected branch change to clear write mode on an unprotected branch, got %#v", preview)
+	}
+
+	evalProtectedWriteState(t, session, `(() => {
+  state.selectedBranch = 'main';
+  state.selectedBranchConnection = window.sqlConnections.main;
+  renderBranchSelectors();
+  setPage('sql-editor');
+  renderSQLEditorContext();
+  refs.sqlAllowWrites.checked = true;
+  refs.sqlAllowWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  refs.sqlConfirmProtectedWrites.checked = true;
+  refs.sqlConfirmProtectedWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  refs.sqlDatabaseSelect.value = 'pleroma';
+  refs.sqlDatabaseSelect.dispatchEvent(new Event('change', {bubbles: true}));
+  return protectedWriteSnapshot();
+})()`)
+	databaseReset := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if databaseReset.AllowWrites || databaseReset.Confirmed {
+		t.Fatalf("expected database change to clear protected write mode, got %#v", databaseReset)
+	}
+
+	evalProtectedWriteState(t, session, `(() => {
+  refs.sqlAllowWrites.checked = true;
+  refs.sqlAllowWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  refs.sqlConfirmProtectedWrites.checked = true;
+  refs.sqlConfirmProtectedWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  window.deferConnectionResponse = true;
+  window.connectionRequestStarted = false;
+  window.pendingConnectionRefresh = refreshSelectedBranchConnection(true);
+  return protectedWriteSnapshot();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.connectionRequestStarted === true")
+	pendingConnection := evalProtectedWriteState(t, session, `protectedWriteSnapshot()`)
+	if pendingConnection.AllowWrites || pendingConnection.Confirmed || !pendingConnection.AllowDisabled || !pendingConnection.ConfirmationDisabled {
+		t.Fatalf("expected pending connection refresh to lock and clear write controls, got %#v", pendingConnection)
+	}
+
+	connectionReset := evalProtectedWriteState(t, session, `(async () => {
+  window.deferConnectionResponse = false;
+  window.sqlConnections.main = {...window.sqlConnections.main, port: 56100, timeline_id: 'replacement'};
+  await refreshSelectedBranchConnection(true);
+  window.releaseConnectionResponse();
+  await window.pendingConnectionRefresh;
+  return protectedWriteSnapshot();
+})()`)
+	if connectionReset.AllowWrites || connectionReset.Confirmed || connectionReset.ConnectionPort != 56100 {
+		t.Fatalf("expected connection change to clear protected write mode, got %#v", connectionReset)
+	}
+
+	evalProtectedWriteState(t, session, `(() => {
+  window.deferConnectionResponse = true;
+  window.connectionRequestStarted = false;
+  window.pendingConnectionRefresh = refreshSelectedBranchConnection(true);
+  return protectedWriteSnapshot();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.connectionRequestStarted === true")
+	evalProtectedWriteState(t, session, `(() => {
+  window.deferFullRefresh = true;
+  window.fullRefreshStarted = false;
+  window.pendingFullRefresh = loadAll();
+  return protectedWriteSnapshot();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.fullRefreshStarted === true")
+	staleDuringRefresh := evalProtectedWriteState(t, session, `(async () => {
+  window.releaseConnectionResponse();
+  await window.pendingConnectionRefresh;
+  renderSQLEditorContext();
+  return protectedWriteSnapshot();
+})()`)
+	if !staleDuringRefresh.RefreshInFlight || !staleDuringRefresh.AllowDisabled || !staleDuringRefresh.RunDisabled {
+		t.Fatalf("expected stale connection completion to remain locked behind newer full refresh, got %#v", staleDuringRefresh)
+	}
+	evalProtectedWriteState(t, session, `(async () => {
+  window.deferConnectionResponse = false;
+  window.deferFullRefresh = false;
+  window.releaseFullRefresh();
+  await window.pendingFullRefresh;
+  return protectedWriteSnapshot();
+})()`)
+
+	failedRefresh := evalProtectedWriteState(t, session, `(async () => {
+  window.failFullRefresh = true;
+  await loadAll();
+  window.failFullRefresh = false;
+  return protectedWriteSnapshot();
+})()`)
+	if failedRefresh.AllowWrites || failedRefresh.RunDisabled || !strings.Contains(failedRefresh.MessageText, "Refresh failed") {
+		t.Fatalf("expected failed full refresh to restore safe read-only context, got %#v", failedRefresh)
+	}
+
+	guarded := evalProtectedWriteState(t, session, `(() => {
+  state.selectedBranch = 'guarded';
+  state.selectedBranchConnection = window.sqlConnections.guarded;
+  renderBranchSelectors();
+  setPage('sql-editor');
+  renderSQLEditorContext();
+  refs.sqlAllowWrites.checked = true;
+  refs.sqlAllowWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  return protectedWriteSnapshot();
+})()`)
+	if guarded.WarningHidden || guarded.ConfirmationHidden || !guarded.RunDisabled || !strings.Contains(guarded.WarningText, "guarded is protected") {
+		t.Fatalf("expected future protected metadata to use the same confirmation flow, got %#v", guarded)
+	}
+}
+
 func TestConsolePointInTimeRestoreInBrowser(t *testing.T) {
 	if _, err := exec.LookPath("agent-browser"); err != nil {
 		t.Skip("agent-browser is required for browser restore tests")
@@ -339,6 +609,16 @@ func evalRestoreBrowserState(t *testing.T, session string, script string) restor
 	var state restoreBrowserState
 	if err := json.Unmarshal([]byte(output), &state); err != nil {
 		t.Fatalf("decode restore browser state %q: %v", output, err)
+	}
+	return state
+}
+
+func evalProtectedWriteState(t *testing.T, session string, script string) protectedWriteBrowserState {
+	t.Helper()
+	output := runAgentBrowser(t, session, "eval", script)
+	var state protectedWriteBrowserState
+	if err := json.Unmarshal([]byte(output), &state); err != nil {
+		t.Fatalf("decode protected write browser state %q: %v", output, err)
 	}
 	return state
 }

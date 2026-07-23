@@ -803,7 +803,7 @@ const consoleHTML = `<!doctype html>
     .sql-workspace {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto 1fr auto auto;
+      grid-template-rows: auto auto 1fr auto auto auto;
       min-width: 0;
       min-height: 520px;
     }
@@ -831,6 +831,22 @@ const consoleHTML = `<!doctype html>
       color: #2c3440;
       font-weight: 600;
       white-space: nowrap;
+    }
+
+    .sql-protected-warning {
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(184, 106, 27, 0.28);
+      background: rgba(184, 106, 27, 0.09);
+      color: #6b3d10;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      font-size: 0.84rem;
+    }
+
+    .sql-protected-warning strong {
+      color: #713f12;
     }
 
     .sql-editor-wrap {
@@ -890,6 +906,13 @@ const consoleHTML = `<!doctype html>
       transition: background var(--duration-base) var(--ease-out);
     }
 
+    .sql-write-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
     .sql-write-toggle {
       display: inline-flex;
       align-items: center;
@@ -905,6 +928,12 @@ const consoleHTML = `<!doctype html>
 
     .sql-write-toggle:hover {
       background: var(--surface-soft);
+    }
+
+    .sql-protected-confirmation {
+      border: 1px solid rgba(186, 58, 53, 0.3);
+      background: rgba(186, 58, 53, 0.08);
+      color: #8f2d29;
     }
 
     .sql-write-toggle input {
@@ -1437,6 +1466,11 @@ const consoleHTML = `<!doctype html>
               <span class="sql-tag" data-role="sql-editor-branch-pill">main · endpoint unknown</span>
             </div>
 
+            <aside class="sql-protected-warning is-hidden" data-role="sql-protected-warning" role="note" id="sql-protected-warning-note">
+              <strong>Protected branch</strong>
+              <span data-role="sql-protected-warning-text">Writes here can affect production data. Read-only queries remain safe.</span>
+            </aside>
+
             <div class="sql-editor-wrap">
               <pre class="sql-lines mono" data-role="sql-editor-lines">1</pre>
               <textarea class="sql-editor-input" data-role="sql-editor-input" spellcheck="false">SELECT now();</textarea>
@@ -1444,15 +1478,21 @@ const consoleHTML = `<!doctype html>
 
             <div class="sql-status">
               <span data-role="sql-editor-status" aria-live="polite">Ready to connect</span>
-              <span class="sql-mode-indicator" data-role="sql-mode-indicator">Read-only</span>
+              <span class="sql-mode-indicator" data-role="sql-mode-indicator" role="status" aria-live="polite">Read-only</span>
               <button class="btn-ghost" data-action="copy-overview-dsn">Copy branch DSN</button>
             </div>
 
             <div class="sql-runbar">
-              <label class="sql-write-toggle" title="Keep unchecked for safe read-only queries. Enable only when you want to run writes.">
-                <input type="checkbox" data-role="sql-allow-writes">
-                <span>Enable write queries</span>
-              </label>
+              <div class="sql-write-controls">
+                <label class="sql-write-toggle" title="Keep unchecked for safe read-only queries. Enable only when you want to run writes.">
+                  <input type="checkbox" data-role="sql-allow-writes">
+                  <span>Enable write queries</span>
+                </label>
+                <label class="sql-write-toggle sql-protected-confirmation is-hidden" data-role="sql-protected-confirmation">
+                  <input type="checkbox" data-role="sql-confirm-protected-writes" aria-describedby="sql-protected-warning-note">
+                  <span data-role="sql-protected-confirmation-text">I understand this writes to a protected branch</span>
+                </label>
+              </div>
               <button class="btn-primary" data-action="run-sql">Run</button>
             </div>
 
@@ -1525,6 +1565,10 @@ const consoleHTML = `<!doctype html>
       currentPage: 'dashboard',
       restoredBranch: null,
       restoreInFlight: false,
+      connectionRequestEpoch: 0,
+      refreshEpoch: 0,
+      connectionRefreshInFlight: false,
+      refreshInFlight: false,
     };
 
     const refs = {
@@ -1562,6 +1606,11 @@ const consoleHTML = `<!doctype html>
       sqlEditorLines: document.querySelector('[data-role="sql-editor-lines"]'),
       sqlEditorStatus: document.querySelector('[data-role="sql-editor-status"]'),
       sqlModeIndicator: document.querySelector('[data-role="sql-mode-indicator"]'),
+      sqlProtectedWarning: document.querySelector('[data-role="sql-protected-warning"]'),
+      sqlProtectedWarningText: document.querySelector('[data-role="sql-protected-warning-text"]'),
+      sqlProtectedConfirmation: document.querySelector('[data-role="sql-protected-confirmation"]'),
+      sqlProtectedConfirmationText: document.querySelector('[data-role="sql-protected-confirmation-text"]'),
+      sqlConfirmProtectedWrites: document.querySelector('[data-role="sql-confirm-protected-writes"]'),
       sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
       sqlAllowWrites: document.querySelector('[data-role="sql-allow-writes"]'),
       sqlRunButton: document.querySelector('[data-action="run-sql"]'),
@@ -1780,6 +1829,13 @@ const consoleHTML = `<!doctype html>
         }
       }
       return null;
+    }
+
+    function isProtectedBranch(branch) {
+      if (!branch) {
+        return false;
+      }
+      return branch.name === 'main' || branch.protected === true;
     }
 
     function restoreTimestampRFC3339(value) {
@@ -2098,9 +2154,19 @@ const consoleHTML = `<!doctype html>
     }
 
     async function refreshSelectedBranchConnection(silent) {
+      const requestEpoch = state.connectionRequestEpoch + 1;
+      state.connectionRequestEpoch = requestEpoch;
+      state.connectionRefreshInFlight = true;
+      clearSQLWriteMode();
+      refs.sqlRunButton.disabled = true;
+      refs.sqlAllowWrites.disabled = true;
+      refs.sqlConfirmProtectedWrites.disabled = true;
+      refs.sqlDatabaseSelect.disabled = true;
+      applySQLModeVisualState();
       const branchName = state.selectedBranch;
       if (!branchName) {
         state.selectedBranchConnection = null;
+        state.connectionRefreshInFlight = false;
         renderBranchOverview();
         renderSQLEditorContext();
         return;
@@ -2115,22 +2181,22 @@ const consoleHTML = `<!doctype html>
 
       try {
         const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branchName) + '/connection');
-        if (state.selectedBranch !== branchName) {
+        if (state.connectionRequestEpoch !== requestEpoch || state.selectedBranch !== branchName) {
           return;
         }
         const connection = response.connection || null;
         if (connection && connection.branch !== branchName) {
           throw new Error('connection response did not match the selected branch');
         }
-        if (!state.selectedBranchConnection || state.selectedBranchConnection.branch !== branchName) {
-          clearSQLWriteMode();
-        }
+        clearSQLWriteMode();
         state.selectedBranchConnection = connection;
+        state.connectionRefreshInFlight = false;
       } catch (err) {
-        if (state.selectedBranch !== branchName) {
+        if (state.connectionRequestEpoch !== requestEpoch || state.selectedBranch !== branchName) {
           return;
         }
         state.selectedBranchConnection = null;
+        state.connectionRefreshInFlight = false;
         if (!silent) {
           showMessage('Failed loading branch overview connection: ' + err.message, 'err');
         }
@@ -2323,8 +2389,38 @@ const consoleHTML = `<!doctype html>
 
     function applySQLModeVisualState() {
       const writeEnabled = Boolean(refs.sqlAllowWrites.checked && !refs.sqlAllowWrites.disabled);
+      const selectedBranch = branchByName(state.selectedBranch);
+      const protectedBranch = isProtectedBranch(selectedBranch);
+      const database = selectedBranch ? selectedSQLDatabase(selectedBranch.name) : '';
+      const confirmationRequired = writeEnabled && protectedBranch;
+      const connection = state.selectedBranchConnection;
+      const contextReady = Boolean(
+        selectedBranch
+        && connection
+        && connection.branch === selectedBranch.name
+        && connection.published
+        && connection.port
+        && database
+        && !state.connectionRefreshInFlight
+        && !state.refreshInFlight
+        && !refs.sqlAllowWrites.disabled
+        && !refs.sqlDatabaseSelect.disabled
+      );
       const editorWrap = document.querySelector('.sql-editor-wrap');
       const runbar = document.querySelector('.sql-runbar');
+
+      refs.sqlProtectedWarning.classList.toggle('is-hidden', !protectedBranch);
+      refs.sqlProtectedWarningText.textContent = protectedBranch
+        ? selectedBranch.name + ' is protected. Writes can affect production data; read-only queries remain safe.'
+        : '';
+      refs.sqlProtectedConfirmation.classList.toggle('is-hidden', !confirmationRequired);
+      refs.sqlConfirmProtectedWrites.disabled = !confirmationRequired;
+      if (!confirmationRequired) {
+        refs.sqlConfirmProtectedWrites.checked = false;
+      }
+      refs.sqlProtectedConfirmationText.textContent = selectedBranch
+        ? 'I understand this writes to ' + selectedBranch.name + (database ? ' · ' + database : '')
+        : 'I understand this writes to a protected branch';
       if (editorWrap) {
         editorWrap.classList.toggle('write-enabled', writeEnabled);
       }
@@ -2335,6 +2431,7 @@ const consoleHTML = `<!doctype html>
       if (refs.sqlRunButton) {
         refs.sqlRunButton.classList.toggle('btn-danger', writeEnabled);
         refs.sqlRunButton.classList.toggle('btn-primary', !writeEnabled);
+        refs.sqlRunButton.disabled = !contextReady || (confirmationRequired && !refs.sqlConfirmProtectedWrites.checked);
       }
 
       if (!refs.sqlModeIndicator) {
@@ -2342,11 +2439,14 @@ const consoleHTML = `<!doctype html>
       }
 
       refs.sqlModeIndicator.classList.toggle('write-enabled', writeEnabled);
-      refs.sqlModeIndicator.textContent = writeEnabled ? 'Write mode' : 'Read-only';
+      refs.sqlModeIndicator.textContent = confirmationRequired && !refs.sqlConfirmProtectedWrites.checked
+        ? 'Confirm writes'
+        : (writeEnabled ? 'Write mode' : 'Read-only');
     }
 
     function clearSQLWriteMode() {
       refs.sqlAllowWrites.checked = false;
+      refs.sqlConfirmProtectedWrites.checked = false;
       applySQLModeVisualState();
     }
 
@@ -2373,6 +2473,15 @@ const consoleHTML = `<!doctype html>
       }
 
       refs.sqlEditorBranchLabel.textContent = 'branch: ' + selectedBranch.name;
+      if (state.refreshInFlight || state.connectionRefreshInFlight) {
+        refs.sqlEditorStatus.textContent = 'Refreshing branch connection context...';
+        refs.sqlRunButton.disabled = true;
+        refs.sqlAllowWrites.disabled = true;
+        refs.sqlConfirmProtectedWrites.disabled = true;
+        refs.sqlDatabaseSelect.disabled = true;
+        clearSQLWriteMode();
+        return;
+      }
 
       const endpoint = endpointByBranch(selectedBranch.name);
       const endpointStatus = endpoint && endpoint.published ? (endpoint.status || 'published') : 'unpublished';
@@ -2619,6 +2728,17 @@ const consoleHTML = `<!doctype html>
     }
 
     async function loadAll() {
+      const refreshEpoch = state.refreshEpoch + 1;
+      state.refreshEpoch = refreshEpoch;
+      state.refreshInFlight = true;
+      state.connectionRequestEpoch += 1;
+      state.connectionRefreshInFlight = false;
+      clearSQLWriteMode();
+      refs.sqlRunButton.disabled = true;
+      refs.sqlAllowWrites.disabled = true;
+      refs.sqlConfirmProtectedWrites.disabled = true;
+      refs.sqlDatabaseSelect.disabled = true;
+      applySQLModeVisualState();
       try {
         showMessage('Refreshing...', '');
         const responses = await Promise.all([
@@ -2627,6 +2747,9 @@ const consoleHTML = `<!doctype html>
           api('GET', '/api/v1/branches'),
           api('GET', '/api/v1/endpoints'),
         ]);
+        if (state.refreshEpoch !== refreshEpoch) {
+          return;
+        }
 
         const status = responses[0];
         const health = responses[1];
@@ -2641,11 +2764,19 @@ const consoleHTML = `<!doctype html>
 
         renderBranchSelectors();
         await refreshSelectedBranchConnection(true);
+        if (state.refreshEpoch !== refreshEpoch) {
+          return;
+        }
         if (state.currentPage === 'sql-editor') {
           await refreshSelectedBranchDatabases(true);
         }
+        if (state.refreshEpoch !== refreshEpoch) {
+          return;
+        }
 
+        state.refreshInFlight = false;
         setPage(state.currentPage);
+        renderSQLEditorContext();
         renderStats();
         renderDashboardBranches();
         renderBranches();
@@ -2654,6 +2785,12 @@ const consoleHTML = `<!doctype html>
         renderSQLEditorLineNumbers();
         showMessage('Console is up to date.', 'ok');
       } catch (err) {
+        if (state.refreshEpoch !== refreshEpoch) {
+          return;
+        }
+        state.refreshInFlight = false;
+        state.connectionRefreshInFlight = false;
+        renderSQLEditorContext();
         showMessage('Refresh failed: ' + err.message, 'err');
       }
     }
@@ -2856,7 +2993,11 @@ const consoleHTML = `<!doctype html>
         }
 
         if (action === 'run-sql') {
-          const branchName = state.selectedBranch || 'main';
+          const selectedBranch = branchByName(state.selectedBranch);
+          if (!selectedBranch) {
+            throw new Error('branch is not selected');
+          }
+          const branchName = selectedBranch.name;
           const connection = state.selectedBranchConnection;
           if (!connection || connection.branch !== branchName || !connection.published || !connection.port) {
             throw new Error('branch endpoint is not published');
@@ -2873,6 +3014,10 @@ const consoleHTML = `<!doctype html>
             throw new Error('database is not selected');
           }
           const allowWrites = Boolean(refs.sqlAllowWrites.checked);
+          const confirmProtectedWrites = Boolean(refs.sqlConfirmProtectedWrites.checked);
+          if (allowWrites && isProtectedBranch(selectedBranch) && !refs.sqlConfirmProtectedWrites.checked) {
+            throw new Error('confirm protected branch writes before running this query');
+          }
           refs.sqlRunButton.disabled = true;
           refs.sqlAllowWrites.disabled = true;
           refs.sqlDatabaseSelect.disabled = true;
@@ -2884,6 +3029,7 @@ const consoleHTML = `<!doctype html>
               sql: query,
               database: selectedDatabase,
               allow_writes: allowWrites,
+              confirm_protected_writes: confirmProtectedWrites,
             });
             const result = response.result || {};
             renderSQLResultSuccess(result);
@@ -3019,7 +3165,11 @@ const consoleHTML = `<!doctype html>
       refs.restoreName.removeAttribute('aria-invalid');
       renderRestorePreview();
     });
-    refs.sqlAllowWrites.addEventListener('change', renderSQLEditorContext);
+    refs.sqlAllowWrites.addEventListener('change', function onSQLAllowWritesChange() {
+      refs.sqlConfirmProtectedWrites.checked = false;
+      renderSQLEditorContext();
+    });
+    refs.sqlConfirmProtectedWrites.addEventListener('change', renderSQLEditorContext);
     refs.sqlDatabaseSelect.addEventListener('change', function onSQLDatabaseSelectChange(event) {
       const branchName = state.selectedBranch || 'main';
       state.selectedDatabaseByBranch[branchName] = event.target.value;

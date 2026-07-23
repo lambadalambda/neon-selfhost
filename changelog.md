@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Persistent protected-branch SQL warnings and a second deliberate confirmation before write-enabled queries on `main` or future protected branches.
 - A branch-scoped Backup & Restore console workflow with RFC3339 preview, generated target names, fail-closed retained-history guidance, operation progress, and restored-branch overview links.
 - A branch-scoped database selector in the SQL editor, backed by database discovery and per-query database selection APIs.
 - A fail-closed pageserver generation-validation upcall for standalone deployments, configured with `PAGESERVER_VALID_TENANT_GENERATIONS`, so remote layer garbage collection can proceed without a storage controller.
@@ -104,7 +105,7 @@
 - README now includes embedded console screenshots (dashboard and SQL editor) for quick visual context on GitHub.
 - README top-level framing now includes newcomer-friendly Neon context, a clear "What This Is" and "Features" section, and updated current-state language aligned with branch-first console workflows.
 - Controller startup now fails closed for non-loopback `HTTP_HOST` when basic auth is unset (unless `ALLOW_INSECURE_HTTP_BIND=1` is explicitly provided), JSON request bodies are now size-limited with `request_too_large` responses (`413`), and SQL execution now runs inside explicit read-only transactions with cancellation-safe cleanup paths.
-- SQL execution now defaults to read-only mode but can be explicitly switched to write-enabled mode per request (`allow_writes=true`); the SQL Editor now includes an "Enable write queries" toggle to reduce accidental mutations.
+- SQL execution defaults to read-only mode and accepts `allow_writes=true`; protected branches additionally require `confirm_protected_writes=true`, mirrored by the SQL Editor's two-step confirmation.
 - Console UI now has a modernized interaction pass: keyboard-accessible sidebar/history actions, visible focus states, improved hover/disabled feedback, reduced-motion handling, and clearer SQL mode signaling (read-only vs write-enabled styling + indicator).
 - README quickstart now leads with the `mise run stack:up` flow (full usable local stack immediately), while keeping controller-only startup as a separate dev path.
 - Controller/server logging now uses structured `slog` output for startup/shutdown and core operation flows (operation lifecycle, branch endpoint lifecycle, SQL execution outcomes, and auto-publish failures), improving operator observability.

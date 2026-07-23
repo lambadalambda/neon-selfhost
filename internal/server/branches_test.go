@@ -18,6 +18,7 @@ type branchesListResponse struct {
 		Parent    string  `json:"parent"`
 		Deleted   bool    `json:"deleted"`
 		DeletedAt *string `json:"deleted_at,omitempty"`
+		Protected bool    `json:"protected"`
 	} `json:"branches"`
 }
 
@@ -27,6 +28,7 @@ type testBranchResponse struct {
 		Parent    string  `json:"parent"`
 		Deleted   bool    `json:"deleted"`
 		DeletedAt *string `json:"deleted_at,omitempty"`
+		Protected bool    `json:"protected"`
 	} `json:"branch"`
 }
 
@@ -59,6 +61,9 @@ func TestBranchesListIncludesMainByDefault(t *testing.T) {
 	if payload.Branches[0].Deleted {
 		t.Fatal("expected default branch to not be deleted")
 	}
+	if !payload.Branches[0].Protected {
+		t.Fatal("expected default branch to be protected")
+	}
 }
 
 func TestCreateBranchAndList(t *testing.T) {
@@ -73,6 +78,9 @@ func TestCreateBranchAndList(t *testing.T) {
 
 	var created testBranchResponse
 	decodeJSON(t, createRes, &created)
+	if created.Branch.Protected {
+		t.Fatal("expected child branch to be unprotected by default")
+	}
 
 	if created.Branch.Name != "feature-a" {
 		t.Fatalf("expected created branch name %q, got %q", "feature-a", created.Branch.Name)

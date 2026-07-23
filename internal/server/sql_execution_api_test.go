@@ -215,7 +215,7 @@ func TestExecuteSQLAllowsWritesWhenRequested(t *testing.T) {
 	}
 
 	handler := New(Config{Version: "test-version", SQLExecutor: executor})
-	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"UPDATE app.documents SET title='x' WHERE id=1","allow_writes":true}`)
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"UPDATE app.documents SET title='x' WHERE id=1","allow_writes":true,"confirm_protected_writes":true}`)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
 	}
@@ -232,6 +232,20 @@ func TestExecuteSQLAllowsWritesWhenRequested(t *testing.T) {
 	decodeJSON(t, res, &payload)
 	if payload.Result.ReadOnly {
 		t.Fatal("expected read_only=false in SQL execution payload when writes are enabled")
+	}
+}
+
+func TestExecuteSQLRejectsUnconfirmedWritesToProtectedBranch(t *testing.T) {
+	executor := &fakeSQLQueryExecutor{}
+	handler := New(Config{Version: "test-version", SQLExecutor: executor})
+
+	res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"UPDATE app.documents SET title='x' WHERE id=1","allow_writes":true}`)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, res.Code)
+	}
+	assertAPIErrorCode(t, res, "protected_confirmation_required")
+	if len(executor.calls) != 0 {
+		t.Fatalf("expected protected write rejection before execution, got %d calls", len(executor.calls))
 	}
 }
 
@@ -290,7 +304,7 @@ func TestExecuteSQLClassifiesTransactionOutcomeErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := New(Config{Version: "test-version", SQLExecutor: &fakeSQLQueryExecutor{err: tt.err}})
-			res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"INSERT INTO app.documents(title) VALUES ('x')","allow_writes":true}`)
+			res := performRequest(t, handler, http.MethodPost, "/api/v1/branches/main/sql/execute", `{"sql":"INSERT INTO app.documents(title) VALUES ('x')","allow_writes":true,"confirm_protected_writes":true}`)
 			if res.Code != tt.wantStatus {
 				t.Fatalf("expected status %d, got %d", tt.wantStatus, res.Code)
 			}
