@@ -2,6 +2,7 @@
 
 ## 2026-07-23
 
+- Added and visually verified the responsive Tables/schema browser: fixed read-only catalog queries, bounded search/detail APIs, desktop three-pane inspection, mobile drill-down, and non-executing SQL Editor handoff.
 - Replaced the SQL Editor's browser-local sample library with controller-backed saved-query CRUD and execution history in `controller.db`; browser coverage verifies reload persistence, context/project scopes, context switching, and history refresh.
 - Protected SQL writes now require a two-step keyboard-accessible confirmation and reset to read-only whenever branch, database, or connection context changes.
 - Added and browser-verified the point-in-time restore console workflow, including explicit non-overwrite guidance, retained-history failures that preserve branch selection, and desktop/mobile result navigation into existing connection helpers.

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- A responsive branch/database-scoped Tables browser with paged schema search, relation estimates and sizes, columns/indexes/constraints, and safe inspection-query handoff to the SQL Editor.
 - Controller-persisted saved SQL queries and bounded execution history, with saved-query CRUD, branch/database filtering, project-wide lookup, and configurable `SQL_HISTORY_RETENTION_LIMIT` pruning.
 - Persistent protected-branch SQL warnings and a second deliberate confirmation before write-enabled queries on `main` or future protected branches.
 - A branch-scoped Backup & Restore console workflow with RFC3339 preview, generated target names, fail-closed retained-history guidance, operation progress, and restored-branch overview links.

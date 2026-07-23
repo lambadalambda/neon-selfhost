@@ -84,6 +84,135 @@ type sqlLibraryBrowserState struct {
 	ListText     string `json:"listText"`
 }
 
+type schemaBrowserState struct {
+	CurrentPage     string  `json:"currentPage"`
+	SchemaCount     int     `json:"schemaCount"`
+	ObjectCount     int     `json:"objectCount"`
+	SelectedTable   string  `json:"selectedTable"`
+	DetailText      string  `json:"detailText"`
+	StatusText      string  `json:"statusText"`
+	Database        string  `json:"database"`
+	SQL             string  `json:"sql"`
+	AllowWrites     bool    `json:"allowWrites"`
+	Confirmed       bool    `json:"confirmed"`
+	VisiblePanes    int     `json:"visiblePanes"`
+	PageScrollWidth float64 `json:"pageScrollWidth"`
+	ViewportWidth   float64 `json:"viewportWidth"`
+}
+
+func TestConsoleSchemaBrowserInBrowser(t *testing.T) {
+	if _, err := exec.LookPath("agent-browser"); err != nil {
+		t.Skip("agent-browser is required for schema browser tests")
+	}
+
+	tableBytes := int64(4096)
+	totalBytes := int64(12288)
+	estimatedRows := int64(12500)
+	executor := &fakeSQLQueryExecutor{
+		databaseList: sqlDatabaseList{Default: "postgres", Names: []string{"postgres", "analytics"}},
+		schemaCatalog: sqlSchemaCatalog{
+			Branch: "main", Database: "postgres",
+			Schemas: []sqlSchemaSummary{{Name: "audit", ObjectCount: 1}, {Name: "public", ObjectCount: 1}},
+			Tables:  []sqlSchemaTableSummary{{Schema: "public", Name: "posts", Kind: "table", EstimatedRows: &estimatedRows, TableBytes: &tableBytes, TotalBytes: &totalBytes}},
+			Limit:   50,
+		},
+		schemaDetail: sqlSchemaTableDetail{
+			Branch: "main", Database: "postgres", Schema: "public", Name: "posts", Kind: "table", EstimatedRows: &estimatedRows,
+			TableBytes: &tableBytes, TotalBytes: &totalBytes,
+			Columns:           []sqlSchemaColumn{{Position: 1, Name: "id", DataType: "bigint", NotNull: true}, {Position: 2, Name: "body", DataType: "text"}},
+			Indexes:           []sqlSchemaIndex{{Name: "posts_pkey", Primary: true, Unique: true, Definition: "CREATE UNIQUE INDEX posts_pkey ON public.posts USING btree (id)"}},
+			Constraints:       []sqlSchemaConstraint{{Name: "posts_pkey", Type: "primary_key", Definition: "PRIMARY KEY (id)"}},
+			InspectionQueries: makeSchemaInspectionQueries("public", "posts", "table"),
+		},
+	}
+	server := httptest.NewServer(New(Config{Version: "browser-test", SQLExecutor: executor}))
+	defer server.Close()
+
+	session := fmt.Sprintf("schema-browser-%d", os.Getpid())
+	defer closeAgentBrowser(session)
+	runAgentBrowser(t, session, "open", server.URL)
+	runAgentBrowser(t, session, "wait", "--fn", "state.refreshInFlight === false")
+	runAgentBrowser(t, session, "set", "viewport", "1440", "900")
+	runAgentBrowser(t, session, "eval", `(async () => {
+  state.selectedBranch = 'main';
+  state.selectedBranchConnection = {branch: 'main', published: true, status: 'running', host: '127.0.0.1', port: 56000, database: 'postgres', user: 'cloud_admin', password: 'test'};
+  state.databasesByBranch.main = {names: ['postgres', 'analytics'], default: 'postgres', loading: false, error: '', selectionRequired: false};
+  state.selectedDatabaseByBranch.main = 'postgres';
+  setPage('tables');
+  renderSchemaBrowserContext();
+  await loadSchemaCatalog(true, false);
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.schemaDetail && state.schemaDetail.name === 'posts'")
+
+	desktop := evalSchemaBrowserState(t, session)
+	if desktop.CurrentPage != "tables" || desktop.SchemaCount != 3 || desktop.ObjectCount != 1 || desktop.SelectedTable == "" {
+		t.Fatalf("expected loaded three-pane schema browser, got %#v", desktop)
+	}
+	if !strings.Contains(desktop.DetailText, "public.posts") || !strings.Contains(desktop.DetailText, "13k") || !strings.Contains(desktop.DetailText, "12 KB") {
+		t.Fatalf("expected polished object summary and metrics, got %#v", desktop)
+	}
+
+	runAgentBrowser(t, session, "click", `[data-schema-tab="indexes"]`)
+	indexes := evalSchemaBrowserState(t, session)
+	if !strings.Contains(indexes.DetailText, "posts_pkey") || !strings.Contains(indexes.DetailText, "CREATE UNIQUE INDEX") {
+		t.Fatalf("expected index detail tab, got %#v", indexes)
+	}
+
+	runAgentBrowser(t, session, "eval", `(() => {
+  window.originalSchemaBrowserAPI = api;
+  window.staleSchemaStarted = false;
+  window.staleSchemaFinished = false;
+  api = async function(method, path, payload) {
+    if (method === 'GET' && path.includes('/schema?') && path.includes('search=stale')) {
+      window.staleSchemaStarted = true;
+      await new Promise((resolve) => { window.releaseStaleSchema = resolve; });
+      window.staleSchemaFinished = true;
+      return {catalog: {branch: 'main', database: 'postgres', schemas: [], tables: [{schema: 'public', name: 'stale_table', kind: 'table', estimated_rows: 1}], limit: 50, offset: 0, has_more: false}};
+    }
+    return window.originalSchemaBrowserAPI(method, path, payload);
+  };
+  state.schemaSearch = 'stale';
+  window.pendingStaleSchema = loadSchemaCatalog(true, false);
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.staleSchemaStarted === true")
+	runAgentBrowser(t, session, "eval", `window.schemaEpochBeforeSearch = state.schemaRequestEpoch`)
+	runAgentBrowser(t, session, "fill", `[data-role="tables-filter"]`, "audit")
+	runAgentBrowser(t, session, "eval", `window.releaseStaleSchema()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.staleSchemaFinished === true")
+	staleInstalled := runAgentBrowser(t, session, "eval", `state.schemaCatalog.tables.some((table) => table.name === 'stale_table')`)
+	if staleInstalled != "false" {
+		t.Fatalf("expected immediate search invalidation to discard stale catalog response, got %s", staleInstalled)
+	}
+	runAgentBrowser(t, session, "wait", "--fn", "state.schemaRequestEpoch > window.schemaEpochBeforeSearch && refs.tablesStatus.textContent.includes('Loaded')")
+	runAgentBrowser(t, session, "eval", `api = window.originalSchemaBrowserAPI`)
+	if len(executor.schemaCatalogCalls) < 2 || executor.schemaCatalogCalls[len(executor.schemaCatalogCalls)-1].filter.Search != "audit" {
+		t.Fatalf("expected debounced server-side schema search, got %+v", executor.schemaCatalogCalls)
+	}
+
+	runAgentBrowser(t, session, "eval", `(() => {
+  refs.sqlAllowWrites.checked = true;
+  refs.sqlAllowWrites.dispatchEvent(new Event('change', {bubbles: true}));
+  refs.sqlConfirmProtectedWrites.checked = true;
+  refs.sqlConfirmProtectedWrites.dispatchEvent(new Event('change', {bubbles: true}));
+})()`)
+	runAgentBrowser(t, session, "click", `[data-action="open-schema-query"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.currentPage === 'sql-editor'")
+	handoff := evalSchemaBrowserState(t, session)
+	if handoff.Database != "postgres" || handoff.SQL != `SELECT * FROM "public"."posts" LIMIT 100;` || handoff.AllowWrites || handoff.Confirmed {
+		t.Fatalf("expected safe SQL Editor handoff in the inspected context, got %#v", handoff)
+	}
+	if len(executor.calls) != 0 {
+		t.Fatalf("schema handoff must not execute SQL, got %+v", executor.calls)
+	}
+
+	runAgentBrowser(t, session, "set", "viewport", "390", "844")
+	runAgentBrowser(t, session, "eval", `(() => { setPage('tables'); renderSchemaCatalog(); renderSchemaTableDetail(); setTablesMobileView('detail'); })()`)
+	mobile := evalSchemaBrowserState(t, session)
+	if mobile.VisiblePanes != 1 || mobile.PageScrollWidth != mobile.ViewportWidth {
+		t.Fatalf("expected one contained mobile schema pane, got %#v", mobile)
+	}
+}
+
 func TestConsoleSQLLibraryPersistsAndSupportsCRUDInBrowser(t *testing.T) {
 	if _, err := exec.LookPath("agent-browser"); err != nil {
 		t.Skip("agent-browser is required for SQL library browser tests")
@@ -820,6 +949,30 @@ func evalSQLLibraryBrowserState(t *testing.T, session string) sqlLibraryBrowserS
 	var state sqlLibraryBrowserState
 	if err := json.Unmarshal([]byte(output), &state); err != nil {
 		t.Fatalf("decode SQL library browser state %q: %v", output, err)
+	}
+	return state
+}
+
+func evalSchemaBrowserState(t *testing.T, session string) schemaBrowserState {
+	t.Helper()
+	output := runAgentBrowser(t, session, "eval", `(() => ({
+  currentPage: state.currentPage,
+  schemaCount: refs.tablesSchemaList.querySelectorAll('.tables-item').length,
+  objectCount: refs.tablesObjectList.querySelectorAll('.tables-item').length,
+  selectedTable: state.schemaSelectedTable,
+  detailText: refs.tablesDetail.textContent,
+  statusText: refs.tablesStatus.textContent,
+  database: selectedSQLDatabase(state.selectedBranch),
+  sql: refs.sqlEditorInput.value,
+  allowWrites: refs.sqlAllowWrites.checked,
+  confirmed: refs.sqlConfirmProtectedWrites.checked,
+  visiblePanes: Array.from(refs.tablesShell.querySelectorAll('.tables-pane')).filter((pane) => getComputedStyle(pane).display !== 'none').length,
+  pageScrollWidth: document.documentElement.scrollWidth,
+  viewportWidth: innerWidth,
+}))()`)
+	var state schemaBrowserState
+	if err := json.Unmarshal([]byte(output), &state); err != nil {
+		t.Fatalf("decode schema browser state %q: %v", output, err)
 	}
 	return state
 }

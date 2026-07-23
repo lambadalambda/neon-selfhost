@@ -19,6 +19,7 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - Branch endpoint APIs: publish/unpublish/list/connection, with auto-publish defaults in container-engine mode.
 - Branch-scoped SQL execution API and UI integration (single statement, read-only defaults, bounded result sizes/timeouts).
 - Controller-persisted saved SQL queries and bounded execution history, scoped by branch/database with project-wide lookup.
+- Branch/database-scoped Tables browser for searchable schemas, relation estimates/sizes, columns, indexes, constraints, and read-only SQL Editor handoff.
 - Timestamp-based restore API (`POST /api/v1/restore`) backed by pageserver timestamp-to-LSN resolution.
 - Operator basics: HTTP basic auth, branch-state persistence, health/status endpoints, and operation log API.
 
@@ -60,6 +61,8 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - `POST /api/v1/branches/{name}/unpublish`
 - `GET /api/v1/branches/{name}/connection`
 - `GET /api/v1/branches/{name}/databases`
+- `GET /api/v1/branches/{name}/schema` (supports `database`, `schema`, `search`, `limit`, `offset`, and `include_system`)
+- `GET /api/v1/branches/{name}/schema/table` (requires `database`, `schema`, and `table`)
 - `POST /api/v1/branches/{name}/sql/execute`
 - `GET|POST /api/v1/sql/saved-queries`
 - `PATCH|DELETE /api/v1/sql/saved-queries/{id}`
@@ -104,6 +107,8 @@ Connection `dsn` is returned only when `ready=true`.
 The web console now uses branch-first flows: branch selection in the left sidebar drives the Branch overview and SQL Editor pages, and connection helpers are branch-scoped.
 
 SQL execution is read-only by default, with optional write mode when `allow_writes=true` is passed to `POST /api/v1/branches/{name}/sql/execute`. Protected branches such as `main` also require `confirm_protected_writes=true`; the SQL Editor exposes this as a deliberate two-step confirmation. `GET /api/v1/branches/{name}/databases` returns `{"databases":[...],"default":"..."}` for connectable, non-template databases. The optional SQL execution `database` field selects one of them; omitting it preserves the branch endpoint's default database.
+
+The Tables page uses fixed parameterized PostgreSQL catalog queries in explicit read-only transactions. Catalog requests have a five-second statement timeout and bounded pagination/detail collections. Generated preview, count, and size queries open in the SQL Editor without executing or enabling writes.
 
 Branch credentials are controller-managed and branch-specific: newly created and restored branches receive random passwords, and the active branch password is surfaced in connection helpers and `GET /api/v1/endpoints/primary/connection`.
 

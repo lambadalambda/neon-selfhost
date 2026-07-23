@@ -1012,6 +1012,282 @@ const consoleHTML = `<!doctype html>
       min-height: 54px;
     }
 
+    .tables-toolbar {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tables-toolbar input {
+      width: 100%;
+    }
+
+    .tables-toolbar .sql-write-toggle {
+      display: grid;
+      grid-template-columns: 18px auto;
+      min-width: 150px;
+      width: max-content;
+      white-space: nowrap;
+    }
+
+    .tables-toolbar .sql-write-toggle input {
+      min-width: 18px;
+    }
+
+    .tables-context {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      flex: 1 1 auto;
+      justify-content: flex-end;
+    }
+
+    .tables-context .sql-database-select {
+      min-width: 180px;
+      flex: 0 1 240px;
+    }
+
+    .tables-shell {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 210px minmax(270px, 0.9fr) minmax(390px, 1.45fr);
+      min-height: 570px;
+    }
+
+    .tables-pane {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--surface-soft);
+      border-right: 1px solid var(--line);
+    }
+
+    .tables-pane:last-child {
+      border-right: 0;
+      background: var(--surface);
+    }
+
+    .tables-pane-header {
+      min-height: 53px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .tables-pane-header strong {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .tables-pane-header small {
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    .tables-list-scroll {
+      overflow: auto;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .tables-item {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      text-align: left;
+      background: transparent;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .tables-item:hover {
+      border-color: var(--line);
+      background: #fff;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .tables-item[aria-pressed="true"] {
+      border-color: #b9c1ce;
+      background: #fff;
+      box-shadow: inset 3px 0 0 #29313d;
+    }
+
+    .tables-item-main {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .tables-item-main strong,
+    .tables-item-main small {
+      overflow-wrap: anywhere;
+    }
+
+    .tables-item-main strong {
+      font-size: 0.87rem;
+    }
+
+    .tables-item-main small {
+      color: var(--muted);
+      font-size: 0.74rem;
+    }
+
+    .tables-detail {
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .tables-detail-hero {
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      background: linear-gradient(135deg, #ffffff 0%, #f6f8fb 100%);
+    }
+
+    .tables-detail-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tables-detail-title h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      overflow-wrap: anywhere;
+    }
+
+    .tables-detail-title p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .tables-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .tables-metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px;
+      display: grid;
+      gap: 2px;
+    }
+
+    .tables-metric span {
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .tables-metric strong {
+      font-size: 0.88rem;
+    }
+
+    .tables-query-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tables-query-actions button {
+      padding: 7px 9px;
+      font-size: 0.77rem;
+    }
+
+    .tables-detail-table {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+    }
+
+    .tables-detail-table table {
+      width: 100%;
+      min-width: 520px;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+
+    .tables-detail-table th,
+    .tables-detail-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 9px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    .tables-detail-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--surface-muted);
+      color: var(--muted);
+      font-size: 0.69rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .tables-empty {
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: 18px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.84rem;
+      background: rgba(255, 255, 255, 0.65);
+    }
+
+    .tables-mobile-nav {
+      display: none;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-muted);
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tables-mobile-nav span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      overflow-wrap: anywhere;
+    }
+
+    .tables-mobile-nav button {
+      padding: 6px 8px;
+      font-size: 0.76rem;
+    }
+
     .sql-results-meta {
       display: flex;
       gap: 8px;
@@ -1248,6 +1524,53 @@ const consoleHTML = `<!doctype html>
         grid-template-columns: 1fr;
       }
 
+      .tables-toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .tables-panel-header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .tables-panel-header .tables-context {
+        width: 100%;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        justify-content: stretch;
+      }
+
+      .tables-panel-header .tables-context .sql-database-select {
+        min-width: 0;
+        width: 100%;
+      }
+
+      .tables-shell {
+        grid-template-columns: 1fr;
+        min-height: 520px;
+      }
+
+      .tables-mobile-nav {
+        display: flex;
+      }
+
+      .tables-pane {
+        border-right: 0;
+      }
+
+      .tables-shell[data-mobile-view="schemas"] [data-role="tables-object-pane"],
+      .tables-shell[data-mobile-view="schemas"] [data-role="tables-detail-pane"],
+      .tables-shell[data-mobile-view="objects"] [data-role="tables-schema-pane"],
+      .tables-shell[data-mobile-view="objects"] [data-role="tables-detail-pane"],
+      .tables-shell[data-mobile-view="detail"] [data-role="tables-schema-pane"],
+      .tables-shell[data-mobile-view="detail"] [data-role="tables-object-pane"] {
+        display: none;
+      }
+
+      .tables-metrics {
+        grid-template-columns: 1fr;
+      }
+
       .cmd-row {
         grid-template-columns: 1fr;
       }
@@ -1280,6 +1603,7 @@ const consoleHTML = `<!doctype html>
         <ul class="nav-list">
           <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview" role="button" tabindex="0" aria-label="Open branch overview">Overview</li>
           <li data-role="nav-sql-editor" data-action="navigate" data-page="sql-editor" role="button" tabindex="0" aria-label="Open SQL editor">SQL Editor</li>
+          <li data-role="nav-tables" data-action="navigate" data-page="tables" role="button" tabindex="0" aria-label="Open tables and schema browser">Tables</li>
           <li data-role="nav-restore" data-action="navigate" data-page="restore" role="button" tabindex="0" aria-label="Open backup and restore">Backup &amp; Restore</li>
         </ul>
         <div class="branch-chip">
@@ -1534,6 +1858,57 @@ const consoleHTML = `<!doctype html>
         </div>
       </section>
 
+      <section class="page-section is-hidden" data-role="page-tables">
+        <article class="panel">
+          <header class="panel-header tables-panel-header">
+            <div>
+              <h2>Tables</h2>
+              <p>read-only PostgreSQL catalog snapshot</p>
+            </div>
+            <div class="tables-context">
+              <span class="pill" data-role="tables-branch-pill">branch: main</span>
+              <select class="sql-database-select" data-role="tables-database-select" aria-label="Schema browser database" disabled>
+                <option value="">Select a branch first</option>
+              </select>
+              <button class="btn-ghost" data-action="refresh-schema">Refresh</button>
+            </div>
+          </header>
+          <div class="panel-body">
+            <div class="tables-toolbar">
+              <input data-role="tables-filter" type="search" maxlength="128" placeholder="Search schema.table" aria-label="Search schemas and tables">
+              <label class="sql-write-toggle" title="System schemas are hidden by default to keep the catalog focused.">
+                <input type="checkbox" data-role="tables-include-system">
+                <span>System schemas</span>
+              </label>
+              <span class="badge muted" data-role="tables-count">0 objects</span>
+            </div>
+
+            <div class="tables-shell" data-role="tables-shell" data-mobile-view="objects">
+              <div class="tables-mobile-nav">
+                <button class="btn-ghost" data-role="tables-mobile-back" data-action="tables-mobile-back">Back</button>
+                <span data-role="tables-mobile-crumb">All schemas</span>
+              </div>
+              <section class="tables-pane" data-role="tables-schema-pane" aria-label="Schemas">
+                <div class="tables-pane-header"><strong>Schemas</strong><small data-role="tables-schema-count">0</small></div>
+                <div class="tables-list-scroll" data-role="tables-schema-list" aria-label="Database schemas" tabindex="-1"></div>
+              </section>
+              <section class="tables-pane" data-role="tables-object-pane" aria-label="Schema objects">
+                <div class="tables-pane-header"><strong data-role="tables-object-heading">Objects</strong><small data-role="tables-page-label">0 shown</small></div>
+                <div class="tables-list-scroll" data-role="tables-object-list" aria-label="Tables and views" tabindex="-1"></div>
+              </section>
+              <section class="tables-pane" data-role="tables-detail-pane" aria-label="Object detail" tabindex="-1">
+                <div class="tables-pane-header"><strong>Inspector</strong><small>catalog metadata</small></div>
+                <div class="tables-detail" data-role="tables-detail"></div>
+              </section>
+            </div>
+            <div class="toolbar is-hidden" data-role="tables-pagination">
+              <button class="btn-ghost" data-action="load-more-schema">Load more objects</button>
+            </div>
+            <p class="message" data-role="tables-status" role="status" aria-live="polite">Select a branch and database to inspect its schema.</p>
+          </div>
+        </article>
+      </section>
+
       <section class="page-section is-hidden" data-role="page-branches">
         <article class="panel">
           <header class="panel-header">
@@ -1591,6 +1966,16 @@ const consoleHTML = `<!doctype html>
       sqlEditorActionEpoch: 0,
       sqlSaveInFlight: false,
       activeSavedQueryID: null,
+      schemaCatalog: {schemas: [], tables: [], limit: 50, offset: 0, has_more: false},
+      schemaDetail: null,
+      schemaSelected: '',
+      schemaSelectedTable: '',
+      schemaSearch: '',
+      schemaIncludeSystem: false,
+      schemaDetailTab: 'columns',
+      schemaRequestEpoch: 0,
+      schemaDetailRequestEpoch: 0,
+      schemaSearchTimer: null,
       branchFilter: '',
       currentPage: 'dashboard',
       restoredBranch: null,
@@ -1607,12 +1992,14 @@ const consoleHTML = `<!doctype html>
       pageDashboard: document.querySelector('[data-role="page-dashboard"]'),
       pageBranchOverview: document.querySelector('[data-role="page-branch-overview"]'),
       pageSqlEditor: document.querySelector('[data-role="page-sql-editor"]'),
+      pageTables: document.querySelector('[data-role="page-tables"]'),
       pageRestore: document.querySelector('[data-role="page-restore"]'),
       pageBranches: document.querySelector('[data-role="page-branches"]'),
       navDashboard: document.querySelector('[data-role="nav-dashboard"]'),
       navBranches: document.querySelector('[data-role="nav-branches"]'),
       navBranchOverview: document.querySelector('[data-role="nav-branch-overview"]'),
       navSqlEditor: document.querySelector('[data-role="nav-sql-editor"]'),
+      navTables: document.querySelector('[data-role="nav-tables"]'),
       navRestore: document.querySelector('[data-role="nav-restore"]'),
       newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
       newBranchName: document.querySelector('[data-role="new-branch-name"]'),
@@ -1645,6 +2032,23 @@ const consoleHTML = `<!doctype html>
       sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
       sqlAllowWrites: document.querySelector('[data-role="sql-allow-writes"]'),
       sqlRunButton: document.querySelector('[data-action="run-sql"]'),
+      tablesShell: document.querySelector('[data-role="tables-shell"]'),
+      tablesMobileBack: document.querySelector('[data-role="tables-mobile-back"]'),
+      tablesBranchPill: document.querySelector('[data-role="tables-branch-pill"]'),
+      tablesDatabaseSelect: document.querySelector('[data-role="tables-database-select"]'),
+      tablesFilter: document.querySelector('[data-role="tables-filter"]'),
+      tablesIncludeSystem: document.querySelector('[data-role="tables-include-system"]'),
+      tablesCount: document.querySelector('[data-role="tables-count"]'),
+      tablesSchemaCount: document.querySelector('[data-role="tables-schema-count"]'),
+      tablesSchemaList: document.querySelector('[data-role="tables-schema-list"]'),
+      tablesObjectHeading: document.querySelector('[data-role="tables-object-heading"]'),
+      tablesPageLabel: document.querySelector('[data-role="tables-page-label"]'),
+      tablesObjectList: document.querySelector('[data-role="tables-object-list"]'),
+      tablesDetailPane: document.querySelector('[data-role="tables-detail-pane"]'),
+      tablesDetail: document.querySelector('[data-role="tables-detail"]'),
+      tablesPagination: document.querySelector('[data-role="tables-pagination"]'),
+      tablesStatus: document.querySelector('[data-role="tables-status"]'),
+      tablesMobileCrumb: document.querySelector('[data-role="tables-mobile-crumb"]'),
       restoreForm: document.querySelector('[data-action="create-restore"]'),
       restoreSource: document.querySelector('[data-role="restore-source"]'),
       restoreTimestamp: document.querySelector('[data-role="restore-timestamp"]'),
@@ -1691,30 +2095,34 @@ const consoleHTML = `<!doctype html>
     }
 
     function setPage(pageName) {
-      const nextPage = pageName === 'branches' || pageName === 'branch-overview' || pageName === 'sql-editor' || pageName === 'restore' ? pageName : 'dashboard';
+      const nextPage = pageName === 'branches' || pageName === 'branch-overview' || pageName === 'sql-editor' || pageName === 'tables' || pageName === 'restore' ? pageName : 'dashboard';
       state.currentPage = nextPage;
 
       const dashboardActive = nextPage === 'dashboard';
       const branchOverviewActive = nextPage === 'branch-overview';
       const sqlEditorActive = nextPage === 'sql-editor';
+      const tablesActive = nextPage === 'tables';
       const restoreActive = nextPage === 'restore';
       const branchesActive = nextPage === 'branches';
 
       refs.pageDashboard.classList.toggle('is-hidden', !dashboardActive);
       refs.pageBranchOverview.classList.toggle('is-hidden', !branchOverviewActive);
       refs.pageSqlEditor.classList.toggle('is-hidden', !sqlEditorActive);
+      refs.pageTables.classList.toggle('is-hidden', !tablesActive);
       refs.pageRestore.classList.toggle('is-hidden', !restoreActive);
       refs.pageBranches.classList.toggle('is-hidden', !branchesActive);
       refs.navDashboard.classList.toggle('active', dashboardActive);
       refs.navBranches.classList.toggle('active', branchesActive);
       refs.navBranchOverview.classList.toggle('active', branchOverviewActive);
       refs.navSqlEditor.classList.toggle('active', sqlEditorActive);
+      refs.navTables.classList.toggle('active', tablesActive);
       refs.navRestore.classList.toggle('active', restoreActive);
       [
         [refs.navDashboard, dashboardActive],
         [refs.navBranches, branchesActive],
         [refs.navBranchOverview, branchOverviewActive],
         [refs.navSqlEditor, sqlEditorActive],
+        [refs.navTables, tablesActive],
         [refs.navRestore, restoreActive],
       ].forEach((entry) => {
         if (entry[1]) {
@@ -1746,6 +2154,15 @@ const consoleHTML = `<!doctype html>
         }
 
         refs.pageSubtitle.textContent = selectedBranchForSQL.name + (selectedBranchForSQL.name === 'main' ? ' (default)' : '') + ' · run queries against this branch endpoint';
+        return;
+      }
+
+      if (tablesActive) {
+        const selectedBranchForTables = branchByName(state.selectedBranch);
+        refs.pageTitle.textContent = 'Tables';
+        refs.pageSubtitle.textContent = selectedBranchForTables
+          ? selectedBranchForTables.name + (selectedBranchForTables.name === 'main' ? ' (default)' : '') + ' · browse schemas and relations without running hand-written catalog SQL'
+          : 'Select a branch from the left sidebar to browse database schemas.';
         return;
       }
 
@@ -1984,6 +2401,7 @@ const consoleHTML = `<!doctype html>
       if (!state.branches.length) {
         state.selectedBranch = '';
         invalidateSQLSavedQueryContext();
+        invalidateSchemaBrowserContext(true);
         return;
       }
 
@@ -1994,11 +2412,13 @@ const consoleHTML = `<!doctype html>
       if (branchByName('main')) {
         state.selectedBranch = 'main';
         invalidateSQLSavedQueryContext();
+        invalidateSchemaBrowserContext(true);
         return;
       }
 
       state.selectedBranch = state.branches[0].name;
       invalidateSQLSavedQueryContext();
+      invalidateSchemaBrowserContext(true);
     }
 
     function formatBytes(bytes) {
@@ -2196,6 +2616,7 @@ const consoleHTML = `<!doctype html>
       refs.sqlAllowWrites.disabled = true;
       refs.sqlConfirmProtectedWrites.disabled = true;
       refs.sqlDatabaseSelect.disabled = true;
+      refs.tablesDatabaseSelect.disabled = true;
       applySQLModeVisualState();
       const branchName = state.selectedBranch;
       if (!branchName) {
@@ -2203,6 +2624,7 @@ const consoleHTML = `<!doctype html>
         state.connectionRefreshInFlight = false;
         renderBranchOverview();
         renderSQLEditorContext();
+        renderSchemaBrowserContext();
         return;
       }
 
@@ -2211,6 +2633,7 @@ const consoleHTML = `<!doctype html>
         clearSQLWriteMode();
         renderBranchOverview();
         renderSQLEditorContext();
+        renderSchemaBrowserContext();
       }
 
       try {
@@ -2238,6 +2661,7 @@ const consoleHTML = `<!doctype html>
 
       renderBranchOverview();
       renderSQLEditorContext();
+      renderSchemaBrowserContext();
     }
 
     function selectedSQLDatabase(branchName) {
@@ -2256,20 +2680,20 @@ const consoleHTML = `<!doctype html>
       return connection && connection.database ? connection.database : '';
     }
 
-    function renderSQLDatabaseSelector() {
+    function renderBranchDatabaseSelector(select) {
       const branchName = state.selectedBranch;
       const connection = state.selectedBranchConnection;
       if (!branchName || !connection || connection.branch !== branchName || !connection.published || !connection.port) {
-        refs.sqlDatabaseSelect.innerHTML = '<option value="">No database available</option>';
-        refs.sqlDatabaseSelect.disabled = true;
+        select.innerHTML = '<option value="">No database available</option>';
+        select.disabled = true;
         return;
       }
 
       const fallback = connection.database || 'postgres';
       const entry = state.databasesByBranch[branchName];
       if (entry && entry.loading) {
-        refs.sqlDatabaseSelect.innerHTML = '<option value="">Loading databases...</option>';
-        refs.sqlDatabaseSelect.disabled = true;
+        select.innerHTML = '<option value="">Loading databases...</option>';
+        select.disabled = true;
         return;
       }
 
@@ -2283,14 +2707,19 @@ const consoleHTML = `<!doctype html>
       const options = names
         .map((name) => '<option value="' + escapeHTML(name) + '">' + escapeHTML(name) + '</option>')
         .join('');
-      refs.sqlDatabaseSelect.innerHTML = selectionRequired
+      select.innerHTML = selectionRequired
         ? '<option value="">Select a database</option>' + options
         : options;
-      refs.sqlDatabaseSelect.value = selectionRequired ? '' : (names.includes(selected) ? selected : names[0]);
+      select.value = selectionRequired ? '' : (names.includes(selected) ? selected : names[0]);
       if (!selectionRequired && (!entry || !entry.error)) {
-        state.selectedDatabaseByBranch[branchName] = refs.sqlDatabaseSelect.value;
+        state.selectedDatabaseByBranch[branchName] = select.value;
       }
-      refs.sqlDatabaseSelect.disabled = false;
+      select.disabled = false;
+    }
+
+    function renderSQLDatabaseSelector() {
+      renderBranchDatabaseSelector(refs.sqlDatabaseSelect);
+      renderBranchDatabaseSelector(refs.tablesDatabaseSelect);
     }
 
     async function refreshSelectedBranchDatabases(silent) {
@@ -2355,6 +2784,289 @@ const consoleHTML = `<!doctype html>
       }
 
       renderSQLEditorContext();
+    }
+
+    function setTablesStatus(text, kind) {
+      refs.tablesStatus.textContent = text || '';
+      refs.tablesStatus.classList.remove('ok', 'err');
+      if (kind === 'ok' || kind === 'err') {
+        refs.tablesStatus.classList.add(kind);
+      }
+    }
+
+    function schemaTableKey(schemaName, tableName) {
+      return schemaName + '\u0000' + tableName;
+    }
+
+    function schemaKindLabel(kind) {
+      const labels = {
+        table: 'table',
+        partitioned_table: 'partitioned',
+        view: 'view',
+        materialized_view: 'mat. view',
+        foreign_table: 'foreign',
+      };
+      return labels[kind] || kind || 'relation';
+    }
+
+    function formatEstimatedRows(value) {
+      if (value === null || value === undefined) {
+        return 'estimate unavailable';
+      }
+      const count = Number(value || 0);
+      if (count >= 1000000) {
+        return (count / 1000000).toFixed(count >= 10000000 ? 0 : 1) + 'M rows';
+      }
+      if (count >= 1000) {
+        return (count / 1000).toFixed(count >= 10000 ? 0 : 1) + 'k rows';
+      }
+      return String(Math.max(0, count)) + ' rows';
+    }
+
+    function setTablesMobileView(view, moveFocus) {
+      const nextView = view === 'schemas' || view === 'detail' ? view : 'objects';
+      refs.tablesShell.setAttribute('data-mobile-view', nextView);
+      refs.tablesMobileBack.classList.toggle('is-hidden', nextView === 'schemas');
+      const detail = state.schemaDetail;
+      if (nextView === 'schemas') {
+        refs.tablesMobileCrumb.textContent = 'Choose a schema';
+      } else if (nextView === 'detail' && detail) {
+        refs.tablesMobileCrumb.textContent = detail.schema + ' · ' + detail.name;
+      } else {
+        refs.tablesMobileCrumb.textContent = state.schemaSelected || 'All schemas';
+      }
+      if (moveFocus && window.innerWidth <= 1020) {
+        requestAnimationFrame(function focusMobileSchemaPane() {
+          if (nextView === 'detail') {
+            refs.tablesDetailPane.focus();
+            return;
+          }
+          const pane = nextView === 'schemas' ? refs.tablesSchemaList : refs.tablesObjectList;
+          const selected = pane.querySelector('[aria-pressed="true"]');
+          (selected || pane).focus();
+        });
+      }
+    }
+
+    function renderSchemaBrowserContext() {
+      const branchName = state.selectedBranch;
+      const selectedBranch = branchByName(branchName);
+      refs.tablesBranchPill.textContent = selectedBranch ? ('branch: ' + selectedBranch.name) : 'branch: none';
+      renderSQLDatabaseSelector();
+      if (!selectedBranch) {
+        setTablesStatus('Select a branch to inspect database schemas.', '');
+      }
+    }
+
+    function renderSchemaCatalog() {
+      const catalog = state.schemaCatalog || {schemas: [], tables: [], has_more: false};
+      const schemas = Array.isArray(catalog.schemas) ? catalog.schemas : [];
+      const tables = Array.isArray(catalog.tables) ? catalog.tables : [];
+      const totalObjects = schemas.reduce((total, schema) => total + Number(schema.object_count || 0), 0);
+      const allSelected = state.schemaSelected === '';
+      const allRow = '<button class="tables-item" data-action="select-schema" data-schema="" aria-pressed="' + String(allSelected) + '">'
+        + '<span class="tables-item-main"><strong>All schemas</strong><small>Search every visible relation</small></span>'
+        + '<span class="badge muted">' + escapeHTML(totalObjects) + '</span></button>';
+      refs.tablesSchemaList.innerHTML = allRow + schemas.map((schema) => {
+        const selected = schema.name === state.schemaSelected;
+        return '<button class="tables-item" data-action="select-schema" data-schema="' + escapeHTML(schema.name) + '" aria-pressed="' + String(selected) + '">'
+          + '<span class="tables-item-main"><strong>' + escapeHTML(schema.name) + '</strong><small>database schema</small></span>'
+          + '<span class="badge muted">' + escapeHTML(schema.object_count) + '</span></button>';
+      }).join('');
+      refs.tablesSchemaCount.textContent = String(schemas.length) + (catalog.schemas_truncated ? '+' : '');
+      refs.tablesObjectHeading.textContent = state.schemaSelected || 'All objects';
+      refs.tablesCount.textContent = String(tables.length) + (catalog.has_more ? '+' : '') + ' objects';
+      refs.tablesPageLabel.textContent = String(tables.length) + ' shown';
+
+      if (!tables.length) {
+        const description = state.schemaSearch
+          ? 'No objects match “' + escapeHTML(state.schemaSearch) + '”. Try a shorter search.'
+          : 'No visible tables or views in this scope.';
+        refs.tablesObjectList.innerHTML = '<div class="tables-empty">' + description + '</div>';
+      } else {
+        refs.tablesObjectList.innerHTML = tables.map((table) => {
+          const key = schemaTableKey(table.schema, table.name);
+          const selected = key === state.schemaSelectedTable;
+          const size = table.total_bytes === null || table.total_bytes === undefined ? 'size unavailable' : formatBytes(table.total_bytes);
+          return '<button class="tables-item" data-action="select-schema-table" data-schema="' + escapeHTML(table.schema) + '" data-table="' + escapeHTML(table.name) + '" aria-pressed="' + String(selected) + '">'
+            + '<span class="tables-item-main"><strong>' + escapeHTML(table.name) + '</strong><small>' + escapeHTML(table.schema + ' · ' + formatEstimatedRows(table.estimated_rows) + ' · ' + size) + '</small></span>'
+            + '<span class="badge muted">' + escapeHTML(schemaKindLabel(table.kind)) + '</span></button>';
+        }).join('');
+      }
+      refs.tablesPagination.classList.toggle('is-hidden', !catalog.has_more);
+      setTablesMobileView(refs.tablesShell.getAttribute('data-mobile-view'));
+    }
+
+    function renderSchemaDetailTable() {
+      const detail = state.schemaDetail;
+      if (!detail) {
+        return '';
+      }
+      if (state.schemaDetailTab === 'indexes') {
+        if (!detail.indexes.length) {
+          return '<div class="tables-empty">No indexes reported for this object.</div>';
+        }
+        return '<div class="tables-detail-table"><table><thead><tr><th>Name</th><th>Flags</th><th>Definition</th></tr></thead><tbody>'
+          + detail.indexes.map((index) => '<tr><td class="mono">' + escapeHTML(index.name) + '</td><td>'
+            + (index.primary ? '<span class="badge ok" title="Primary key index">PK</span> ' : '')
+            + (index.unique ? '<span class="badge muted" title="Unique index">Unique</span>' : '')
+            + '</td><td class="mono">' + escapeHTML(index.definition) + '</td></tr>').join('')
+          + '</tbody></table></div>';
+      }
+      if (state.schemaDetailTab === 'constraints') {
+        if (!detail.constraints.length) {
+          return '<div class="tables-empty">No constraints reported for this object.</div>';
+        }
+        return '<div class="tables-detail-table"><table><thead><tr><th>Name</th><th>Type</th><th>Definition</th></tr></thead><tbody>'
+          + detail.constraints.map((constraint) => '<tr><td class="mono">' + escapeHTML(constraint.name) + '</td><td><span class="badge muted">' + escapeHTML(constraint.type.replaceAll('_', ' ')) + '</span></td><td class="mono">' + escapeHTML(constraint.definition) + '</td></tr>').join('')
+          + '</tbody></table></div>';
+      }
+      if (!detail.columns.length) {
+        return '<div class="tables-empty">No columns reported for this object.</div>';
+      }
+      return '<div class="tables-detail-table"><table><thead><tr><th>#</th><th>Column</th><th>Type</th><th>Properties</th><th>Default</th></tr></thead><tbody>'
+        + detail.columns.map((column) => '<tr><td>' + escapeHTML(column.position) + '</td><td class="mono">' + escapeHTML(column.name) + '</td><td class="mono">' + escapeHTML(column.data_type) + '</td><td>'
+          + (column.not_null ? '<span class="badge ok" title="Not nullable">Not null</span> ' : '<span class="badge muted">Nullable</span> ')
+          + (column.identity ? '<span class="badge warn">Identity</span> ' : '')
+          + (column.generation ? '<span class="badge warn">Generated</span>' : '')
+          + '</td><td class="mono">' + escapeHTML(column.default || '—') + '</td></tr>').join('')
+        + '</tbody></table></div>';
+    }
+
+    function renderSchemaTableDetail() {
+      const detail = state.schemaDetail;
+      if (!detail) {
+        refs.tablesDetail.innerHTML = '<div class="tables-empty"><strong>Select an object</strong><br>Columns, indexes, constraints, and size details will appear here.</div>';
+        return;
+      }
+      const size = detail.total_bytes === null || detail.total_bytes === undefined
+        ? (detail.kind === 'partitioned_table' ? 'Partitioned' : 'Unavailable')
+        : formatBytes(detail.total_bytes);
+      const queryActions = (detail.inspection_queries || []).map((query, index) => '<button class="' + (index === 0 ? 'btn-primary' : 'btn-ghost') + '" data-action="open-schema-query" data-query-index="' + String(index) + '">' + escapeHTML(query.name) + '</button>').join('');
+      refs.tablesDetail.innerHTML = '<section class="tables-detail-hero">'
+        + '<div class="tables-detail-title"><div><h3 class="mono">' + escapeHTML(detail.schema + '.' + detail.name) + '</h3><p>' + escapeHTML(schemaKindLabel(detail.kind)) + ' · read-only catalog metadata</p></div><span class="badge muted">' + escapeHTML(detail.database) + '</span></div>'
+        + '<div class="tables-metrics"><div class="tables-metric"><span>Estimated rows</span><strong>' + escapeHTML(formatEstimatedRows(detail.estimated_rows).replace(' rows', '')) + '</strong></div><div class="tables-metric"><span>' + (detail.kind === 'partitioned_table' ? 'Root size' : 'Total size') + '</span><strong>' + escapeHTML(size) + '</strong></div><div class="tables-metric"><span>Columns</span><strong>' + escapeHTML(detail.columns.length) + (detail.columns_truncated ? '+' : '') + '</strong></div></div>'
+        + '<div class="tables-query-actions">' + queryActions + '</div></section>'
+        + '<div class="sql-tabstrip" role="tablist" aria-label="Schema object details">'
+        + ['columns', 'indexes', 'constraints'].map((tab) => '<button class="' + (state.schemaDetailTab === tab ? 'active' : '') + '" data-action="schema-detail-tab" data-schema-tab="' + tab + '" role="tab" aria-selected="' + String(state.schemaDetailTab === tab) + '">' + tab.charAt(0).toUpperCase() + tab.slice(1) + '</button>').join('')
+        + '</div>'
+        + (detail.truncated ? '<div class="restore-notice"><strong>Large object</strong><p>Detail rows were capped to keep this response bounded.</p></div>' : '')
+        + renderSchemaDetailTable();
+    }
+
+    async function loadSchemaCatalog(reset, silent) {
+      const requestEpoch = state.schemaRequestEpoch + 1;
+      state.schemaRequestEpoch = requestEpoch;
+      if (reset) {
+        state.schemaDetailRequestEpoch += 1;
+        state.schemaSelectedTable = '';
+        state.schemaDetail = null;
+        renderSchemaTableDetail();
+      }
+      const branchName = state.selectedBranch;
+      const database = branchName ? selectedSQLDatabase(branchName) : '';
+      const schemaName = state.schemaSelected;
+      const search = state.schemaSearch;
+      const includeSystem = state.schemaIncludeSystem;
+      renderSchemaBrowserContext();
+      if (!branchByName(branchName) || !database) {
+        state.schemaCatalog = {schemas: [], tables: [], limit: 50, offset: 0, has_more: false};
+        state.schemaDetail = null;
+        renderSchemaCatalog();
+        renderSchemaTableDetail();
+        setTablesStatus('Select an available branch database to inspect its schema.', '');
+        return;
+      }
+
+      const offset = reset ? 0 : (state.schemaCatalog.tables || []).length;
+      const params = new URLSearchParams({database, limit: '50', offset: String(offset)});
+      if (schemaName) {
+        params.set('schema', schemaName);
+      }
+      if (search) {
+        params.set('search', search);
+      }
+      if (includeSystem) {
+        params.set('include_system', 'true');
+      }
+      if (!silent) {
+        setTablesStatus(reset ? 'Loading catalog snapshot...' : 'Loading more objects...', '');
+      }
+      try {
+        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branchName) + '/schema?' + params.toString());
+        if (state.schemaRequestEpoch !== requestEpoch || state.selectedBranch !== branchName || selectedSQLDatabase(branchName) !== database || state.schemaSelected !== schemaName || state.schemaSearch !== search || state.schemaIncludeSystem !== includeSystem) {
+          return;
+        }
+        const catalog = response.catalog || {};
+        const previousTables = !reset && Array.isArray(state.schemaCatalog.tables) ? state.schemaCatalog.tables : [];
+        state.schemaCatalog = {
+          ...catalog,
+          schemas: Array.isArray(catalog.schemas) ? catalog.schemas : [],
+          tables: previousTables.concat(Array.isArray(catalog.tables) ? catalog.tables : []),
+        };
+        if (reset) {
+          state.schemaDetail = null;
+          const first = state.schemaCatalog.tables[0];
+          state.schemaSelectedTable = first ? schemaTableKey(first.schema, first.name) : '';
+        }
+        renderSchemaCatalog();
+        renderSchemaTableDetail();
+        setTablesStatus('Loaded ' + String(state.schemaCatalog.tables.length) + ' objects from ' + database + '.', 'ok');
+        if (reset && state.schemaCatalog.tables.length) {
+          await loadSchemaTableDetail(state.schemaCatalog.tables[0]);
+        }
+      } catch (err) {
+        if (state.schemaRequestEpoch !== requestEpoch || state.selectedBranch !== branchName || selectedSQLDatabase(branchName) !== database || state.schemaSelected !== schemaName || state.schemaSearch !== search || state.schemaIncludeSystem !== includeSystem) {
+          return;
+        }
+        if (reset) {
+          state.schemaCatalog = {schemas: [], tables: [], limit: 50, offset: 0, has_more: false};
+          state.schemaDetail = null;
+          renderSchemaCatalog();
+          renderSchemaTableDetail();
+        }
+        setTablesStatus('Catalog failed to load: ' + err.message, 'err');
+      }
+    }
+
+    async function loadSchemaTableDetail(table) {
+      const requestEpoch = state.schemaDetailRequestEpoch + 1;
+      state.schemaDetailRequestEpoch = requestEpoch;
+      const branchName = state.selectedBranch;
+      const database = selectedSQLDatabase(branchName);
+      const includeSystem = state.schemaIncludeSystem;
+      const selectedKey = schemaTableKey(table.schema, table.name);
+      state.schemaSelectedTable = selectedKey;
+      renderSchemaCatalog();
+      refs.tablesDetail.innerHTML = '<div class="tables-empty">Loading ' + escapeHTML(table.schema + '.' + table.name) + ' metadata...</div>';
+      try {
+        const params = new URLSearchParams({database, schema: table.schema, table: table.name});
+        if (includeSystem) {
+          params.set('include_system', 'true');
+        }
+        const response = await api('GET', '/api/v1/branches/' + encodeURIComponent(branchName) + '/schema/table?' + params.toString());
+        if (state.schemaDetailRequestEpoch !== requestEpoch || state.selectedBranch !== branchName || selectedSQLDatabase(branchName) !== database || state.schemaSelectedTable !== selectedKey || state.schemaIncludeSystem !== includeSystem) {
+          return;
+        }
+        const detail = response.table || {};
+        state.schemaDetail = {
+          ...detail,
+          columns: Array.isArray(detail.columns) ? detail.columns : [],
+          indexes: Array.isArray(detail.indexes) ? detail.indexes : [],
+          constraints: Array.isArray(detail.constraints) ? detail.constraints : [],
+          inspection_queries: Array.isArray(detail.inspection_queries) ? detail.inspection_queries : [],
+        };
+        state.schemaDetailTab = 'columns';
+        renderSchemaTableDetail();
+        setTablesMobileView('detail', true);
+      } catch (err) {
+        if (state.schemaDetailRequestEpoch !== requestEpoch || state.selectedBranch !== branchName || selectedSQLDatabase(branchName) !== database || state.schemaSelectedTable !== selectedKey || state.schemaIncludeSystem !== includeSystem) {
+          return;
+        }
+        state.schemaDetail = null;
+        refs.tablesDetail.innerHTML = '<div class="tables-empty">Could not inspect this object.<br>' + escapeHTML(err.message) + '</div>';
+        setTablesStatus('Object detail failed to load: ' + err.message, 'err');
+      }
     }
 
     function renderSQLEditorLineNumbers() {
@@ -2534,6 +3246,21 @@ const consoleHTML = `<!doctype html>
       state.activeSavedQueryID = null;
     }
 
+    function invalidateSchemaBrowserContext(clearSearch) {
+      state.schemaRequestEpoch += 1;
+      state.schemaDetailRequestEpoch += 1;
+      state.schemaCatalog = {schemas: [], tables: [], limit: 50, offset: 0, has_more: false};
+      state.schemaDetail = null;
+      state.schemaSelected = '';
+      state.schemaSelectedTable = '';
+      if (clearSearch) {
+        state.schemaSearch = '';
+        if (refs.tablesFilter) {
+          refs.tablesFilter.value = '';
+        }
+      }
+    }
+
     function setSQLTab(tabName) {
       state.sqlTab = tabName === 'history' ? 'history' : 'saved';
       document.querySelectorAll('[data-action="sql-tab"]').forEach((node) => {
@@ -2661,7 +3388,7 @@ const consoleHTML = `<!doctype html>
       }
     }
 
-    async function openSQLLibraryEntry(entry, saved) {
+    async function openSQLInEditor(entry) {
       const actionEpoch = state.sqlEditorActionEpoch + 1;
       state.sqlEditorActionEpoch = actionEpoch;
       state.activeSavedQueryID = null;
@@ -2670,32 +3397,51 @@ const consoleHTML = `<!doctype html>
       }
       if (state.selectedBranch !== entry.branch) {
         state.selectedBranch = entry.branch;
+        invalidateSchemaBrowserContext(true);
         clearSQLWriteMode();
         renderBranchSelectors();
         renderBranches();
         await refreshSelectedBranchConnection(false);
         if (state.sqlEditorActionEpoch !== actionEpoch || state.selectedBranch !== entry.branch) {
-          return;
+          return false;
         }
       }
       await refreshSelectedBranchDatabases(false);
       if (state.sqlEditorActionEpoch !== actionEpoch || state.selectedBranch !== entry.branch) {
-        return;
+        return false;
       }
       const databaseEntry = state.databasesByBranch[entry.branch];
       if (!databaseEntry || !databaseEntry.names.includes(entry.database)) {
         throw new Error('query database ' + entry.database + ' is not available on ' + entry.branch);
       }
+      const previousDatabase = selectedSQLDatabase(entry.branch);
+      if (previousDatabase !== entry.database) {
+        invalidateSchemaBrowserContext(true);
+      }
       state.selectedDatabaseByBranch[entry.branch] = entry.database;
       databaseEntry.selectionRequired = false;
       clearSQLWriteMode();
       renderSQLEditorContext();
-      refs.sqlQueryTitle.value = entry.name || entry.title || entry.command_tag || 'Untitled query';
+      refs.sqlQueryTitle.value = entry.title || 'Untitled query';
       refs.sqlEditorInput.value = entry.sql;
-      state.activeSavedQueryID = saved ? entry.id : null;
+      state.activeSavedQueryID = entry.savedQueryID === undefined ? null : entry.savedQueryID;
       renderSQLEditorLineNumbers();
       setPage('sql-editor');
       await loadSQLLibrary(true);
+      return true;
+    }
+
+    async function openSQLLibraryEntry(entry, saved) {
+      const opened = await openSQLInEditor({
+        branch: entry.branch,
+        database: entry.database,
+        title: entry.name || entry.title || entry.command_tag || 'Untitled query',
+        sql: entry.sql,
+        savedQueryID: saved ? entry.id : undefined,
+      });
+      if (!opened) {
+        return;
+      }
       showMessage('Loaded query from ' + (saved ? 'saved' : 'history') + ' list.', 'ok');
     }
 
@@ -2929,6 +3675,9 @@ const consoleHTML = `<!doctype html>
         if (state.currentPage === 'sql-editor') {
           await refreshSelectedBranchDatabases(true);
           await loadSQLLibrary(true);
+        } else if (state.currentPage === 'tables') {
+          await refreshSelectedBranchDatabases(true);
+          await loadSchemaCatalog(true, true);
         }
         if (state.refreshEpoch !== refreshEpoch) {
           return;
@@ -3071,6 +3820,9 @@ const consoleHTML = `<!doctype html>
           if (pageName === 'sql-editor') {
             await refreshSelectedBranchDatabases(false);
             await loadSQLLibrary(false);
+          } else if (pageName === 'tables') {
+            await refreshSelectedBranchDatabases(false);
+            await loadSchemaCatalog(true, false);
           }
           return;
         }
@@ -3110,6 +3862,7 @@ const consoleHTML = `<!doctype html>
           }
           state.selectedBranch = branch;
           invalidateSQLSavedQueryContext();
+          invalidateSchemaBrowserContext(true);
           clearSQLWriteMode();
           renderBranchSelectors();
           renderBranches();
@@ -3120,6 +3873,68 @@ const consoleHTML = `<!doctype html>
 
         if (action === 'sql-tab') {
           setSQLTab(actionTarget.getAttribute('data-sql-tab'));
+          return;
+        }
+
+        if (action === 'refresh-schema') {
+          await loadSchemaCatalog(true, false);
+          return;
+        }
+
+        if (action === 'select-schema') {
+          state.schemaSelected = actionTarget.getAttribute('data-schema') || '';
+          state.schemaSelectedTable = '';
+          state.schemaDetail = null;
+          state.schemaDetailRequestEpoch += 1;
+          setTablesMobileView('objects', true);
+          renderSchemaTableDetail();
+          await loadSchemaCatalog(true, false);
+          return;
+        }
+
+        if (action === 'select-schema-table') {
+          const schemaName = actionTarget.getAttribute('data-schema');
+          const tableName = actionTarget.getAttribute('data-table');
+          const table = (state.schemaCatalog.tables || []).find((item) => item.schema === schemaName && item.name === tableName);
+          if (table) {
+            await loadSchemaTableDetail(table);
+          }
+          return;
+        }
+
+        if (action === 'load-more-schema') {
+          await loadSchemaCatalog(false, false);
+          return;
+        }
+
+        if (action === 'schema-detail-tab') {
+          state.schemaDetailTab = actionTarget.getAttribute('data-schema-tab') || 'columns';
+          renderSchemaTableDetail();
+          return;
+        }
+
+        if (action === 'open-schema-query') {
+          const detail = state.schemaDetail;
+          const index = Number(actionTarget.getAttribute('data-query-index'));
+          const query = detail && Array.isArray(detail.inspection_queries) ? detail.inspection_queries[index] : null;
+          if (!detail || !query) {
+            return;
+          }
+          const opened = await openSQLInEditor({
+            branch: detail.branch,
+            database: detail.database,
+            title: query.name + ' · ' + detail.schema + '.' + detail.name,
+            sql: query.sql,
+          });
+          if (opened) {
+            showMessage('Opened inspection query in SQL Editor. Review it, then run read-only.', 'ok');
+          }
+          return;
+        }
+
+        if (action === 'tables-mobile-back') {
+          const currentView = refs.tablesShell.getAttribute('data-mobile-view');
+          setTablesMobileView(currentView === 'detail' ? 'objects' : 'schemas', true);
           return;
         }
 
@@ -3243,6 +4058,7 @@ const consoleHTML = `<!doctype html>
           if (branch && branch !== state.selectedBranch) {
             state.selectedBranch = branch;
             invalidateSQLSavedQueryContext();
+            invalidateSchemaBrowserContext(true);
             clearSQLWriteMode();
             renderBranchSelectors();
             await refreshSelectedBranchConnection(true);
@@ -3316,6 +4132,7 @@ const consoleHTML = `<!doctype html>
       state.selectedBranch = event.target.value.trim();
       invalidateSQLSavedQueryContext();
       state.sqlLibraryRequestEpoch += 1;
+      invalidateSchemaBrowserContext(true);
       clearSQLWriteMode();
       setPage('branch-overview');
       renderBranches();
@@ -3366,13 +4183,49 @@ const consoleHTML = `<!doctype html>
       const branchName = state.selectedBranch || 'main';
       state.selectedDatabaseByBranch[branchName] = event.target.value;
       invalidateSQLSavedQueryContext();
+      invalidateSchemaBrowserContext(true);
       const entry = state.databasesByBranch[branchName];
       if (entry) {
         entry.selectionRequired = false;
       }
       clearSQLWriteMode();
       renderSQLEditorContext();
+      renderSchemaBrowserContext();
       await loadSQLLibrary(false);
+    });
+    refs.tablesDatabaseSelect.addEventListener('change', async function onTablesDatabaseSelectChange(event) {
+      const branchName = state.selectedBranch || 'main';
+      state.selectedDatabaseByBranch[branchName] = event.target.value;
+      invalidateSQLSavedQueryContext();
+      invalidateSchemaBrowserContext(true);
+      const entry = state.databasesByBranch[branchName];
+      if (entry) {
+        entry.selectionRequired = false;
+      }
+      clearSQLWriteMode();
+      renderSQLEditorContext();
+      renderSchemaBrowserContext();
+      await loadSchemaCatalog(true, false);
+    });
+    refs.tablesFilter.addEventListener('input', function onTablesFilterInput(event) {
+      state.schemaSearch = event.target.value.trim();
+      state.schemaRequestEpoch += 1;
+      state.schemaDetailRequestEpoch += 1;
+      state.schemaDetail = null;
+      state.schemaSelectedTable = '';
+      renderSchemaTableDetail();
+      setTablesStatus('Waiting to search ' + (state.schemaSearch || 'all objects') + '...', '');
+      if (state.schemaSearchTimer) {
+        clearTimeout(state.schemaSearchTimer);
+      }
+      state.schemaSearchTimer = setTimeout(function loadFilteredSchema() {
+        loadSchemaCatalog(true, false);
+      }, 180);
+    });
+    refs.tablesIncludeSystem.addEventListener('change', async function onTablesIncludeSystemChange(event) {
+      state.schemaIncludeSystem = Boolean(event.target.checked);
+      invalidateSchemaBrowserContext(false);
+      await loadSchemaCatalog(true, false);
     });
     refs.sqlLibraryScope.addEventListener('change', async function onSQLLibraryScopeChange(event) {
       state.sqlLibraryScope = event.target.value === 'project' ? 'project' : 'context';

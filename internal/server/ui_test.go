@@ -350,6 +350,37 @@ func TestConsoleSQLLibraryUsesControllerPersistence(t *testing.T) {
 	}
 }
 
+func TestConsoleIncludesResponsiveSchemaBrowser(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	body := res.Body.String()
+	for _, expected := range []string{
+		`data-role="nav-tables"`,
+		`data-role="page-tables"`,
+		`data-role="tables-database-select"`,
+		`data-role="tables-filter"`,
+		`data-role="tables-schema-list"`,
+		`data-role="tables-object-list"`,
+		`data-role="tables-detail"`,
+		`data-role="tables-status"`,
+		`data-action="open-schema-query"`,
+		`/api/v1/branches/`,
+		`/schema/table`,
+		`async function loadSchemaCatalog`,
+		`async function loadSchemaTableDetail`,
+		`schemaRequestEpoch`,
+		`openSQLInEditor`,
+		`aria-label="Database schemas"`,
+		`role="tablist"`,
+		`.tables-shell`,
+		`data-mobile-view`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("expected schema browser marker %q", expected)
+		}
+	}
+}
+
 func TestConsoleSQLResultTableKeepsWideResultsReadable(t *testing.T) {
 	handler := New(Config{Version: "test-version"})
 	res := performRequest(t, handler, http.MethodGet, "/", "")

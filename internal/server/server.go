@@ -507,6 +507,7 @@ func New(cfg Config) http.Handler {
 		writeJSON(w, http.StatusOK, operationsResponse{Operations: payload})
 	})
 	registerSQLQueryLibraryRoutes(mux, sqlLibrary, store, logger)
+	registerSchemaBrowserRoutes(mux, store, sqlExecutor, logger)
 
 	mux.HandleFunc("GET /api/v1/endpoints/primary/connection", func(w http.ResponseWriter, _ *http.Request) {
 		state, err := primaryEndpoint.Connection()

@@ -37,6 +37,8 @@ var (
 type SQLQueryExecutor interface {
 	Execute(ctx context.Context, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error)
 	Databases(ctx context.Context, branchName string) (sqlDatabaseList, error)
+	ListSchemaTables(ctx context.Context, branchName string, database string, filter sqlSchemaCatalogFilter) (sqlSchemaCatalog, error)
+	InspectSchemaTable(ctx context.Context, branchName string, database string, schema string, table string, includeSystem bool) (sqlSchemaTableDetail, error)
 }
 
 type sqlExecutionResult struct {
@@ -103,6 +105,14 @@ func (noopSQLQueryExecutor) Execute(_ context.Context, _ string, _ string, _ str
 
 func (noopSQLQueryExecutor) Databases(_ context.Context, _ string) (sqlDatabaseList, error) {
 	return sqlDatabaseList{}, fmt.Errorf("%w: database listing requires docker mode", ErrPrimaryEndpointUnavailable)
+}
+
+func (noopSQLQueryExecutor) ListSchemaTables(_ context.Context, _ string, _ string, _ sqlSchemaCatalogFilter) (sqlSchemaCatalog, error) {
+	return sqlSchemaCatalog{}, fmt.Errorf("%w: schema browsing requires docker mode", ErrPrimaryEndpointUnavailable)
+}
+
+func (noopSQLQueryExecutor) InspectSchemaTable(_ context.Context, _ string, _ string, _ string, _ string, _ bool) (sqlSchemaTableDetail, error) {
+	return sqlSchemaTableDetail{}, fmt.Errorf("%w: schema browsing requires docker mode", ErrPrimaryEndpointUnavailable)
 }
 
 type branchEndpointSQLQueryExecutor struct {

@@ -1,4 +1,3 @@
-- [ ] [Add tables and schema browser](issues/add-tables-schema-browser.md)
 - [ ] [Expose endpoint lifecycle controls](issues/expose-endpoint-lifecycle-controls.md)
 - [ ] [Add operations and diagnostics console](issues/add-operations-diagnostics-console.md)
 - [ ] [Report real storage usage](issues/report-real-storage-usage.md)

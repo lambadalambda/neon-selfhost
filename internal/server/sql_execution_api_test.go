@@ -324,12 +324,32 @@ func TestExecuteSQLReturnsNotFoundForUnknownBranch(t *testing.T) {
 }
 
 type fakeSQLQueryExecutor struct {
-	result        sqlExecutionResult
-	err           error
-	calls         []sqlExecutionCall
-	databaseList  sqlDatabaseList
-	databaseErr   error
-	databaseCalls []string
+	result             sqlExecutionResult
+	err                error
+	calls              []sqlExecutionCall
+	databaseList       sqlDatabaseList
+	databaseErr        error
+	databaseCalls      []string
+	schemaCatalog      sqlSchemaCatalog
+	schemaCatalogErr   error
+	schemaCatalogCalls []sqlSchemaCatalogCall
+	schemaDetail       sqlSchemaTableDetail
+	schemaDetailErr    error
+	schemaDetailCalls  []sqlSchemaDetailCall
+}
+
+type sqlSchemaCatalogCall struct {
+	branch   string
+	database string
+	filter   sqlSchemaCatalogFilter
+}
+
+type sqlSchemaDetailCall struct {
+	branch        string
+	database      string
+	schema        string
+	table         string
+	includeSystem bool
 }
 
 type sqlExecutionCall struct {
@@ -359,6 +379,16 @@ func (f *fakeSQLQueryExecutor) Databases(_ context.Context, branchName string) (
 		return sqlDatabaseList{}, f.databaseErr
 	}
 	return f.databaseList, nil
+}
+
+func (f *fakeSQLQueryExecutor) ListSchemaTables(_ context.Context, branchName string, database string, filter sqlSchemaCatalogFilter) (sqlSchemaCatalog, error) {
+	f.schemaCatalogCalls = append(f.schemaCatalogCalls, sqlSchemaCatalogCall{branch: branchName, database: database, filter: filter})
+	return f.schemaCatalog, f.schemaCatalogErr
+}
+
+func (f *fakeSQLQueryExecutor) InspectSchemaTable(_ context.Context, branchName string, database string, schema string, table string, includeSystem bool) (sqlSchemaTableDetail, error) {
+	f.schemaDetailCalls = append(f.schemaDetailCalls, sqlSchemaDetailCall{branch: branchName, database: database, schema: schema, table: table, includeSystem: includeSystem})
+	return f.schemaDetail, f.schemaDetailErr
 }
 
 func TestCountSQLStatementsHandlesCommentsAndQuotes(t *testing.T) {

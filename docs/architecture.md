@@ -92,6 +92,8 @@ Implemented in MVP slice 1:
 - `POST /api/v1/branches/{name}/unpublish`
 - `GET /api/v1/branches/{name}/connection`
 - `GET /api/v1/branches/{name}/databases`
+- `GET /api/v1/branches/{name}/schema`
+- `GET /api/v1/branches/{name}/schema/table`
 - `POST /api/v1/branches/{name}/sql/execute`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `GET|POST /api/v1/sql/saved-queries`
@@ -132,6 +134,7 @@ Current API behavior notes:
 - Endpoint connection DSN is emitted only when `ready=true`.
 - The web console exposes one-click connection helpers (`psql` command copy, DSN copy, password copy, and `DATABASE_URL` snippet copy) for the current primary branch endpoint.
 - Saved SQL queries and bounded execution history are stored in `controller.db`, filterable by branch/database or project-wide. Operator-entered SQL is stored verbatim; result data and controller-managed endpoint credentials/DSNs are never stored, so operators must not embed secrets in SQL they save or execute through the editor.
+- Schema browsing uses fixed parameterized catalog queries in explicit read-only transactions, pages relations before size calculation, caps all list/detail collections, and applies a five-second statement timeout.
 - `SQL_HISTORY_RETENTION_LIMIT` controls physical execution-history retention and defaults to `200`.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
 - `GET /api/v1/health` reports controller component health checks for branch storage, SQL query storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
