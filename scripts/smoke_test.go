@@ -57,6 +57,7 @@ func TestSmokeWriterHandoffIncludesSafetyAssertions(t *testing.T) {
 		"UPDATE public.${PROBE_TABLE}",
 		"compose down --volumes",
 		"retaining disposable stack ${COMPOSE_PROJECT} because primary handback failed",
+		`COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"`,
 	} {
 		if !strings.Contains(string(script), expected) {
 			t.Fatalf("expected writer handoff smoke to contain %q", expected)

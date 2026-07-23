@@ -329,7 +329,7 @@ if [[ "${VERIFY_WRITER_HANDOFF}" == "true" ]]; then
     log "--verify-writer-handoff requires BASE_URL to match the managed loopback port"
     exit 1
   fi
-  COMPOSE_PROJECT="neon-selfhost-handoff-$(date -u +%Y%m%d%H%M%S)-$$-${RANDOM}"
+  COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"
 fi
 
 require_command curl
