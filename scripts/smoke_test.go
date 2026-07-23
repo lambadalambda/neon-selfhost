@@ -58,6 +58,7 @@ func TestSmokeWriterHandoffIncludesSafetyAssertions(t *testing.T) {
 		"compose down --volumes",
 		"retaining disposable stack ${COMPOSE_PROJECT} because primary handback failed",
 		`COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"`,
+		`REQUEST_BASE_URL="http://controller:8080"`,
 	} {
 		if !strings.Contains(string(script), expected) {
 			t.Fatalf("expected writer handoff smoke to contain %q", expected)

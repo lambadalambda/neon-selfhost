@@ -4,6 +4,7 @@ set -euo pipefail
 AUTH_USER="${BASIC_AUTH_USER:-admin}"
 AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
+REQUEST_BASE_URL="${BASE_URL}"
 
 MANAGE_STACK=false
 KEEP_STACK=false
@@ -48,11 +49,23 @@ require_command() {
 }
 
 compose() {
+  local profiles=(--profile neon)
+  if [[ "${VERIFY_WRITER_HANDOFF}" == "true" ]]; then
+    profiles+=(--profile writer-handoff)
+  fi
   BASIC_AUTH_PASSWORD="${AUTH_PASSWORD}" \
     PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" \
     COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT}" \
     DOCKER_COMPOSE_PROJECT="${COMPOSE_PROJECT}" \
-    podman compose --profile neon --project-name "${COMPOSE_PROJECT}" "$@"
+    podman compose "${profiles[@]}" --project-name "${COMPOSE_PROJECT}" "$@"
+}
+
+api_curl() {
+  if [[ "${VERIFY_WRITER_HANDOFF}" == "true" ]]; then
+    compose exec -T smoke_client curl "$@"
+  else
+    curl "$@"
+  fi
 }
 
 api_json() {
@@ -60,35 +73,34 @@ api_json() {
   local path="$2"
   local payload="${3-}"
 
-  local body_file
-  body_file="$(mktemp)"
-
+  local response
   local status
+  local body
   if [[ -n "${payload}" ]]; then
-    status="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+    response="$(api_curl -sS -w $'\n%{http_code}' \
       -u "${AUTH_USER}:${AUTH_PASSWORD}" \
       -H 'Accept: application/json' \
       -H 'Content-Type: application/json' \
       -X "${method}" \
-      "${BASE_URL}${path}" \
+      "${REQUEST_BASE_URL}${path}" \
       -d "${payload}")"
   else
-    status="$(curl -sS -o "${body_file}" -w '%{http_code}' \
+    response="$(api_curl -sS -w $'\n%{http_code}' \
       -u "${AUTH_USER}:${AUTH_PASSWORD}" \
       -H 'Accept: application/json' \
       -X "${method}" \
-      "${BASE_URL}${path}")"
+      "${REQUEST_BASE_URL}${path}")"
   fi
+  status="${response##*$'\n'}"
+  body="${response%$'\n'*}"
 
   if [[ "${status}" != 2* ]]; then
     log "request failed: ${method} ${path} (HTTP ${status})"
-    cat "${body_file}"
-    rm -f "${body_file}"
+    printf '%s\n' "${body}"
     return 1
   fi
 
-  cat "${body_file}"
-  rm -f "${body_file}"
+  printf '%s' "${body}"
 }
 
 assert_jq() {
@@ -106,7 +118,7 @@ assert_jq() {
 wait_for_controller() {
   local attempt
   for attempt in $(seq 1 90); do
-    if curl -fsS -u "${AUTH_USER}:${AUTH_PASSWORD}" "${BASE_URL}/api/v1/status" >/dev/null 2>&1; then
+    if api_curl -fsS -u "${AUTH_USER}:${AUTH_PASSWORD}" "${REQUEST_BASE_URL}/api/v1/status" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -330,9 +342,12 @@ if [[ "${VERIFY_WRITER_HANDOFF}" == "true" ]]; then
     exit 1
   fi
   COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"
+  REQUEST_BASE_URL="http://controller:8080"
 fi
 
-require_command curl
+if [[ "${VERIFY_WRITER_HANDOFF}" != "true" ]]; then
+  require_command curl
+fi
 require_command jq
 
 if [[ "${MANAGE_STACK}" == "true" ]]; then

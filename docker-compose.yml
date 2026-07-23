@@ -74,6 +74,17 @@ services:
       compute_state_init:
         condition: service_completed_successfully
 
+  smoke_client:
+    image: docker.io/curlimages/curl:8.14.1
+    profiles: ["writer-handoff"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sleep infinity"]
+    networks:
+      - neon_internal
+    depends_on:
+      controller:
+        condition: service_started
+
   storage_broker:
     image: ${NEON_IMAGE:-ghcr.io/neondatabase/neon:latest}
     restart: unless-stopped
