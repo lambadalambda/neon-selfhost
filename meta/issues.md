@@ -1,4 +1,3 @@
-- [ ] [Add point-in-time restore console](issues/add-point-in-time-restore-console.md)
 - [ ] [Warn before writes to protected branches](issues/warn-before-protected-branch-writes.md)
 - [ ] [Persist the SQL query library](issues/persist-sql-query-library.md)
 - [ ] [Add tables and schema browser](issues/add-tables-schema-browser.md)

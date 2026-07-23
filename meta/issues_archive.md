@@ -15,3 +15,4 @@
 - [x] [Verify primary writer handoff](issues/verify-primary-writer-handoff.md)
 - [x] [Prevent concurrent writers on branch timelines](issues/prevent-concurrent-branch-writers.md)
 - [x] [Document repository delivery cadence](issues/document-repository-delivery-cadence.md)
+- [x] [Add point-in-time restore console](issues/add-point-in-time-restore-console.md)

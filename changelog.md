@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- A branch-scoped Backup & Restore console workflow with RFC3339 preview, generated target names, fail-closed retained-history guidance, operation progress, and restored-branch overview links.
 - A branch-scoped database selector in the SQL editor, backed by database discovery and per-query database selection APIs.
 - A fail-closed pageserver generation-validation upcall for standalone deployments, configured with `PAGESERVER_VALID_TENANT_GENERATIONS`, so remote layer garbage collection can proceed without a storage controller.
 - An opt-in Compose storage override for binding all persistent Neon state to a dedicated filesystem through `NEON_DATA_ROOT`.

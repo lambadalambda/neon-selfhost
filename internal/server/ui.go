@@ -588,6 +588,83 @@ const consoleHTML = `<!doctype html>
       word-break: break-word;
     }
 
+    .restore-layout {
+      max-width: 920px;
+    }
+
+    .restore-notice {
+      border: 1px solid rgba(23, 143, 88, 0.24);
+      border-left: 4px solid var(--ok);
+      border-radius: 10px;
+      background: rgba(23, 143, 88, 0.06);
+      padding: 11px 12px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .restore-notice strong {
+      font-size: 0.91rem;
+    }
+
+    .restore-notice p,
+    .restore-helper,
+    .restore-safety {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .restore-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+
+    .restore-field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .restore-field > span {
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .restore-field input,
+    .restore-field select {
+      width: 100%;
+    }
+
+    .restore-field-wide,
+    .restore-actions,
+    .restore-safety {
+      grid-column: 1 / -1;
+    }
+
+    .restore-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .restore-result {
+      display: grid;
+      gap: 8px;
+      scroll-margin-top: 12px;
+    }
+
+    .restore-error-detail {
+      margin: -4px 0 0;
+      color: var(--danger);
+      font-size: 0.78rem;
+      overflow-wrap: anywhere;
+    }
+
     .endpoint-list {
       list-style: none;
       margin: 0;
@@ -1090,8 +1167,15 @@ const consoleHTML = `<!doctype html>
       }
 
       .overview-grid,
-      .overview-fields {
+      .overview-fields,
+      .restore-form {
         grid-template-columns: 1fr;
+      }
+
+      .restore-field-wide,
+      .restore-actions,
+      .restore-safety {
+        grid-column: auto;
       }
 
       .sql-shell {
@@ -1139,6 +1223,7 @@ const consoleHTML = `<!doctype html>
         <ul class="nav-list">
           <li data-role="nav-branch-overview" data-action="navigate" data-page="branch-overview" role="button" tabindex="0" aria-label="Open branch overview">Overview</li>
           <li data-role="nav-sql-editor" data-action="navigate" data-page="sql-editor" role="button" tabindex="0" aria-label="Open SQL editor">SQL Editor</li>
+          <li data-role="nav-restore" data-action="navigate" data-page="restore" role="button" tabindex="0" aria-label="Open backup and restore">Backup &amp; Restore</li>
         </ul>
         <div class="branch-chip">
           <span>Per-branch endpoints</span>
@@ -1285,6 +1370,51 @@ const consoleHTML = `<!doctype html>
         </article>
       </section>
 
+      <section class="page-section is-hidden" data-role="page-restore">
+        <article class="panel restore-layout">
+          <header class="panel-header">
+            <h2>Point-in-time restore</h2>
+            <p>create an isolated branch from retained history</p>
+          </header>
+          <div class="panel-body">
+            <div class="restore-notice">
+              <strong>Restore creates a new branch. It never overwrites the source.</strong>
+              <p>If the timestamp is outside retained history, the request fails closed and no active branches change.</p>
+            </div>
+
+            <form class="restore-form" data-action="create-restore" aria-busy="false" novalidate>
+              <label class="restore-field">
+                <span>Source branch</span>
+                <select name="source_branch" data-role="restore-source" required></select>
+                <small class="restore-helper">The source remains online and unchanged.</small>
+              </label>
+
+              <label class="restore-field">
+                <span>Point in time</span>
+                <input name="timestamp" data-role="restore-timestamp" type="datetime-local" step="1" required>
+                <small class="restore-helper mono" data-role="restore-rfc3339">Select a timestamp to preview the RFC3339 value.</small>
+              </label>
+
+              <label class="restore-field restore-field-wide">
+                <span>Target branch name (optional)</span>
+                <input name="name" data-role="restore-name" placeholder="Generated from the restore timestamp">
+                <small class="restore-helper">New branch preview: <strong class="mono" data-role="restore-name-preview">restore-...</strong></small>
+              </label>
+
+              <div class="restore-actions">
+                <button class="btn-primary" data-role="restore-submit" type="submit">Restore branch</button>
+                <button class="btn-ghost" data-role="restore-clear" data-action="reset-restore" type="button">Clear</button>
+              </div>
+              <p class="restore-safety" data-role="restore-safety">The source branch and its endpoint are untouched.</p>
+            </form>
+
+            <p class="message" data-role="restore-status" role="status" aria-live="polite">Ready to validate a restore point.</p>
+            <p class="restore-error-detail mono is-hidden" data-role="restore-error-detail"></p>
+            <div class="restore-result is-hidden" data-role="restore-result" role="status" aria-live="polite" tabindex="-1"></div>
+          </div>
+        </article>
+      </section>
+
       <section class="page-section is-hidden" data-role="page-sql-editor">
         <div class="sql-shell">
           <aside class="sql-library">
@@ -1393,6 +1523,8 @@ const consoleHTML = `<!doctype html>
       ],
       branchFilter: '',
       currentPage: 'dashboard',
+      restoredBranch: null,
+      restoreInFlight: false,
     };
 
     const refs = {
@@ -1401,11 +1533,13 @@ const consoleHTML = `<!doctype html>
       pageDashboard: document.querySelector('[data-role="page-dashboard"]'),
       pageBranchOverview: document.querySelector('[data-role="page-branch-overview"]'),
       pageSqlEditor: document.querySelector('[data-role="page-sql-editor"]'),
+      pageRestore: document.querySelector('[data-role="page-restore"]'),
       pageBranches: document.querySelector('[data-role="page-branches"]'),
       navDashboard: document.querySelector('[data-role="nav-dashboard"]'),
       navBranches: document.querySelector('[data-role="nav-branches"]'),
       navBranchOverview: document.querySelector('[data-role="nav-branch-overview"]'),
       navSqlEditor: document.querySelector('[data-role="nav-sql-editor"]'),
+      navRestore: document.querySelector('[data-role="nav-restore"]'),
       newBranchCTA: document.querySelector('[data-role="new-branch-cta"]'),
       newBranchName: document.querySelector('[data-role="new-branch-name"]'),
       healthPill: document.querySelector('[data-role="health-pill"]'),
@@ -1431,6 +1565,18 @@ const consoleHTML = `<!doctype html>
       sqlEditorResult: document.querySelector('[data-role="sql-editor-result"]'),
       sqlAllowWrites: document.querySelector('[data-role="sql-allow-writes"]'),
       sqlRunButton: document.querySelector('[data-action="run-sql"]'),
+      restoreForm: document.querySelector('[data-action="create-restore"]'),
+      restoreSource: document.querySelector('[data-role="restore-source"]'),
+      restoreTimestamp: document.querySelector('[data-role="restore-timestamp"]'),
+      restoreName: document.querySelector('[data-role="restore-name"]'),
+      restoreNamePreview: document.querySelector('[data-role="restore-name-preview"]'),
+      restoreRFC3339: document.querySelector('[data-role="restore-rfc3339"]'),
+      restoreSafety: document.querySelector('[data-role="restore-safety"]'),
+      restoreStatus: document.querySelector('[data-role="restore-status"]'),
+      restoreResult: document.querySelector('[data-role="restore-result"]'),
+      restoreSubmit: document.querySelector('[data-role="restore-submit"]'),
+      restoreClear: document.querySelector('[data-role="restore-clear"]'),
+      restoreErrorDetail: document.querySelector('[data-role="restore-error-detail"]'),
       parentSelect: document.querySelector('[data-role="parent-select"]'),
       branchFilter: document.querySelector('[data-role="branch-filter"]'),
       branchList: document.querySelector('[data-role="branch-list"]'),
@@ -1465,22 +1611,38 @@ const consoleHTML = `<!doctype html>
     }
 
     function setPage(pageName) {
-      const nextPage = pageName === 'branches' || pageName === 'branch-overview' || pageName === 'sql-editor' ? pageName : 'dashboard';
+      const nextPage = pageName === 'branches' || pageName === 'branch-overview' || pageName === 'sql-editor' || pageName === 'restore' ? pageName : 'dashboard';
       state.currentPage = nextPage;
 
       const dashboardActive = nextPage === 'dashboard';
       const branchOverviewActive = nextPage === 'branch-overview';
       const sqlEditorActive = nextPage === 'sql-editor';
+      const restoreActive = nextPage === 'restore';
       const branchesActive = nextPage === 'branches';
 
       refs.pageDashboard.classList.toggle('is-hidden', !dashboardActive);
       refs.pageBranchOverview.classList.toggle('is-hidden', !branchOverviewActive);
       refs.pageSqlEditor.classList.toggle('is-hidden', !sqlEditorActive);
+      refs.pageRestore.classList.toggle('is-hidden', !restoreActive);
       refs.pageBranches.classList.toggle('is-hidden', !branchesActive);
       refs.navDashboard.classList.toggle('active', dashboardActive);
       refs.navBranches.classList.toggle('active', branchesActive);
       refs.navBranchOverview.classList.toggle('active', branchOverviewActive);
       refs.navSqlEditor.classList.toggle('active', sqlEditorActive);
+      refs.navRestore.classList.toggle('active', restoreActive);
+      [
+        [refs.navDashboard, dashboardActive],
+        [refs.navBranches, branchesActive],
+        [refs.navBranchOverview, branchOverviewActive],
+        [refs.navSqlEditor, sqlEditorActive],
+        [refs.navRestore, restoreActive],
+      ].forEach((entry) => {
+        if (entry[1]) {
+          entry[0].setAttribute('aria-current', 'page');
+        } else {
+          entry[0].removeAttribute('aria-current');
+        }
+      });
       refs.newBranchCTA.classList.toggle('is-hidden', !branchesActive);
 
       if (dashboardActive) {
@@ -1504,6 +1666,15 @@ const consoleHTML = `<!doctype html>
         }
 
         refs.pageSubtitle.textContent = selectedBranchForSQL.name + (selectedBranchForSQL.name === 'main' ? ' (default)' : '') + ' · run queries against this branch endpoint';
+        return;
+      }
+
+      if (restoreActive) {
+        const sourceBranch = refs.restoreSource.value || state.selectedBranch;
+        refs.pageTitle.textContent = 'Backup & Restore';
+        refs.pageSubtitle.textContent = sourceBranch
+          ? sourceBranch + ' · point-in-time restore creates a new branch without changing the source'
+          : 'Select a source branch and retained point in time.';
         return;
       }
 
@@ -1609,6 +1780,108 @@ const consoleHTML = `<!doctype html>
         }
       }
       return null;
+    }
+
+    function restoreTimestampRFC3339(value) {
+      if (!value) {
+        return '';
+      }
+
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return '';
+      }
+
+      return parsed.toISOString().replace('.000Z', 'Z');
+    }
+
+    function defaultRestoreName(timestamp) {
+      if (!timestamp) {
+        return '';
+      }
+
+      const parsed = new Date(timestamp);
+      if (Number.isNaN(parsed.getTime())) {
+        return '';
+      }
+
+      const digits = (value) => String(value).padStart(2, '0');
+      return 'restore-'
+        + String(parsed.getUTCFullYear())
+        + digits(parsed.getUTCMonth() + 1)
+        + digits(parsed.getUTCDate())
+        + '-'
+        + digits(parsed.getUTCHours())
+        + digits(parsed.getUTCMinutes())
+        + digits(parsed.getUTCSeconds());
+    }
+
+    function setRestoreStatus(text, kind, detail) {
+      refs.restoreStatus.textContent = text || '';
+      refs.restoreStatus.classList.remove('ok', 'err');
+      refs.restoreErrorDetail.textContent = kind === 'err' && detail ? detail : '';
+      refs.restoreErrorDetail.classList.toggle('is-hidden', !refs.restoreErrorDetail.textContent);
+      if (kind === 'ok') {
+        refs.restoreStatus.classList.add('ok');
+      }
+      if (kind === 'err') {
+        refs.restoreStatus.classList.add('err');
+      }
+    }
+
+    function renderRestorePreview() {
+      const timestamp = restoreTimestampRFC3339(refs.restoreTimestamp.value);
+      const customName = refs.restoreName.value.trim();
+      const generatedName = defaultRestoreName(timestamp);
+      const sourceBranch = refs.restoreSource.value || state.selectedBranch || 'the source branch';
+
+      refs.restoreRFC3339.textContent = timestamp
+        ? 'RFC3339: ' + timestamp
+        : 'Select a valid point in time to preview the RFC3339 value.';
+      refs.restoreNamePreview.textContent = customName || generatedName || 'restore-...';
+      refs.restoreSafety.textContent = 'Restore creates a new branch. ' + sourceBranch + ' and its endpoint are untouched.';
+    }
+
+    function setRestoreControlsDisabled(disabled) {
+      state.restoreInFlight = disabled;
+      refs.restoreForm.setAttribute('aria-busy', disabled ? 'true' : 'false');
+      refs.restoreSource.disabled = disabled || state.branches.length === 0;
+      refs.restoreTimestamp.disabled = disabled;
+      refs.restoreName.disabled = disabled;
+      refs.restoreSubmit.disabled = disabled;
+      refs.restoreClear.disabled = disabled;
+      refs.restoreSubmit.textContent = disabled ? 'Restoring...' : 'Restore branch';
+    }
+
+    function renderRestoreSuccess(restore) {
+      const restoredBranch = restore && restore.branch ? restore.branch : null;
+      if (!restoredBranch || !restoredBranch.name) {
+        throw new Error('restore response did not include the new branch');
+      }
+
+      state.restoredBranch = restoredBranch.name;
+      const restoredEndpoint = endpointByBranch(restoredBranch.name);
+      const connectionGuidance = restoredEndpoint && restoredEndpoint.published
+        ? 'Open the overview for DSN, psql, and password helpers.'
+        : 'Open the overview to inspect the branch. Connection helpers become available after its endpoint is published.';
+      refs.restoreResult.classList.remove('is-hidden');
+      refs.restoreResult.innerHTML = '<section class="overview-card">'
+        + '<h3>Branch restored</h3>'
+        + '<div class="overview-fields">'
+        + '<div class="overview-field"><label>New branch</label><strong>' + escapeHTML(restoredBranch.name) + '</strong></div>'
+        + '<div class="overview-field"><label>Source branch</label><strong>' + escapeHTML(restoredBranch.parent || refs.restoreSource.value) + '</strong></div>'
+        + '<div class="overview-field"><label>Requested at</label><strong class="mono">' + escapeHTML(restore.requested_at || '-') + '</strong></div>'
+        + '<div class="overview-field"><label>Resolved LSN</label><strong class="mono">' + escapeHTML(restore.resolved_lsn || '-') + '</strong></div>'
+        + '</div>'
+        + '<p class="restore-helper">Source branch ' + escapeHTML(restoredBranch.parent || refs.restoreSource.value) + ' is unchanged. ' + escapeHTML(connectionGuidance) + '</p>'
+        + '<div class="restore-actions">'
+        + '<button class="btn-primary" data-action="open-restored-branch" data-branch="' + escapeHTML(restoredBranch.name) + '">Open branch overview</button>'
+        + '</div>'
+        + '</section>';
+      const nextAction = refs.restoreResult.querySelector('[data-action="open-restored-branch"]');
+      if (nextAction) {
+        nextAction.focus();
+      }
     }
 
     function endpointByBranch(branchName) {
@@ -1752,6 +2025,8 @@ const consoleHTML = `<!doctype html>
     function renderBranchSelectors() {
       normalizeSelectedBranch();
 
+      const previousRestoreSource = refs.restoreSource.value;
+
       const options = state.branches
         .map((item) => '<option value="' + escapeHTML(item.name) + '">' + escapeHTML(item.name) + '</option>')
         .join('');
@@ -1761,8 +2036,17 @@ const consoleHTML = `<!doctype html>
       refs.sidebarBranchSelect.innerHTML = options || '<option value="">no branches</option>';
       refs.sidebarBranchSelect.disabled = state.branches.length === 0;
 
+      refs.restoreSource.innerHTML = options || '<option value="">no branches</option>';
+      refs.restoreSource.disabled = state.restoreInFlight || state.branches.length === 0;
+
       if (state.selectedBranch !== '') {
         refs.sidebarBranchSelect.value = state.selectedBranch;
+      }
+
+      if (branchByName(previousRestoreSource)) {
+        refs.restoreSource.value = previousRestoreSource;
+      } else if (state.selectedBranch !== '') {
+        refs.restoreSource.value = state.selectedBranch;
       }
 
       if (state.branches.some((item) => item.name === 'main')) {
@@ -1770,6 +2054,8 @@ const consoleHTML = `<!doctype html>
       } else if (state.branches.length > 0) {
         refs.parentSelect.value = state.branches[0].name;
       }
+
+      renderRestorePreview();
     }
 
     function renderBranchOverview() {
@@ -2392,6 +2678,86 @@ const consoleHTML = `<!doctype html>
       }
     }
 
+    async function onRestoreSubmit(event) {
+      event.preventDefault();
+      if (state.restoreInFlight) {
+        return;
+      }
+      const sourceBranch = refs.restoreSource.value.trim();
+      const timestamp = restoreTimestampRFC3339(refs.restoreTimestamp.value);
+      const requestedName = refs.restoreName.value.trim();
+      const restoreName = requestedName || defaultRestoreName(timestamp);
+
+      refs.restoreResult.classList.add('is-hidden');
+      refs.restoreResult.innerHTML = '';
+      state.restoredBranch = null;
+      refs.restoreSource.removeAttribute('aria-invalid');
+      refs.restoreTimestamp.removeAttribute('aria-invalid');
+      refs.restoreName.removeAttribute('aria-invalid');
+
+      if (!sourceBranch || !branchByName(sourceBranch)) {
+        refs.restoreSource.setAttribute('aria-invalid', 'true');
+        setRestoreStatus('Select an available source branch.', 'err');
+        refs.restoreSource.focus();
+        return;
+      }
+      if (!timestamp) {
+        refs.restoreTimestamp.setAttribute('aria-invalid', 'true');
+        setRestoreStatus('Point in time is required and must be a valid date and time.', 'err');
+        refs.restoreTimestamp.focus();
+        return;
+      }
+      if (new Date(timestamp).getTime() > Date.now()) {
+        refs.restoreTimestamp.setAttribute('aria-invalid', 'true');
+        setRestoreStatus('Point in time must not be in the future.', 'err');
+        refs.restoreTimestamp.focus();
+        return;
+      }
+      if (!restoreName) {
+        setRestoreStatus('Target branch name could not be generated.', 'err');
+        return;
+      }
+      if (branchByName(restoreName)) {
+        refs.restoreName.setAttribute('aria-invalid', 'true');
+        setRestoreStatus('A branch named ' + restoreName + ' already exists. Choose another target name.', 'err');
+        refs.restoreName.focus();
+        return;
+      }
+
+      const payload = {
+        source_branch: sourceBranch,
+        timestamp,
+      };
+      if (requestedName) {
+        payload.name = requestedName;
+      }
+
+      setRestoreControlsDisabled(true);
+      setRestoreStatus('Restore operation in progress: resolving ' + timestamp + ' on ' + sourceBranch + '...', '');
+      try {
+        const response = await api('POST', '/api/v1/restore', payload);
+        await loadAll();
+        renderRestoreSuccess(response.restore || {});
+        setRestoreStatus('Restore completed. Review the new branch before connecting applications.', 'ok');
+        showMessage('Branch ' + (response.restore && response.restore.branch ? response.restore.branch.name : restoreName) + ' restored.', 'ok');
+      } catch (err) {
+        let guidance = 'Restore failed without changing the selected branch.';
+        if (err.code === 'history_unavailable') {
+          guidance = 'Point in time is outside retained history for ' + sourceBranch + '. Pick a later timestamp or another source branch.';
+        } else if (err.code === 'conflict') {
+          guidance = 'The target branch name is already in use. Choose another name.';
+        } else if (err.code === 'validation_error') {
+          guidance = 'The restore request is invalid. Check the timestamp and branch name.';
+        } else if (err.code === 'restore_unavailable') {
+          guidance = 'Restore service is unavailable. Refresh the branch list and inspect operation status before retrying.';
+        }
+        setRestoreStatus(guidance, 'err', err.message);
+        showMessage('Restore failed: ' + err.message, 'err');
+      } finally {
+        setRestoreControlsDisabled(false);
+      }
+    }
+
     async function onPanelClick(event) {
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) {
@@ -2416,6 +2782,40 @@ const consoleHTML = `<!doctype html>
           if (refs.newBranchName) {
             refs.newBranchName.focus();
           }
+          return;
+        }
+
+        if (action === 'reset-restore') {
+          if (state.restoreInFlight) {
+            return;
+          }
+          refs.restoreForm.reset();
+          refs.restoreSource.value = branchByName(state.selectedBranch) ? state.selectedBranch : '';
+          refs.restoreResult.classList.add('is-hidden');
+          refs.restoreResult.innerHTML = '';
+          state.restoredBranch = null;
+          refs.restoreSource.removeAttribute('aria-invalid');
+          refs.restoreTimestamp.removeAttribute('aria-invalid');
+          refs.restoreName.removeAttribute('aria-invalid');
+          setRestoreStatus('Ready to validate a restore point.', '');
+          renderRestorePreview();
+          setPage('restore');
+          return;
+        }
+
+        if (action === 'open-restored-branch') {
+          if (!branch || !branchByName(branch)) {
+            await loadAll();
+          }
+          if (!branchByName(branch)) {
+            throw new Error('restored branch is not available');
+          }
+          state.selectedBranch = branch;
+          clearSQLWriteMode();
+          renderBranchSelectors();
+          renderBranches();
+          setPage('branch-overview');
+          await refreshSelectedBranchConnection(false);
           return;
         }
 
@@ -2601,8 +3001,24 @@ const consoleHTML = `<!doctype html>
     document.addEventListener('click', onPanelClick);
     document.addEventListener('keydown', onActionKeydown);
     document.querySelector('[data-action="create-branch"]').addEventListener('submit', onCreateBranchSubmit);
+    refs.restoreForm.addEventListener('submit', onRestoreSubmit);
     refs.branchFilter.addEventListener('input', onBranchFilterInput);
     refs.sidebarBranchSelect.addEventListener('change', onSidebarBranchSelectChange);
+    refs.restoreSource.addEventListener('change', function onRestoreSourceChange() {
+      refs.restoreSource.removeAttribute('aria-invalid');
+      renderRestorePreview();
+      if (state.currentPage === 'restore') {
+        setPage('restore');
+      }
+    });
+    refs.restoreTimestamp.addEventListener('input', function onRestoreTimestampInput() {
+      refs.restoreTimestamp.removeAttribute('aria-invalid');
+      renderRestorePreview();
+    });
+    refs.restoreName.addEventListener('input', function onRestoreNameInput() {
+      refs.restoreName.removeAttribute('aria-invalid');
+      renderRestorePreview();
+    });
     refs.sqlAllowWrites.addEventListener('change', renderSQLEditorContext);
     refs.sqlDatabaseSelect.addEventListener('change', function onSQLDatabaseSelectChange(event) {
       const branchName = state.selectedBranch || 'main';

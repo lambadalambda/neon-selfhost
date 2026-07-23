@@ -151,8 +151,8 @@ func TestRootServesConsoleUI(t *testing.T) {
 		t.Fatal("expected SQL status updates to be announced accessibly")
 	}
 
-	if strings.Contains(body, "Restore To Timestamp") {
-		t.Fatal("did not expect restore panel in UI response")
+	if !strings.Contains(body, "Backup &amp; Restore") {
+		t.Fatal("expected backup and restore navigation in UI response")
 	}
 
 	if strings.Contains(body, "Recent Operations") {
@@ -177,6 +177,52 @@ func TestRootServesConsoleUI(t *testing.T) {
 
 	if !strings.Contains(body, "document.addEventListener('keydown', onActionKeydown)") {
 		t.Fatal("expected keyboard action handler wiring in UI response")
+	}
+}
+
+func TestConsolePointInTimeRestoreWorkflowFailsClosed(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	body := res.Body.String()
+	for _, expected := range []string{
+		`data-role="nav-restore"`,
+		`data-role="page-restore"`,
+		`data-action="create-restore"`,
+		`data-role="restore-source"`,
+		`data-role="restore-timestamp"`,
+		`data-role="restore-name"`,
+		`data-role="restore-name-preview"`,
+		`data-role="restore-rfc3339"`,
+		`data-role="restore-status" role="status" aria-live="polite"`,
+		`data-role="restore-result" role="status" aria-live="polite"`,
+		`aria-busy`,
+		`Restore creates a new branch`,
+		`/api/v1/restore`,
+		`history_unavailable`,
+		`outside retained history`,
+		`function defaultRestoreName`,
+		`data-action="open-restored-branch"`,
+		`setPage('branch-overview')`,
+		`await refreshSelectedBranchConnection(false)`,
+		`state.restoreInFlight`,
+		`aria-current`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("expected restore workflow marker %q", expected)
+		}
+	}
+
+	start := strings.Index(body, "async function onRestoreSubmit")
+	end := strings.Index(body, "async function onPanelClick")
+	if start == -1 || end <= start {
+		t.Fatal("expected restore submit and panel click handlers")
+	}
+	if strings.Contains(body[start:end], "state.selectedBranch =") {
+		t.Fatal("restore submission must not change the selected branch")
 	}
 }
 
