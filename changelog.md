@@ -52,6 +52,9 @@
 - Console SQL editor now executes queries through the branch-scoped SQL API, renders result tables, and records branch-local run history alongside saved snippets.
 
 ### Fixed
+- Podman primary endpoint readiness now falls back to container inspection when Docker-compatible list responses omit health status.
+- Compose controller socket access now disables SELinux confinement for the controller, allowing non-root orchestration through the mounted Podman socket.
+- Disposable writer-handoff smoke projects now keep dynamic compute hostnames within DNS limits.
 - Published endpoints for the selected primary attachment now proxy to the existing primary compute, verify generation-tagged applied state and health, and drain conflicting lazy computes before primary start or switch.
 - Compute startup now holds a shared tenant/timeline writer lease, preventing duplicate compute writers from reaching safekeeper.
 - Write-enabled SQL editor executions now commit successful transactions instead of reporting writes that are rolled back.

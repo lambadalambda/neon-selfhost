@@ -26,6 +26,7 @@ type dockerPrimaryEndpointRuntime struct {
 
 type dockerEngine interface {
 	FindComposeContainer(project string, service string) (dockerContainerSummary, error)
+	InspectContainerByName(name string) (dockerContainerInspect, bool, error)
 	StartContainer(containerID string) error
 	StopContainer(containerID string) error
 }
@@ -50,6 +51,9 @@ type dockerContainerInspect struct {
 	State struct {
 		Status  string `json:"Status"`
 		Running bool   `json:"Running"`
+		Health  struct {
+			Status string `json:"Status"`
+		} `json:"Health"`
 	} `json:"State"`
 }
 
@@ -137,8 +141,37 @@ func (r *dockerPrimaryEndpointRuntime) Status() (primaryEndpointRuntimeStatus, e
 			ready = true
 			state = "running"
 		default:
-			state = "starting"
-			message = "container health status is unavailable"
+			inspect, exists, inspectErr := r.engine.InspectContainerByName(container.ID)
+			if inspectErr != nil {
+				return primaryEndpointRuntimeStatus{}, inspectErr
+			}
+
+			if !exists {
+				state = "starting"
+				message = "container health status is unavailable"
+			} else if !inspect.State.Running {
+				running = false
+				state = strings.ToLower(strings.TrimSpace(inspect.State.Status))
+				if state == "" || state == "unknown" {
+					state = "stopped"
+				}
+				message = "container is not running"
+			} else {
+				switch strings.ToLower(strings.TrimSpace(inspect.State.Health.Status)) {
+				case "healthy":
+					ready = true
+					state = "running"
+				case "starting":
+					state = "starting"
+					message = "container health check is starting"
+				case "unhealthy":
+					state = "unhealthy"
+					message = "container health check is unhealthy"
+				default:
+					state = "starting"
+					message = "container health status is unavailable"
+				}
+			}
 		}
 	} else {
 		ready = false

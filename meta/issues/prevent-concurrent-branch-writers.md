@@ -30,4 +30,4 @@ Opening the branch SQL endpoint for the branch already served by the primary com
 
 - [x] [Enforce one compute writer per timeline](enforce-one-compute-writer-per-timeline.md)
 - [x] [Route the primary branch endpoint through primary compute](route-primary-branch-through-primary-compute.md)
-- [ ] [Verify primary writer handoff](verify-primary-writer-handoff.md)
+- [x] [Verify primary writer handoff](verify-primary-writer-handoff.md)

@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDockerPrimaryEndpointRuntimeStatusHealthyContainer(t *testing.T) {
 	runtime := &dockerPrimaryEndpointRuntime{
@@ -77,6 +80,51 @@ func TestDockerPrimaryEndpointRuntimeStatusRequiresExplicitHealth(t *testing.T) 
 	}
 	if status.Ready || status.State != "starting" {
 		t.Fatalf("expected missing health metadata to remain unready, got %#v", status)
+	}
+}
+
+func TestDockerPrimaryEndpointRuntimeStatusInspectsHealthWhenSummaryOmitsIt(t *testing.T) {
+	inspect := dockerContainerInspect{ID: "container-1"}
+	inspect.State.Status = "running"
+	inspect.State.Running = true
+	inspect.State.Health.Status = "healthy"
+	runtime := &dockerPrimaryEndpointRuntime{
+		engine: fakeDockerEngine{
+			container: dockerContainerSummary{ID: "container-1", State: "running", Status: "Up 12 seconds"},
+			inspect:   inspect,
+		},
+		project: "neon-selfhost",
+		service: "compute",
+	}
+
+	status, err := runtime.Status()
+	if err != nil {
+		t.Fatalf("runtime status: %v", err)
+	}
+	if !status.Ready || status.State != "running" {
+		t.Fatalf("expected inspected healthy container to be ready, got %#v", status)
+	}
+}
+
+func TestDockerPrimaryEndpointRuntimeStatusRejectsStaleHealthFromStoppedInspect(t *testing.T) {
+	inspect := dockerContainerInspect{ID: "container-1"}
+	inspect.State.Status = "exited"
+	inspect.State.Health.Status = "healthy"
+	runtime := &dockerPrimaryEndpointRuntime{
+		engine: fakeDockerEngine{
+			container: dockerContainerSummary{ID: "container-1", State: "running", Status: "Up 12 seconds"},
+			inspect:   inspect,
+		},
+		project: "neon-selfhost",
+		service: "compute",
+	}
+
+	status, err := runtime.Status()
+	if err != nil {
+		t.Fatalf("runtime status: %v", err)
+	}
+	if status.Running || status.Ready || status.State != "exited" {
+		t.Fatalf("expected stopped inspect state to override stale summary health, got %#v", status)
 	}
 }
 
@@ -160,6 +208,7 @@ func TestDockerPrimaryEndpointRuntimeStopsRestartingContainer(t *testing.T) {
 
 type fakeDockerEngine struct {
 	container dockerContainerSummary
+	inspect   dockerContainerInspect
 	findErr   error
 	startErr  error
 	stopErr   error
@@ -172,6 +221,10 @@ type recordingDockerEngine struct {
 
 func (e *recordingDockerEngine) FindComposeContainer(_ string, _ string) (dockerContainerSummary, error) {
 	return e.container, nil
+}
+
+func (e *recordingDockerEngine) InspectContainerByName(_ string) (dockerContainerInspect, bool, error) {
+	return dockerContainerInspect{}, false, nil
 }
 
 func (e *recordingDockerEngine) StartContainer(_ string) error {
@@ -189,6 +242,10 @@ func (f fakeDockerEngine) FindComposeContainer(_ string, _ string) (dockerContai
 	}
 
 	return f.container, nil
+}
+
+func (f fakeDockerEngine) InspectContainerByName(_ string) (dockerContainerInspect, bool, error) {
+	return f.inspect, strings.TrimSpace(f.inspect.ID) != "", nil
 }
 
 func (f fakeDockerEngine) StartContainer(_ string) error {

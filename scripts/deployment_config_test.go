@@ -24,6 +24,14 @@ func TestComposeRequiresEndpointPasswordAndRunsControllerNonRoot(t *testing.T) {
 	if count := strings.Count(compose, `PRIMARY_ENDPOINT_PASSWORD: ${PRIMARY_ENDPOINT_PASSWORD:?`); count != 2 {
 		t.Fatalf("expected controller and compute to require PRIMARY_ENDPOINT_PASSWORD, got %d declarations", count)
 	}
+	controllerStart := strings.Index(compose, "\n  controller:")
+	controllerEnd := strings.Index(compose, "\n  smoke_client:")
+	if controllerStart == -1 || controllerEnd <= controllerStart {
+		t.Fatal("expected Compose config to contain controller and smoke_client services")
+	}
+	if !strings.Contains(compose[controllerStart:controllerEnd], `- label=disable`) {
+		t.Fatal("expected controller service to disable SELinux confinement for Podman socket access")
+	}
 }
 
 func TestOperationalTasksUsePodmanCompose(t *testing.T) {

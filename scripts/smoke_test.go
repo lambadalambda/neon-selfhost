@@ -57,11 +57,20 @@ func TestSmokeWriterHandoffIncludesSafetyAssertions(t *testing.T) {
 		"UPDATE public.${PROBE_TABLE}",
 		"compose down --volumes",
 		"retaining disposable stack ${COMPOSE_PROJECT} because primary handback failed",
-		`COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"`,
+		`COMPOSE_PROJECT="nsh-$$-${RANDOM}"`,
 		`REQUEST_BASE_URL="http://controller:8080"`,
 	} {
 		if !strings.Contains(string(script), expected) {
 			t.Fatalf("expected writer handoff smoke to contain %q", expected)
 		}
+	}
+}
+
+func TestSmokeWriterHandoffNamesFitDNSLabelLimit(t *testing.T) {
+	project := "nsh-2147483647-32767"
+	branch := "smoke-20260723060518-32767"
+	containerName := project + "-branch-" + branch + "-ffffffff"
+	if len(containerName) > 63 {
+		t.Fatalf("generated branch compute name exceeds DNS label limit: %d: %s", len(containerName), containerName)
 	}
 }

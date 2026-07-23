@@ -12,3 +12,5 @@
 - [x] [Enforce one compute writer per timeline](issues/enforce-one-compute-writer-per-timeline.md)
 - [x] [Route the primary branch endpoint through primary compute](issues/route-primary-branch-through-primary-compute.md)
 - [x] [Commit write-enabled SQL executions](issues/commit-write-enabled-sql-executions.md)
+- [x] [Verify primary writer handoff](issues/verify-primary-writer-handoff.md)
+- [x] [Prevent concurrent writers on branch timelines](issues/prevent-concurrent-branch-writers.md)

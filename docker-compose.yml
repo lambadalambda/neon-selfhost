@@ -36,6 +36,8 @@ services:
     user: "65532:0"
     group_add:
       - "${CONTAINER_ENGINE_GID:-0}"
+    security_opt:
+      - label=disable
     environment:
       HTTP_HOST: 0.0.0.0
       PORT: "8080"

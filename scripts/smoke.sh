@@ -341,7 +341,7 @@ if [[ "${VERIFY_WRITER_HANDOFF}" == "true" ]]; then
     log "--verify-writer-handoff requires BASE_URL to match the managed loopback port"
     exit 1
   fi
-  COMPOSE_PROJECT="nshandoff-$(date -u +%s)-$$-${RANDOM}"
+  COMPOSE_PROJECT="nsh-$$-${RANDOM}"
   REQUEST_BASE_URL="http://controller:8080"
 fi
 
