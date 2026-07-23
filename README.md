@@ -209,7 +209,13 @@ Run smoke test with automatic stack start/stop for a clean run:
 mise run smoke:fresh
 ```
 
-The smoke test script lives at `scripts/smoke.sh` and validates status/health, branch create/switch/delete, restore, and operation-log behavior.
+Verify lazy-compute to primary writer handoff on a disposable managed stack:
+
+```bash
+mise run smoke:writer-handoff
+```
+
+The writer-handoff mode starts a child compute through SQL, verifies primary switch removes it before handoff, queries and writes a child-only marker through primary compute, and switches back. It requires an exact loopback `BASE_URL`, creates an unoverrideable unique Compose project with disposable volumes, and must not be run against production. If handback fails, it retains the disposable stack for recovery and inspection. The smoke test script lives at `scripts/smoke.sh` and also validates status/health, branch create/switch/delete, restore, and operation-log behavior.
 
 ## Branch Data Reset + Isolation Verification
 

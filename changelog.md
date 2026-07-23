@@ -14,6 +14,7 @@
 - Primary endpoint control API scaffold at `POST /api/v1/endpoints/primary/start|stop|switch` and `GET /api/v1/endpoints/primary/connection`.
 - Controller web console at `GET /` with endpoint status, copyable connection helpers (`psql`, DSN, `DATABASE_URL` snippet), branch create/switch/delete actions, restore form, and operation log view.
 - Smoke test automation script at `scripts/smoke.sh` for status/health, branch lifecycle, restore, and operation-log verification.
+- Guarded disposable-stack smoke coverage for draining a lazy branch compute and handing its timeline to primary without concurrent writers.
 - Mise task shortcuts for stack lifecycle (`stack:up`, `stack:down`, `stack:ps`, `stack:logs`) and smoke runs (`smoke`, `smoke:fresh`).
 - Database reset/seed script at `scripts/reset_seed_data.sh` for repeatable branch-testing fixtures on `main` (`branch_lab`).
 - Branch-isolation verification mode in `scripts/reset_seed_data.sh` that mutates data on a temporary branch and confirms `main` remains unchanged.

@@ -29,6 +29,10 @@ run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/smoke.s
 description = "Run smoke test with managed stack lifecycle"
 run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" ./scripts/smoke.sh --manage-stack'
 
+[tasks."smoke:writer-handoff"]
+description = "Verify lazy-compute to primary writer handoff on a disposable stack"
+run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" PRIMARY_ENDPOINT_PASSWORD="${PRIMARY_ENDPOINT_PASSWORD:?set PRIMARY_ENDPOINT_PASSWORD}" ./scripts/smoke.sh --manage-stack --verify-writer-handoff'
+
 [tasks."db:reset-seed"]
 description = "Reset and seed branch test dataset on main"
 run = 'BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-change-me}" ./scripts/reset_seed_data.sh --seed-only'

@@ -1,4 +1,4 @@
-name: neon-selfhost
+name: ${COMPOSE_PROJECT_NAME:-neon-selfhost}
 
 services:
   compute_state_init:
@@ -53,7 +53,7 @@ services:
       PRIMARY_ENDPOINT_BACKEND_HOST: ${PRIMARY_ENDPOINT_BACKEND_HOST:-compute}
       PRIMARY_ENDPOINT_BACKEND_PORT: ${PRIMARY_ENDPOINT_BACKEND_PORT:-55433}
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-      DOCKER_COMPOSE_PROJECT: neon-selfhost
+      DOCKER_COMPOSE_PROJECT: ${DOCKER_COMPOSE_PROJECT:-neon-selfhost}
       PAGESERVER_API: http://pageserver:9898
       PAGESERVER_PG_VERSION: "16"
       PAGESERVER_VALID_TENANT_GENERATIONS: ${PAGESERVER_VALID_TENANT_GENERATIONS:-}
