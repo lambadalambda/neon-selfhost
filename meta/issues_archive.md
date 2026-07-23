@@ -14,3 +14,4 @@
 - [x] [Commit write-enabled SQL executions](issues/commit-write-enabled-sql-executions.md)
 - [x] [Verify primary writer handoff](issues/verify-primary-writer-handoff.md)
 - [x] [Prevent concurrent writers on branch timelines](issues/prevent-concurrent-branch-writers.md)
+- [x] [Document repository delivery cadence](issues/document-repository-delivery-cadence.md)

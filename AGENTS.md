@@ -2,6 +2,18 @@
 
 This repository is for a Podman-first self-host control plane and web UI for Neon.
 
+## Delivery Cadence
+
+For every repository change:
+
+1. Confirm a matching issue exists in `meta/issues.md`; write one before starting if it does not.
+2. Use TDD for testable behavior: red, green, then refactor.
+3. Get a code review after implementation and verification.
+4. Archive the issue only after its acceptance criteria pass and review findings are resolved.
+5. Commit the completed work as a small topical commit.
+
+Direct deployment and verification operations on fediffusion.art are outside this cadence. Any repository code or documentation changes made to support that deployment still follow the cadence.
+
 ## Working Rules
 
 1. Practice TDD for all non-trivial behavior.
