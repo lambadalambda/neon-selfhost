@@ -313,6 +313,43 @@ func TestConsoleProtectedBranchWritesRequireConfirmation(t *testing.T) {
 	}
 }
 
+func TestConsoleSQLLibraryUsesControllerPersistence(t *testing.T) {
+	handler := New(Config{Version: "test-version"})
+	res := performRequest(t, handler, http.MethodGet, "/", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+
+	body := res.Body.String()
+	for _, expected := range []string{
+		`data-role="sql-library-scope"`,
+		`data-action="save-sql-as-new"`,
+		`data-action="rename-saved-sql"`,
+		`data-action="delete-saved-sql"`,
+		`/api/v1/sql/saved-queries`,
+		`/api/v1/sql/history`,
+		`async function loadSQLLibrary`,
+		`activeSavedQueryID`,
+		`sqlLibraryRequestEpoch`,
+		`title: title`,
+		`Query saved to controller storage`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("expected persisted SQL library marker %q", expected)
+		}
+	}
+	for _, legacy := range []string{
+		`id: 'seed-1'`,
+		`timestamp: 'sample'`,
+		`function appendSQLHistoryEntry`,
+		`Query saved locally`,
+	} {
+		if strings.Contains(body, legacy) {
+			t.Errorf("did not expect legacy in-memory SQL library marker %q", legacy)
+		}
+	}
+}
+
 func TestConsoleSQLResultTableKeepsWideResultsReadable(t *testing.T) {
 	handler := New(Config{Version: "test-version"})
 	res := performRequest(t, handler, http.MethodGet, "/", "")

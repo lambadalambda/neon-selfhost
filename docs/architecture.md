@@ -91,7 +91,12 @@ Implemented in MVP slice 1:
 - `POST /api/v1/branches/{name}/publish`
 - `POST /api/v1/branches/{name}/unpublish`
 - `GET /api/v1/branches/{name}/connection`
+- `GET /api/v1/branches/{name}/databases`
+- `POST /api/v1/branches/{name}/sql/execute`
 - `DELETE /api/v1/branches/{name}` (soft-delete)
+- `GET|POST /api/v1/sql/saved-queries`
+- `PATCH|DELETE /api/v1/sql/saved-queries/{id}`
+- `GET /api/v1/sql/history`
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
 - `POST /api/v1/endpoints/primary/stop`
@@ -126,8 +131,10 @@ Current API behavior notes:
 - Branch credentials are branch-specific and controller-managed; create/restore operations assign random passwords persisted with branch state.
 - Endpoint connection DSN is emitted only when `ready=true`.
 - The web console exposes one-click connection helpers (`psql` command copy, DSN copy, password copy, and `DATABASE_URL` snippet copy) for the current primary branch endpoint.
+- Saved SQL queries and bounded execution history are stored in `controller.db`, filterable by branch/database or project-wide. Operator-entered SQL is stored verbatim; result data and controller-managed endpoint credentials/DSNs are never stored, so operators must not embed secrets in SQL they save or execute through the editor.
+- `SQL_HISTORY_RETENTION_LIMIT` controls physical execution-history retention and defaults to `200`.
 - Branch create/delete/restore operations return explicit `storage_error` responses when controller state persistence fails, including insufficient-disk-space failures.
-- `GET /api/v1/health` reports controller component health checks for branch storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
+- `GET /api/v1/health` reports controller component health checks for branch storage, SQL query storage, operation manager, and primary endpoint state, and marks primary endpoint health as degraded while runtime is up but not yet ready.
 - Startup performs a preflight writability check for `CONTROLLER_DATA_DIR` and fails fast on invalid/unwritable paths.
 - Validation and JSON parse failures return stable JSON envelopes with `error.code` and `error.message`.
 - When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are configured, the web console and API routes require HTTP basic auth.

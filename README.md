@@ -18,6 +18,7 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - Branch lifecycle APIs: list/create/reset/delete (soft-delete).
 - Branch endpoint APIs: publish/unpublish/list/connection, with auto-publish defaults in container-engine mode.
 - Branch-scoped SQL execution API and UI integration (single statement, read-only defaults, bounded result sizes/timeouts).
+- Controller-persisted saved SQL queries and bounded execution history, scoped by branch/database with project-wide lookup.
 - Timestamp-based restore API (`POST /api/v1/restore`) backed by pageserver timestamp-to-LSN resolution.
 - Operator basics: HTTP basic auth, branch-state persistence, health/status endpoints, and operation log API.
 
@@ -60,6 +61,9 @@ Status: pre-alpha. The core branch-first flow works in Podman's Docker-compatibl
 - `GET /api/v1/branches/{name}/connection`
 - `GET /api/v1/branches/{name}/databases`
 - `POST /api/v1/branches/{name}/sql/execute`
+- `GET|POST /api/v1/sql/saved-queries`
+- `PATCH|DELETE /api/v1/sql/saved-queries/{id}`
+- `GET /api/v1/sql/history` (supports `branch`, `database`, `limit`, and `offset` query params)
 - `DELETE /api/v1/branches/{name}` (soft-delete)
 - `POST /api/v1/restore`
 - `POST /api/v1/endpoints/primary/start`
@@ -74,6 +78,8 @@ When `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` are set, both the web console a
 For safety, binding the controller to a non-loopback `HTTP_HOST` now requires basic auth by default. You can bypass this only by explicitly setting `ALLOW_INSECURE_HTTP_BIND=1` (intended for local testing only).
 
 When `CONTROLLER_DATA_DIR` is set, branch state persists in SQLite (`controller.db` under `CONTROLLER_DATA_DIR`). On first startup with SQLite, legacy `branches.json` state is imported when present.
+
+Saved SQL queries and execution history also persist in `controller.db`. History stores query metadata and operator-entered SQL text, but never result rows or controller-managed endpoint credentials/DSNs, and is pruned to `SQL_HISTORY_RETENTION_LIMIT` entries (default `200`, valid range `1` to `100000`). Saved and executed SQL text is stored verbatim; the no-credentials guarantee covers controller-managed connection data, not arbitrary secrets typed into SQL, so do not put secrets in queries you save or run through the editor. Saved-query and history list APIs accept optional `branch` and `database` filters; omit both for project-wide lookup.
 
 Operation history (`GET /api/v1/operations`) is persisted in SQLite (`operations.db` under `CONTROLLER_DATA_DIR`) and reloaded on startup. If a legacy `operations.jsonl` file exists and the SQLite operations table is empty, entries are imported once. Interrupted in-flight operations are marked failed after restart.
 

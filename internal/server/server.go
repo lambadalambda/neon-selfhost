@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"neon-selfhost/internal/branch"
@@ -21,15 +22,22 @@ import (
 
 type closeableHandler struct {
 	http.Handler
-	closer io.Closer
+	closers  []io.Closer
+	once     sync.Once
+	closeErr error
 }
 
-func (h closeableHandler) Close() error {
-	if h.closer == nil {
-		return nil
-	}
-
-	return h.closer.Close()
+func (h *closeableHandler) Close() error {
+	h.once.Do(func() {
+		errs := make([]error, 0, len(h.closers))
+		for _, closer := range h.closers {
+			if closer != nil {
+				errs = append(errs, closer.Close())
+			}
+		}
+		h.closeErr = errors.Join(errs...)
+	})
+	return h.closeErr
 }
 
 const (
@@ -50,6 +58,9 @@ type Config struct {
 	OperationDBPath          string
 	LegacyOperationLogPath   string
 	operationStore           operationStore
+	SQLQueryLibraryDBPath    string
+	SQLHistoryRetentionLimit int
+	sqlQueryLibraryStore     sqlQueryLibraryStore
 	BranchStoreMode          string
 	BranchDBPath             string
 	BranchSchemaVersion      int
@@ -72,8 +83,11 @@ type persistenceStatusPayload struct {
 	OperationStoreMode     string `json:"operation_store_mode"`
 	BranchDBPath           string `json:"branch_db_path,omitempty"`
 	OperationDBPath        string `json:"operation_db_path,omitempty"`
+	SQLQueryLibraryMode    string `json:"sql_query_library_mode"`
+	SQLQueryLibraryDBPath  string `json:"sql_query_library_db_path,omitempty"`
 	BranchSchemaVersion    int    `json:"branch_schema_version,omitempty"`
 	OperationSchemaVersion int    `json:"operation_schema_version,omitempty"`
+	SQLQueryLibraryVersion int    `json:"sql_query_library_schema_version,omitempty"`
 }
 
 type healthResponse struct {
@@ -109,6 +123,7 @@ type switchPrimaryEndpointRequest struct {
 }
 
 type sqlExecuteRequest struct {
+	Title                  string `json:"title"`
 	SQL                    string `json:"sql"`
 	Database               string `json:"database"`
 	AllowWrites            bool   `json:"allow_writes"`
@@ -323,6 +338,36 @@ func New(cfg Config) http.Handler {
 
 	operations := newOperationManager(nil, defaultOperationLogLimit, logger, opStore)
 
+	historyRetentionLimit := cfg.SQLHistoryRetentionLimit
+	if historyRetentionLimit < 1 {
+		historyRetentionLimit = defaultSQLHistoryRetentionLimit
+	}
+	sqlLibraryMode := "in_memory"
+	sqlLibrarySchemaVersion := 0
+	sqlLibraryDegraded := false
+	var sqlLibraryStore sqlQueryLibraryStore
+	if cfg.sqlQueryLibraryStore != nil {
+		sqlLibraryStore = cfg.sqlQueryLibraryStore
+		sqlLibraryMode = "injected"
+	} else if strings.TrimSpace(cfg.SQLQueryLibraryDBPath) != "" {
+		initializedStore, err := newSQLiteSQLQueryLibraryStore(cfg.SQLQueryLibraryDBPath, historyRetentionLimit)
+		if err != nil {
+			logger.Warn("initialize sqlite SQL query library failed", "path", cfg.SQLQueryLibraryDBPath, "error", err)
+			sqlLibraryStore = unavailableSQLQueryLibraryStore{err: err}
+			sqlLibraryMode = "unavailable"
+			sqlLibraryDegraded = true
+		} else {
+			sqlLibraryStore = initializedStore
+			sqlLibraryMode = "sqlite"
+			if concrete, ok := initializedStore.(*sqliteSQLQueryLibraryStore); ok {
+				sqlLibrarySchemaVersion = concrete.schemaVersion
+			}
+		}
+	} else {
+		sqlLibraryStore = newMemorySQLQueryLibraryStore(historyRetentionLimit)
+	}
+	sqlLibrary := newSQLQueryLibrary(sqlLibraryStore, sqlLibraryDegraded)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /validate", func(w http.ResponseWriter, r *http.Request) {
 		var request pageserverValidateRequest
@@ -364,8 +409,11 @@ func New(cfg Config) http.Handler {
 				OperationStoreMode:     opStoreMode,
 				BranchDBPath:           strings.TrimSpace(cfg.BranchDBPath),
 				OperationDBPath:        strings.TrimSpace(cfg.OperationDBPath),
+				SQLQueryLibraryMode:    sqlLibraryMode,
+				SQLQueryLibraryDBPath:  strings.TrimSpace(cfg.SQLQueryLibraryDBPath),
 				BranchSchemaVersion:    cfg.BranchSchemaVersion,
 				OperationSchemaVersion: opStoreSchemaVersion,
+				SQLQueryLibraryVersion: sqlLibrarySchemaVersion,
 			},
 		}
 		writeJSON(w, http.StatusOK, response)
@@ -385,7 +433,11 @@ func New(cfg Config) http.Handler {
 			currentOperationStoreStatus = "degraded"
 		}
 		overallStatus := "ok"
-		if primaryStatus != "ok" || currentOperationStoreStatus != "ok" {
+		sqlLibraryStatus := "ok"
+		if sqlLibrary.degraded() {
+			sqlLibraryStatus = "degraded"
+		}
+		if primaryStatus != "ok" || currentOperationStoreStatus != "ok" || sqlLibraryStatus != "ok" {
 			overallStatus = "degraded"
 		}
 
@@ -395,6 +447,7 @@ func New(cfg Config) http.Handler {
 				{Name: "branch_store", Status: "ok"},
 				{Name: "operation_manager", Status: "ok"},
 				{Name: "operation_store", Status: currentOperationStoreStatus},
+				{Name: "sql_query_library", Status: sqlLibraryStatus},
 				{Name: "primary_endpoint", Status: primaryStatus},
 			},
 		}
@@ -453,6 +506,7 @@ func New(cfg Config) http.Handler {
 
 		writeJSON(w, http.StatusOK, operationsResponse{Operations: payload})
 	})
+	registerSQLQueryLibraryRoutes(mux, sqlLibrary, store, logger)
 
 	mux.HandleFunc("GET /api/v1/endpoints/primary/connection", func(w http.ResponseWriter, _ *http.Request) {
 		state, err := primaryEndpoint.Connection()
@@ -686,8 +740,24 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
+		executionStarted := time.Now()
 		result, err := sqlExecutor.Execute(r.Context(), branchName, req.Database, req.SQL, !req.AllowWrites)
 		if err != nil {
+			database := result.Database
+			if database == "" {
+				database = req.Database
+			}
+			recordSQLExecutionHistory(sqlLibrary, logger, sqlExecutionHistory{
+				Title:      strings.TrimSpace(req.Title),
+				SQL:        req.SQL,
+				Branch:     branchName,
+				Database:   database,
+				ReadOnly:   !req.AllowWrites,
+				Status:     sqlExecutionHistoryStatus(err),
+				DurationMS: time.Since(executionStarted).Milliseconds(),
+				ErrorCode:  sqlExecutionHistoryErrorCode(err),
+				ExecutedAt: time.Now().UTC(),
+			})
 			logger.Warn("sql execution failed", "branch", branchName, "database", req.Database, "read_only", !req.AllowWrites, "error", err)
 			switch {
 			case errors.Is(err, branch.ErrNotFound):
@@ -716,6 +786,17 @@ func New(cfg Config) http.Handler {
 			return
 		}
 
+		recordSQLExecutionHistory(sqlLibrary, logger, sqlExecutionHistory{
+			Title:      strings.TrimSpace(req.Title),
+			SQL:        req.SQL,
+			Branch:     branchName,
+			Database:   result.Database,
+			ReadOnly:   result.ReadOnly,
+			Status:     sqlHistoryStatusSucceeded,
+			CommandTag: result.CommandTag,
+			DurationMS: result.DurationMS,
+			ExecutedAt: time.Now().UTC(),
+		})
 		logger.Info("sql execution succeeded", "branch", branchName, "database", result.Database, "read_only", result.ReadOnly, "command_tag", result.CommandTag, "duration_ms", result.DurationMS, "row_count", result.RowCount, "truncated", result.Truncated)
 
 		writeJSON(w, http.StatusOK, sqlExecuteEnvelope{Result: makeSQLExecutePayload(result)})
@@ -1197,7 +1278,7 @@ func New(cfg Config) http.Handler {
 		handler = withBasicAuth(handler, cfg.BasicAuthUser, cfg.BasicAuthPassword)
 	}
 
-	return closeableHandler{Handler: handler, closer: operations}
+	return &closeableHandler{Handler: handler, closers: []io.Closer{operations, sqlLibrary}}
 }
 
 func reservePrimaryRoute(endpoint PrimaryEndpointController, branchName string) func() {

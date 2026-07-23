@@ -1,4 +1,3 @@
-- [ ] [Persist the SQL query library](issues/persist-sql-query-library.md)
 - [ ] [Add tables and schema browser](issues/add-tables-schema-browser.md)
 - [ ] [Expose endpoint lifecycle controls](issues/expose-endpoint-lifecycle-controls.md)
 - [ ] [Add operations and diagnostics console](issues/add-operations-diagnostics-console.md)

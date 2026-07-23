@@ -14,6 +14,7 @@ const defaultHTTPPort = 8080
 const defaultHTTPHost = "127.0.0.1"
 const allowInsecureHTTPBindEnv = "ALLOW_INSECURE_HTTP_BIND"
 const pageserverValidTenantGenerationsEnv = "PAGESERVER_VALID_TENANT_GENERATIONS"
+const defaultSQLHistoryRetentionLimit = 200
 
 var tenantShardIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{32}(?:-[0-9a-fA-F]{4})?$`)
 
@@ -69,6 +70,7 @@ type Config struct {
 	BranchEndpointIdleStop     time.Duration
 	BranchEndpointMaxConns     int
 	BranchEndpointComputeImage string
+	SQLHistoryRetentionLimit   int
 }
 
 func Load() (Config, error) {
@@ -239,6 +241,15 @@ func Load() (Config, error) {
 		branchEndpointComputeImage = defaultBranchEndpointImage
 	}
 
+	sqlHistoryRetentionLimit := defaultSQLHistoryRetentionLimit
+	if rawLimit, exists := os.LookupEnv("SQL_HISTORY_RETENTION_LIMIT"); exists && strings.TrimSpace(rawLimit) != "" {
+		parsedLimit, err := strconv.Atoi(strings.TrimSpace(rawLimit))
+		if err != nil || parsedLimit < 1 || parsedLimit > 100000 {
+			return Config{}, fmt.Errorf("invalid SQL_HISTORY_RETENTION_LIMIT %q", rawLimit)
+		}
+		sqlHistoryRetentionLimit = parsedLimit
+	}
+
 	if basicAuthUser != "" && basicAuthPassword == "" {
 		return Config{}, fmt.Errorf("BASIC_AUTH_PASSWORD is required when BASIC_AUTH_USER is set")
 	}
@@ -282,6 +293,7 @@ func Load() (Config, error) {
 		BranchEndpointIdleStop:     branchEndpointIdleStop,
 		BranchEndpointMaxConns:     branchEndpointMaxConns,
 		BranchEndpointComputeImage: branchEndpointComputeImage,
+		SQLHistoryRetentionLimit:   sqlHistoryRetentionLimit,
 	}, nil
 }
 

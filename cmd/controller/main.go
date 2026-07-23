@@ -170,6 +170,8 @@ func main() {
 		PageserverValidGenerations: cfg.PageserverValidGenerations,
 		OperationDBPath:            operationDBPath,
 		LegacyOperationLogPath:     legacyOperationLogPath,
+		SQLQueryLibraryDBPath:      branchDBPath,
+		SQLHistoryRetentionLimit:   cfg.SQLHistoryRetentionLimit,
 		BranchStoreMode:            branchStoreMode,
 		BranchDBPath:               branchDBPath,
 		BranchSchemaVersion:        branchSchemaVersion,

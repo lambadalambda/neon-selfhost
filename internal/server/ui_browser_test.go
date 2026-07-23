@@ -74,6 +74,189 @@ type protectedWriteBrowserState struct {
 	RefreshInFlight      bool   `json:"refreshInFlight"`
 }
 
+type sqlLibraryBrowserState struct {
+	SavedCount   int    `json:"savedCount"`
+	HistoryCount int    `json:"historyCount"`
+	Title        string `json:"title"`
+	Query        string `json:"query"`
+	Database     string `json:"database"`
+	ActiveID     string `json:"activeID"`
+	ListText     string `json:"listText"`
+}
+
+func TestConsoleSQLLibraryPersistsAndSupportsCRUDInBrowser(t *testing.T) {
+	if _, err := exec.LookPath("agent-browser"); err != nil {
+		t.Skip("agent-browser is required for SQL library browser tests")
+	}
+
+	executor := &fakeSQLQueryExecutor{
+		result:       sqlExecutionResult{Branch: "main", Database: "postgres", CommandTag: "SELECT 1"},
+		databaseList: sqlDatabaseList{Default: "postgres", Names: []string{"postgres", "analytics"}},
+	}
+	server := httptest.NewServer(New(Config{Version: "browser-test", SQLExecutor: executor}))
+	defer server.Close()
+
+	session := fmt.Sprintf("sql-library-%d", os.Getpid())
+	defer closeAgentBrowser(session)
+	runAgentBrowser(t, session, "open", server.URL)
+	runAgentBrowser(t, session, "wait", "--fn", "state.refreshInFlight === false")
+
+	setup := `(async () => {
+  state.selectedBranch = 'main';
+  state.selectedBranchConnection = {branch: 'main', published: true, status: 'running', host: '127.0.0.1', port: 56000, database: 'postgres', user: 'cloud_admin', password: 'test'};
+  state.databasesByBranch.main = {names: ['postgres', 'analytics'], default: 'postgres', loading: false, error: '', selectionRequired: false};
+  state.selectedDatabaseByBranch.main = 'postgres';
+  setPage('sql-editor');
+  renderSQLEditorContext();
+  await loadSQLLibrary(false);
+})()`
+	runAgentBrowser(t, session, "eval", setup)
+	runAgentBrowser(t, session, "eval", `(() => {
+  window.originalSQLLibraryAPI = api;
+  window.pendingSaveStarted = false;
+  window.pendingSaveFinished = false;
+  window.pendingSaveRequests = 0;
+  api = async function(method, path, payload) {
+    if (method === 'POST' && path === '/api/v1/sql/saved-queries') {
+      window.pendingSaveRequests += 1;
+      window.pendingSaveStarted = true;
+      await new Promise((resolve) => { window.releasePendingSave = resolve; });
+      window.pendingSaveFinished = true;
+      return {query: {id: 999, ...payload}};
+    }
+    return window.originalSQLLibraryAPI(method, path, payload);
+  };
+  refs.sqlQueryTitle.value = 'Stale save';
+  refs.sqlEditorInput.value = 'SELECT 0';
+  document.querySelector('[data-action="save-sql"]').click();
+  document.querySelector('[data-action="save-sql"]').click();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.pendingSaveStarted === true")
+	duplicateSaveRequests := runAgentBrowser(t, session, "eval", `String(window.pendingSaveRequests) + ':' + String(document.querySelector('[data-action="save-sql"]').disabled)`)
+	if strings.Trim(duplicateSaveRequests, `"`) != "1:true" {
+		t.Fatalf("expected one locked save request after a double click, got %q", duplicateSaveRequests)
+	}
+	runAgentBrowser(t, session, "select", `[data-role="sql-database-select"]`, "analytics")
+	runAgentBrowser(t, session, "eval", `window.releasePendingSave()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.pendingSaveFinished === true")
+	staleSave := evalSQLLibraryBrowserState(t, session)
+	if staleSave.ActiveID != "" {
+		t.Fatalf("expected database change to invalidate an in-flight save, got %#v", staleSave)
+	}
+	runAgentBrowser(t, session, "eval", `api = window.originalSQLLibraryAPI`)
+
+	runAgentBrowser(t, session, "eval", `(() => {
+  state.selectedDatabaseByBranch.main = 'postgres';
+  renderSQLEditorContext();
+  window.originalRefreshSQLDatabases = refreshSelectedBranchDatabases;
+  window.firstOpenStarted = false;
+  window.firstOpenFinished = false;
+  refreshSelectedBranchDatabases = async function(silent) {
+    if (!window.firstOpenStarted) {
+      window.firstOpenStarted = true;
+      await new Promise((resolve) => { window.releaseFirstOpen = resolve; });
+      window.firstOpenFinished = true;
+    }
+    return window.originalRefreshSQLDatabases(silent);
+  };
+  window.firstOpen = openSQLLibraryEntry({id: 101, name: 'First', sql: 'SELECT 101', branch: 'main', database: 'postgres'}, true);
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.firstOpenStarted === true")
+	runAgentBrowser(t, session, "eval", `window.secondOpen = openSQLLibraryEntry({id: 102, name: 'Second', sql: 'SELECT 102', branch: 'main', database: 'analytics'}, true)`)
+	runAgentBrowser(t, session, "wait", "--fn", "refs.sqlEditorInput.value === 'SELECT 102'")
+	runAgentBrowser(t, session, "eval", `window.releaseFirstOpen()`)
+	runAgentBrowser(t, session, "wait", "--fn", "window.firstOpenFinished === true")
+	staleOpen := evalSQLLibraryBrowserState(t, session)
+	if staleOpen.ActiveID != "102" || staleOpen.Database != "analytics" || staleOpen.Query != "SELECT 102" {
+		t.Fatalf("expected latest open action to win, got %#v", staleOpen)
+	}
+	runAgentBrowser(t, session, "eval", `refreshSelectedBranchDatabases = window.originalRefreshSQLDatabases`)
+
+	runAgentBrowser(t, session, "eval", `(() => {
+  state.selectedDatabaseByBranch.main = 'postgres';
+  state.activeSavedQueryID = null;
+  renderSQLEditorContext();
+  refs.sqlQueryTitle.value = 'Daily check';
+  refs.sqlEditorInput.value = 'SELECT 1';
+})()`)
+	runAgentBrowser(t, session, "click", `[data-action="save-sql"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.savedQueries.length === 1")
+
+	created := evalSQLLibraryBrowserState(t, session)
+	if created.SavedCount != 1 || created.Title != "Daily check" || created.Query != "SELECT 1" || created.ActiveID == "" {
+		t.Fatalf("expected controller-backed saved query, got %#v", created)
+	}
+
+	// Loading a fresh page against the same controller must recover the saved query.
+	runAgentBrowser(t, session, "open", server.URL)
+	runAgentBrowser(t, session, "wait", "--fn", "state.refreshInFlight === false")
+	runAgentBrowser(t, session, "eval", setup)
+	reloaded := evalSQLLibraryBrowserState(t, session)
+	if reloaded.SavedCount != 1 || !strings.Contains(reloaded.ListText, "Daily check") {
+		t.Fatalf("expected saved query after browser reload, got %#v", reloaded)
+	}
+
+	runAgentBrowser(t, session, "click", `[data-action="open-sql-history"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.activeSavedQueryID !== null")
+	runAgentBrowser(t, session, "eval", `(() => {
+  refs.sqlQueryTitle.value = 'Daily check updated';
+  refs.sqlEditorInput.value = 'SELECT 2';
+  document.querySelector('[data-action="save-sql"]').click();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.savedQueries.length === 1 && state.savedQueries[0].name === 'Daily check updated'")
+
+	runAgentBrowser(t, session, "eval", `(() => {
+  window.prompt = () => 'Daily check renamed';
+  document.querySelector('[data-action="rename-saved-sql"]').click();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.savedQueries[0].name === 'Daily check renamed'")
+
+	runAgentBrowser(t, session, "eval", `(async () => {
+  await api('POST', '/api/v1/sql/saved-queries', {name: 'Analytics check', sql: 'SELECT 3', branch: 'main', database: 'analytics'});
+  refs.sqlLibraryScope.value = 'project';
+  refs.sqlLibraryScope.dispatchEvent(new Event('change', {bubbles: true}));
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.sqlLibraryScope === 'project' && state.savedQueries.length === 2")
+	project := evalSQLLibraryBrowserState(t, session)
+	if project.SavedCount != 2 || !strings.Contains(project.ListText, "Analytics check") || !strings.Contains(project.ListText, "Daily check renamed") {
+		t.Fatalf("expected project-wide saved query lookup, got %#v", project)
+	}
+
+	runAgentBrowser(t, session, "click", `[data-action="open-sql-history"][data-sql-id="2"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "selectedSQLDatabase('main') === 'analytics' && refs.sqlEditorInput.value === 'SELECT 3'")
+	opened := evalSQLLibraryBrowserState(t, session)
+	if opened.Database != "analytics" || opened.Title != "Analytics check" || opened.Query != "SELECT 3" {
+		t.Fatalf("expected project result to switch into its database context, got %#v", opened)
+	}
+
+	runAgentBrowser(t, session, "eval", `(async () => {
+  state.selectedDatabaseByBranch.main = 'postgres';
+  state.databasesByBranch.main.selectionRequired = false;
+  renderSQLEditorContext();
+  refs.sqlQueryTitle.value = 'History check';
+  refs.sqlEditorInput.value = 'SELECT 1';
+  document.querySelector('[data-action="run-sql"]').click();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.sqlHistory.length === 1")
+	runAgentBrowser(t, session, "click", `[data-sql-tab="history"]`)
+	history := evalSQLLibraryBrowserState(t, session)
+	if history.HistoryCount != 1 || !strings.Contains(history.ListText, "History check") {
+		t.Fatalf("expected server-recorded execution history, got %#v", history)
+	}
+
+	runAgentBrowser(t, session, "eval", `(async () => {
+  window.confirm = () => true;
+  setSQLTab('saved');
+  refs.sqlLibraryScope.value = 'project';
+  state.sqlLibraryScope = 'project';
+  await loadSQLLibrary(false);
+  document.querySelector('[data-action="delete-saved-sql"]').click();
+})()`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.savedQueries.length === 1")
+	runAgentBrowser(t, session, "click", `[data-action="delete-saved-sql"]`)
+	runAgentBrowser(t, session, "wait", "--fn", "state.savedQueries.length === 0")
+}
+
 func TestConsoleProtectedBranchWritesInBrowser(t *testing.T) {
 	if _, err := exec.LookPath("agent-browser"); err != nil {
 		t.Skip("agent-browser is required for protected write tests")
@@ -619,6 +802,24 @@ func evalProtectedWriteState(t *testing.T, session string, script string) protec
 	var state protectedWriteBrowserState
 	if err := json.Unmarshal([]byte(output), &state); err != nil {
 		t.Fatalf("decode protected write browser state %q: %v", output, err)
+	}
+	return state
+}
+
+func evalSQLLibraryBrowserState(t *testing.T, session string) sqlLibraryBrowserState {
+	t.Helper()
+	output := runAgentBrowser(t, session, "eval", `(() => ({
+  savedCount: state.savedQueries.length,
+  historyCount: state.sqlHistory.length,
+  title: refs.sqlQueryTitle.value,
+  query: refs.sqlEditorInput.value,
+  database: selectedSQLDatabase(state.selectedBranch),
+  activeID: state.activeSavedQueryID === null ? '' : String(state.activeSavedQueryID),
+  listText: refs.sqlHistoryList.textContent,
+}))()`)
+	var state sqlLibraryBrowserState
+	if err := json.Unmarshal([]byte(output), &state); err != nil {
+		t.Fatalf("decode SQL library browser state %q: %v", output, err)
 	}
 	return state
 }

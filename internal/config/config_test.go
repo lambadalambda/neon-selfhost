@@ -12,6 +12,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("BASIC_AUTH_PASSWORD", "")
 	t.Setenv("CONTROLLER_DATA_DIR", "")
 	t.Setenv("COMPUTE_DATA_DIR", "")
+	t.Setenv("SQL_HISTORY_RETENTION_LIMIT", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -41,7 +42,32 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ComputeDataDir != "" {
 		t.Fatalf("expected empty compute data dir, got %q", cfg.ComputeDataDir)
 	}
+	if cfg.SQLHistoryRetentionLimit != defaultSQLHistoryRetentionLimit {
+		t.Fatalf("expected SQL history retention %d, got %d", defaultSQLHistoryRetentionLimit, cfg.SQLHistoryRetentionLimit)
+	}
 
+}
+
+func TestLoadSQLHistoryRetentionLimit(t *testing.T) {
+	t.Setenv("SQL_HISTORY_RETENTION_LIMIT", "1234")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.SQLHistoryRetentionLimit != 1234 {
+		t.Fatalf("expected SQL history retention 1234, got %d", cfg.SQLHistoryRetentionLimit)
+	}
+}
+
+func TestLoadRejectsInvalidSQLHistoryRetentionLimit(t *testing.T) {
+	for _, value := range []string{"0", "100001", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SQL_HISTORY_RETENTION_LIMIT", value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected SQL_HISTORY_RETENTION_LIMIT=%q to fail", value)
+			}
+		})
+	}
 }
 
 func TestLoadWithPortAndBasicAuth(t *testing.T) {

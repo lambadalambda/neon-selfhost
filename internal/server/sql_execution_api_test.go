@@ -342,7 +342,7 @@ type sqlExecutionCall struct {
 func (f *fakeSQLQueryExecutor) Execute(_ context.Context, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error) {
 	f.calls = append(f.calls, sqlExecutionCall{branchName: branchName, database: database, query: query, readOnly: readOnly})
 	if f.err != nil {
-		return sqlExecutionResult{}, f.err
+		return f.result, f.err
 	}
 
 	if strings.TrimSpace(f.result.Branch) == "" {

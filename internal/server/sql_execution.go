@@ -342,16 +342,16 @@ func (e *branchEndpointSQLQueryExecutor) connect(ctx context.Context, branchName
 		return nil, "", err
 	}
 
-	if !connection.Published || connection.Port <= 0 {
-		return nil, "", fmt.Errorf("%w: branch endpoint is not published", ErrPrimaryEndpointUnavailable)
-	}
-
-	if strings.TrimSpace(connection.Password) == "" || strings.TrimSpace(connection.User) == "" || strings.TrimSpace(connection.Database) == "" {
-		return nil, "", fmt.Errorf("%w: branch endpoint credentials are incomplete", ErrPrimaryEndpointUnavailable)
-	}
 	database := requestedDatabase
 	if database == "" {
 		database = connection.Database
+	}
+	if !connection.Published || connection.Port <= 0 {
+		return nil, database, fmt.Errorf("%w: branch endpoint is not published", ErrPrimaryEndpointUnavailable)
+	}
+
+	if strings.TrimSpace(connection.Password) == "" || strings.TrimSpace(connection.User) == "" || strings.TrimSpace(connection.Database) == "" {
+		return nil, database, fmt.Errorf("%w: branch endpoint credentials are incomplete", ErrPrimaryEndpointUnavailable)
 	}
 
 	host := strings.TrimSpace(connection.Host)
@@ -361,7 +361,7 @@ func (e *branchEndpointSQLQueryExecutor) connect(ctx context.Context, branchName
 
 	config, err := parseSQLConnectionConfig(connection, host, database)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: parse branch endpoint connection: %v", ErrPrimaryEndpointUnavailable, err)
+		return nil, database, fmt.Errorf("%w: parse branch endpoint connection: %v", ErrPrimaryEndpointUnavailable, err)
 	}
 
 	config.ConnectTimeout = e.connectTimeout
@@ -373,7 +373,7 @@ func (e *branchEndpointSQLQueryExecutor) connect(ctx context.Context, branchName
 
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
-		return nil, "", classifySQLConnectError(err)
+		return nil, database, classifySQLConnectError(err)
 	}
 	return conn, database, nil
 }
@@ -446,8 +446,9 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 	}
 
 	conn, database, err := e.connect(ctx, branchName, database)
+	attempt := sqlExecutionResult{Branch: branchName, Database: database, ReadOnly: readOnly}
 	if err != nil {
-		return sqlExecutionResult{}, err
+		return attempt, err
 	}
 	defer closeSQLConnection(conn)
 
@@ -458,9 +459,13 @@ func (e *branchEndpointSQLQueryExecutor) Execute(ctx context.Context, branchName
 
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: accessMode})
 	if err != nil {
-		return sqlExecutionResult{}, mapSQLExecutionError(err)
+		return attempt, mapSQLExecutionError(err)
 	}
-	return e.executeTransaction(ctx, tx, branchName, database, query, readOnly)
+	result, err := e.executeTransaction(ctx, tx, branchName, database, query, readOnly)
+	if err != nil {
+		return attempt, err
+	}
+	return result, nil
 }
 
 func (e *branchEndpointSQLQueryExecutor) executeTransaction(ctx context.Context, tx sqlExecutionTransaction, branchName string, database string, query string, readOnly bool) (sqlExecutionResult, error) {

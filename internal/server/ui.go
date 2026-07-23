@@ -736,6 +736,12 @@ const consoleHTML = `<!doctype html>
       font-size: 0.8rem;
     }
 
+    .sql-library-scope {
+      width: 100%;
+      flex: none;
+      font-size: 0.82rem;
+    }
+
     .sql-tabstrip {
       display: inline-flex;
       border: 1px solid var(--line);
@@ -781,7 +787,6 @@ const consoleHTML = `<!doctype html>
       padding: 9px;
       display: grid;
       gap: 4px;
-      cursor: pointer;
       transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
     }
 
@@ -800,6 +805,29 @@ const consoleHTML = `<!doctype html>
       font-size: 0.78rem;
     }
 
+    .sql-history-open {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      text-align: left;
+      display: grid;
+      gap: 4px;
+      font-weight: inherit;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .sql-history-actions {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .sql-history-actions button {
+      padding: 5px 7px;
+      font-size: 0.75rem;
+    }
+
     .sql-workspace {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -813,7 +841,7 @@ const consoleHTML = `<!doctype html>
       padding: 10px;
       display: grid;
       gap: 8px;
-      grid-template-columns: 1.2fr auto minmax(150px, 210px) auto;
+      grid-template-columns: 1.2fr auto auto minmax(150px, 210px) auto;
       align-items: center;
     }
 
@@ -1453,6 +1481,10 @@ const consoleHTML = `<!doctype html>
               <button class="active" data-action="sql-tab" data-sql-tab="saved">Saved</button>
               <button data-action="sql-tab" data-sql-tab="history">History</button>
             </div>
+            <select class="sql-library-scope" data-role="sql-library-scope" aria-label="SQL library scope">
+              <option value="context">Current database</option>
+              <option value="project">Entire project</option>
+            </select>
             <ul class="sql-history" data-role="sql-history-list"></ul>
           </aside>
 
@@ -1460,6 +1492,7 @@ const consoleHTML = `<!doctype html>
             <div class="sql-toolbar">
               <input data-role="sql-query-title" value="Untitled" aria-label="Query title">
               <button class="btn-ghost" data-action="save-sql">Save</button>
+              <button class="btn-ghost" data-action="save-sql-as-new">Save as new</button>
               <select class="sql-database-select" data-role="sql-database-select" aria-label="Database" disabled>
                 <option value="">Select a branch first</option>
               </select>
@@ -1551,16 +1584,13 @@ const consoleHTML = `<!doctype html>
       databasesByBranch: {},
       selectedDatabaseByBranch: {},
       sqlTab: 'saved',
-      sqlHistory: [
-        {
-          id: 'seed-1',
-          title: 'show branch tables',
-          query: 'SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN (\'pg_catalog\', \'information_schema\') ORDER BY 1,2;',
-          saved: true,
-          branch: 'main',
-          timestamp: 'sample',
-        },
-      ],
+      savedQueries: [],
+      sqlHistory: [],
+      sqlLibraryScope: 'context',
+      sqlLibraryRequestEpoch: 0,
+      sqlEditorActionEpoch: 0,
+      sqlSaveInFlight: false,
+      activeSavedQueryID: null,
       branchFilter: '',
       currentPage: 'dashboard',
       restoredBranch: null,
@@ -1600,6 +1630,7 @@ const consoleHTML = `<!doctype html>
       sqlEditorBranchLabel: document.querySelector('[data-role="sql-editor-branch-label"]'),
       sqlEditorBranchPill: document.querySelector('[data-role="sql-editor-branch-pill"]'),
       sqlDatabaseSelect: document.querySelector('[data-role="sql-database-select"]'),
+      sqlLibraryScope: document.querySelector('[data-role="sql-library-scope"]'),
       sqlHistoryList: document.querySelector('[data-role="sql-history-list"]'),
       sqlQueryTitle: document.querySelector('[data-role="sql-query-title"]'),
       sqlEditorInput: document.querySelector('[data-role="sql-editor-input"]'),
@@ -1952,6 +1983,7 @@ const consoleHTML = `<!doctype html>
     function normalizeSelectedBranch() {
       if (!state.branches.length) {
         state.selectedBranch = '';
+        invalidateSQLSavedQueryContext();
         return;
       }
 
@@ -1961,10 +1993,12 @@ const consoleHTML = `<!doctype html>
 
       if (branchByName('main')) {
         state.selectedBranch = 'main';
+        invalidateSQLSavedQueryContext();
         return;
       }
 
       state.selectedBranch = state.branches[0].name;
+      invalidateSQLSavedQueryContext();
     }
 
     function formatBytes(bytes) {
@@ -2335,10 +2369,6 @@ const consoleHTML = `<!doctype html>
     }
 
     function formatSQLHistoryTime(value) {
-      if (value === 'sample') {
-        return 'sample';
-      }
-
       const parsed = new Date(value);
       if (Number.isNaN(parsed.getTime())) {
         return value;
@@ -2353,24 +2383,11 @@ const consoleHTML = `<!doctype html>
     }
 
     function renderSQLHistory() {
-      const selectedBranch = state.selectedBranch || 'main';
-      const entries = state.sqlHistory.filter((item) => {
-        if (state.sqlTab === 'saved' && !item.saved) {
-          return false;
-        }
-        if (state.sqlTab === 'history' && item.saved) {
-          return false;
-        }
-
-        if (item.branch === selectedBranch) {
-          return true;
-        }
-
-        return item.branch === 'main' && selectedBranch === 'main';
-      });
+      const entries = state.sqlTab === 'saved' ? state.savedQueries : state.sqlHistory;
 
       if (!entries.length) {
-        refs.sqlHistoryList.innerHTML = '<li class="sql-history-item"><strong>No ' + escapeHTML(state.sqlTab) + ' queries for this branch yet.</strong><small>Run or save a query to populate this list.</small></li>';
+        const scope = state.sqlLibraryScope === 'project' ? 'this project' : 'this database';
+        refs.sqlHistoryList.innerHTML = '<li class="sql-history-item"><strong>No ' + escapeHTML(state.sqlTab) + ' queries for ' + escapeHTML(scope) + ' yet.</strong><small>Run or save a query to populate this list.</small></li>';
         return;
       }
 
@@ -2379,12 +2396,74 @@ const consoleHTML = `<!doctype html>
         .map((entry) => {
           const statusSuffix = entry.status ? (' · ' + entry.status) : '';
           const databaseSuffix = entry.database ? (' · ' + entry.database) : '';
-          return '<li class="sql-history-item" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '" role="button" tabindex="0">'
-            + '<strong>' + escapeHTML(entry.title) + '</strong>'
-            + '<small>' + escapeHTML((entry.branch || selectedBranch) + databaseSuffix + ' · ' + formatSQLHistoryTime(entry.timestamp) + statusSuffix) + '</small>'
+          const title = entry.name || entry.title || entry.command_tag || 'Untitled query';
+          const timestamp = entry.updated_at || entry.executed_at;
+          const openButton = '<button class="sql-history-open" data-action="open-sql-history" data-sql-id="' + escapeHTML(entry.id) + '">'
+            + '<strong>' + escapeHTML(title) + '</strong>'
+            + '<small>' + escapeHTML(entry.branch + databaseSuffix + ' · ' + formatSQLHistoryTime(timestamp) + statusSuffix) + '</small>'
+            + '</button>';
+          if (state.sqlTab !== 'saved') {
+            return '<li class="sql-history-item">' + openButton + '</li>';
+          }
+          return '<li class="sql-history-item">'
+            + openButton
+            + '<div class="sql-history-actions">'
+            + '<button class="btn-ghost" data-action="rename-saved-sql" data-sql-id="' + escapeHTML(entry.id) + '">Rename</button>'
+            + '<button class="btn-danger" data-action="delete-saved-sql" data-sql-id="' + escapeHTML(entry.id) + '">Delete</button>'
+            + '</div>'
             + '</li>';
         })
         .join('');
+    }
+
+    function sqlLibraryListPath(path, scope, branchName, database) {
+      const params = new URLSearchParams();
+      params.set('limit', '100');
+      if (scope !== 'project') {
+        if (branchName) {
+          params.set('branch', branchName);
+        }
+        if (database) {
+          params.set('database', database);
+        }
+      }
+      return path + '?' + params.toString();
+    }
+
+    async function loadSQLLibrary(silent) {
+      const requestEpoch = state.sqlLibraryRequestEpoch + 1;
+      state.sqlLibraryRequestEpoch = requestEpoch;
+      const scope = state.sqlLibraryScope;
+      const branchName = state.selectedBranch;
+      const database = branchName ? selectedSQLDatabase(branchName) : '';
+      if (!silent) {
+        refs.sqlHistoryList.innerHTML = '<li class="sql-history-item"><strong>Loading query library...</strong></li>';
+      }
+      try {
+        const responses = await Promise.all([
+          api('GET', sqlLibraryListPath('/api/v1/sql/saved-queries', scope, branchName, database)),
+          api('GET', sqlLibraryListPath('/api/v1/sql/history', scope, branchName, database)),
+        ]);
+        if (state.sqlLibraryRequestEpoch !== requestEpoch || state.sqlLibraryScope !== scope) {
+          return;
+        }
+        if (scope !== 'project' && (state.selectedBranch !== branchName || selectedSQLDatabase(branchName) !== database)) {
+          return;
+        }
+        state.savedQueries = responses[0].queries || [];
+        state.sqlHistory = responses[1].history || [];
+        renderSQLHistory();
+      } catch (err) {
+        if (state.sqlLibraryRequestEpoch !== requestEpoch) {
+          return;
+        }
+        state.savedQueries = [];
+        state.sqlHistory = [];
+        renderSQLHistory();
+        if (!silent) {
+          showMessage('SQL library failed to load: ' + err.message, 'err');
+        }
+      }
     }
 
     function applySQLModeVisualState() {
@@ -2448,6 +2527,11 @@ const consoleHTML = `<!doctype html>
       refs.sqlAllowWrites.checked = false;
       refs.sqlConfirmProtectedWrites.checked = false;
       applySQLModeVisualState();
+    }
+
+    function invalidateSQLSavedQueryContext() {
+      state.sqlEditorActionEpoch += 1;
+      state.activeSavedQueryID = null;
     }
 
     function setSQLTab(tabName) {
@@ -2526,18 +2610,93 @@ const consoleHTML = `<!doctype html>
       applySQLModeVisualState();
     }
 
-    function appendSQLHistoryEntry(title, query, branchName, database, saved, status) {
-      state.sqlHistory.unshift({
-        id: (saved ? 'saved-' : 'run-') + Date.now() + '-' + Math.floor(Math.random() * 1000),
-        title,
-        query,
-        saved,
-        branch: branchName,
-        database,
-        status,
-        timestamp: new Date().toISOString(),
+    async function persistSQLQuery(asNew) {
+      if (state.sqlSaveInFlight) {
+        return;
+      }
+      state.sqlSaveInFlight = true;
+      document.querySelectorAll('[data-action="save-sql"], [data-action="save-sql-as-new"]').forEach((button) => {
+        button.disabled = true;
       });
-      renderSQLHistory();
+      const actionEpoch = state.sqlEditorActionEpoch + 1;
+      state.sqlEditorActionEpoch = actionEpoch;
+      try {
+        const selectedBranch = branchByName(state.selectedBranch);
+        const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
+        const query = refs.sqlEditorInput.value;
+        const database = selectedBranch ? selectedSQLDatabase(selectedBranch.name) : '';
+        if (!selectedBranch || !database) {
+          throw new Error('select a branch and database before saving');
+        }
+        if (!query.trim()) {
+          throw new Error('query is empty');
+        }
+
+        let response;
+        if (!asNew && state.activeSavedQueryID !== null) {
+          response = await api('PATCH', '/api/v1/sql/saved-queries/' + encodeURIComponent(state.activeSavedQueryID), {
+            name: title,
+            sql: query,
+          });
+        } else {
+          response = await api('POST', '/api/v1/sql/saved-queries', {
+            name: title,
+            sql: query,
+            branch: selectedBranch.name,
+            database,
+          });
+        }
+        if (state.sqlEditorActionEpoch !== actionEpoch || state.selectedBranch !== selectedBranch.name || selectedSQLDatabase(selectedBranch.name) !== database) {
+          return;
+        }
+        state.activeSavedQueryID = response.query ? response.query.id : state.activeSavedQueryID;
+        setSQLTab('saved');
+        await loadSQLLibrary(true);
+        showMessage('Query saved to controller storage for ' + selectedBranch.name + ' · ' + database + '.', 'ok');
+      } finally {
+        state.sqlSaveInFlight = false;
+        document.querySelectorAll('[data-action="save-sql"], [data-action="save-sql-as-new"]').forEach((button) => {
+          button.disabled = false;
+        });
+      }
+    }
+
+    async function openSQLLibraryEntry(entry, saved) {
+      const actionEpoch = state.sqlEditorActionEpoch + 1;
+      state.sqlEditorActionEpoch = actionEpoch;
+      state.activeSavedQueryID = null;
+      if (!branchByName(entry.branch)) {
+        throw new Error('query branch ' + entry.branch + ' is not available');
+      }
+      if (state.selectedBranch !== entry.branch) {
+        state.selectedBranch = entry.branch;
+        clearSQLWriteMode();
+        renderBranchSelectors();
+        renderBranches();
+        await refreshSelectedBranchConnection(false);
+        if (state.sqlEditorActionEpoch !== actionEpoch || state.selectedBranch !== entry.branch) {
+          return;
+        }
+      }
+      await refreshSelectedBranchDatabases(false);
+      if (state.sqlEditorActionEpoch !== actionEpoch || state.selectedBranch !== entry.branch) {
+        return;
+      }
+      const databaseEntry = state.databasesByBranch[entry.branch];
+      if (!databaseEntry || !databaseEntry.names.includes(entry.database)) {
+        throw new Error('query database ' + entry.database + ' is not available on ' + entry.branch);
+      }
+      state.selectedDatabaseByBranch[entry.branch] = entry.database;
+      databaseEntry.selectionRequired = false;
+      clearSQLWriteMode();
+      renderSQLEditorContext();
+      refs.sqlQueryTitle.value = entry.name || entry.title || entry.command_tag || 'Untitled query';
+      refs.sqlEditorInput.value = entry.sql;
+      state.activeSavedQueryID = saved ? entry.id : null;
+      renderSQLEditorLineNumbers();
+      setPage('sql-editor');
+      await loadSQLLibrary(true);
+      showMessage('Loaded query from ' + (saved ? 'saved' : 'history') + ' list.', 'ok');
     }
 
     function formatSQLResultCell(value) {
@@ -2769,6 +2928,7 @@ const consoleHTML = `<!doctype html>
         }
         if (state.currentPage === 'sql-editor') {
           await refreshSelectedBranchDatabases(true);
+          await loadSQLLibrary(true);
         }
         if (state.refreshEpoch !== refreshEpoch) {
           return;
@@ -2910,6 +3070,7 @@ const consoleHTML = `<!doctype html>
           setPage(pageName);
           if (pageName === 'sql-editor') {
             await refreshSelectedBranchDatabases(false);
+            await loadSQLLibrary(false);
           }
           return;
         }
@@ -2948,6 +3109,7 @@ const consoleHTML = `<!doctype html>
             throw new Error('restored branch is not available');
           }
           state.selectedBranch = branch;
+          invalidateSQLSavedQueryContext();
           clearSQLWriteMode();
           renderBranchSelectors();
           renderBranches();
@@ -2963,32 +3125,61 @@ const consoleHTML = `<!doctype html>
 
         if (action === 'open-sql-history') {
           const sqlID = actionTarget.getAttribute('data-sql-id');
-          const entry = state.sqlHistory.find((item) => item.id === sqlID);
+          const saved = state.sqlTab === 'saved';
+          const entries = saved ? state.savedQueries : state.sqlHistory;
+          const entry = entries.find((item) => String(item.id) === sqlID);
           if (!entry) {
             return;
           }
-
-          refs.sqlQueryTitle.value = entry.title;
-          refs.sqlEditorInput.value = entry.query;
-          if (entry.database) {
-            state.selectedDatabaseByBranch[state.selectedBranch || 'main'] = entry.database;
-            clearSQLWriteMode();
-            renderSQLEditorContext();
-          }
-          renderSQLEditorLineNumbers();
-          setPage('sql-editor');
-          showMessage('Loaded query from ' + state.sqlTab + ' list.', 'ok');
+          await openSQLLibraryEntry(entry, saved);
           return;
         }
 
         if (action === 'save-sql') {
-          const title = refs.sqlQueryTitle.value.trim() || 'Untitled query';
-          const query = refs.sqlEditorInput.value;
-          const branchName = state.selectedBranch || 'main';
-          const database = selectedSQLDatabase(branchName);
-          appendSQLHistoryEntry(title, query, branchName, database, true, 'saved');
-          setSQLTab('saved');
-          showMessage('Query saved locally for ' + branchName + '.', 'ok');
+          await persistSQLQuery(false);
+          return;
+        }
+
+        if (action === 'save-sql-as-new') {
+          await persistSQLQuery(true);
+          return;
+        }
+
+        if (action === 'rename-saved-sql') {
+          const sqlID = actionTarget.getAttribute('data-sql-id');
+          const entry = state.savedQueries.find((item) => String(item.id) === sqlID);
+          if (!entry) {
+            return;
+          }
+          const requestedName = prompt('Rename saved query', entry.name);
+          if (requestedName === null) {
+            return;
+          }
+          const name = requestedName.trim();
+          if (!name) {
+            throw new Error('saved query name cannot be empty');
+          }
+          await api('PATCH', '/api/v1/sql/saved-queries/' + encodeURIComponent(sqlID), { name });
+          if (String(state.activeSavedQueryID) === sqlID) {
+            refs.sqlQueryTitle.value = name;
+          }
+          await loadSQLLibrary(true);
+          showMessage('Saved query renamed.', 'ok');
+          return;
+        }
+
+        if (action === 'delete-saved-sql') {
+          const sqlID = actionTarget.getAttribute('data-sql-id');
+          const entry = state.savedQueries.find((item) => String(item.id) === sqlID);
+          if (!entry || !confirm('Delete saved query ' + entry.name + '?')) {
+            return;
+          }
+          await api('DELETE', '/api/v1/sql/saved-queries/' + encodeURIComponent(sqlID));
+          if (String(state.activeSavedQueryID) === sqlID) {
+            state.activeSavedQueryID = null;
+          }
+          await loadSQLLibrary(true);
+          showMessage('Saved query deleted.', 'ok');
           return;
         }
 
@@ -3026,6 +3217,7 @@ const consoleHTML = `<!doctype html>
 
           try {
             const response = await api('POST', '/api/v1/branches/' + encodeURIComponent(branchName) + '/sql/execute', {
+              title: title,
               sql: query,
               database: selectedDatabase,
               allow_writes: allowWrites,
@@ -3033,17 +3225,15 @@ const consoleHTML = `<!doctype html>
             });
             const result = response.result || {};
             renderSQLResultSuccess(result);
-            appendSQLHistoryEntry(title, query, branchName, selectedDatabase, false, 'ok');
             const modeLabel = result.read_only ? 'read-only' : 'write-enabled';
             refs.sqlEditorStatus.textContent = 'Last run: ' + (result.command_tag || 'QUERY') + ' · ' + String(result.duration_ms || 0) + ' ms · ' + modeLabel;
             showMessage('Query executed on ' + branchName + ' · ' + selectedDatabase + '.', 'ok');
           } catch (runErr) {
             renderSQLResultError(runErr.message || 'sql execution failed');
-            appendSQLHistoryEntry(title, query, branchName, selectedDatabase, false, 'error');
             refs.sqlEditorStatus.textContent = 'Execution failed';
             showMessage('SQL execution failed: ' + runErr.message, 'err');
           } finally {
-            renderSQLHistory();
+            await loadSQLLibrary(true);
             renderSQLEditorContext();
           }
           return;
@@ -3052,6 +3242,7 @@ const consoleHTML = `<!doctype html>
         if (action === 'copy-branch-dsn') {
           if (branch && branch !== state.selectedBranch) {
             state.selectedBranch = branch;
+            invalidateSQLSavedQueryContext();
             clearSQLWriteMode();
             renderBranchSelectors();
             await refreshSelectedBranchConnection(true);
@@ -3123,8 +3314,9 @@ const consoleHTML = `<!doctype html>
 
     async function onSidebarBranchSelectChange(event) {
       state.selectedBranch = event.target.value.trim();
+      invalidateSQLSavedQueryContext();
+      state.sqlLibraryRequestEpoch += 1;
       clearSQLWriteMode();
-      renderSQLHistory();
       setPage('branch-overview');
       renderBranches();
       await refreshSelectedBranchConnection(false);
@@ -3170,15 +3362,21 @@ const consoleHTML = `<!doctype html>
       renderSQLEditorContext();
     });
     refs.sqlConfirmProtectedWrites.addEventListener('change', renderSQLEditorContext);
-    refs.sqlDatabaseSelect.addEventListener('change', function onSQLDatabaseSelectChange(event) {
+    refs.sqlDatabaseSelect.addEventListener('change', async function onSQLDatabaseSelectChange(event) {
       const branchName = state.selectedBranch || 'main';
       state.selectedDatabaseByBranch[branchName] = event.target.value;
+      invalidateSQLSavedQueryContext();
       const entry = state.databasesByBranch[branchName];
       if (entry) {
         entry.selectionRequired = false;
       }
       clearSQLWriteMode();
       renderSQLEditorContext();
+      await loadSQLLibrary(false);
+    });
+    refs.sqlLibraryScope.addEventListener('change', async function onSQLLibraryScopeChange(event) {
+      state.sqlLibraryScope = event.target.value === 'project' ? 'project' : 'context';
+      await loadSQLLibrary(false);
     });
     refs.sqlEditorInput.addEventListener('input', renderSQLEditorLineNumbers);
     refs.sqlEditorInput.addEventListener('scroll', function onSQLEditorScroll() {
